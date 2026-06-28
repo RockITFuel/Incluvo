@@ -1,0 +1,34 @@
+{
+	"name": "@incluvo/server",
+	"version": "1.0.0",
+	"type": "module",
+	"scripts": {
+		"dev": "PORT=3210 BETTER_AUTH_URL=http://localhost:3200 bun --env-file=../../.env --watch src/index.ts",
+		"build": "bun build src/index.ts --outdir dist --target bun",
+		"seed:demo": "BETTER_AUTH_URL=http://localhost:3200 bun --env-file=../../.env src/seed-demo.ts",
+		"seed:coachplan": "BETTER_AUTH_URL=http://localhost:3200 bun --env-file=../../.env src/seed-coachplan.ts",
+		"seed:courses": "BETTER_AUTH_URL=http://localhost:3200 bun --env-file=../../.env src/seed-courses.ts",
+		"check-types": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@incluvo/drizzle": "workspace:*",
+		"@incluvo/permissions": "workspace:*",
+		"@orpc/client": "^1.13.5",
+		"@orpc/openapi": "^1.13.5",
+		"@orpc/server": "^1.13.5",
+		"@orpc/zod": "^1.13.5",
+		"@t3-oss/env-core": "^0.13.10",
+		"better-auth": "1.4.18",
+		"drizzle-orm": "^0.44.2",
+		"nodemailer": "^8.0.4",
+		"openai": "^6.0.0",
+		"playwright": "^1.57.0",
+		"zod": "^4.3.6"
+	},
+	"devDependencies": {
+		"@types/bun": "latest",
+		"@types/node": "^22.15.0",
+		"@types/nodemailer": "^7.0.11",
+		"typescript": "catalog:"
+	}
+}

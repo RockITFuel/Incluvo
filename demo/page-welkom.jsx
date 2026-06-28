@@ -3,6 +3,9 @@ const { useState: uS } = React;
 
 function Welkom() {
   const [mood, setMood] = uS(2);
+  // Successen kan confronterend zijn als een leerling weinig succes ervaart —
+  // daarom uitschakelbaar (feedback Mark Timmermans 12-06-2026).
+  const [showSuccess, setShowSuccess] = uS(true);
   const moods = [
     { e: '😞', label: 'Niet zo' },
     { e: '😕', label: 'Matig' },
@@ -41,32 +44,25 @@ function Welkom() {
             </div>
             {mood >= 0 && (
               <div style={{marginTop:16, padding:'12px 14px', background:'var(--primary-50)', borderRadius:12, fontSize:13, color:'var(--primary-700)'}}>
-                Fijn dat je dit deelt. Je hebt 4 taken voor vandaag — zullen we beginnen met de makkelijkste?
+                Fijn dat je dit deelt. Je hebt 4 taken voor vandaag — zullen we beginnen met de eerste?
               </div>
             )}
           </div>
 
+          {/* Versimpeld: alleen het aantal taken + doorklik, niet de hele lijst
+              (feedback Mark Timmermans 12-06-2026). De volledige takenlijst staat
+              op de pagina 'Mijn taken'. */}
           <div className="card">
             <div className="card-head">
-              <div><h3>Vandaag</h3><div className="card-sub">4 taken · 1 deadline</div></div>
-              <button className="btn subtle sm" onClick={()=>setPage('taken')}>Alle taken <Icon name="arrow-right" size={14}/></button>
+              <div><h3>Vandaag</h3><div className="card-sub">Een rustig overzicht — je taken staan op één plek</div></div>
             </div>
-            <div className="col" style={{gap:8}}>
-              <TaskRow done title="Lezen § 4.2 — Aardrijkskunde" sub="Cursus · ±15 min" tag="Cursus"/>
-              <TaskRow title="Inleveren: opdracht 'Mijn buurt'" sub="Vandaag 16:00 · met bestand" tag="Opdracht" urgent/>
-              <TaskRow title="Reageer in forum 'Discussie 1'" sub="Cursus · ±10 min" tag="Forum"/>
-              <TaskRow title="Coachplan invullen — vraag 4 t/m 8" sub="Met Mira besproken · ±10 min" tag="Plan"/>
-            </div>
-          </div>
-
-          <div className="card">
-            <div className="card-head">
-              <div><h3>Aanbevolen voor jou</h3><div className="card-sub">Op basis van jouw leervoorkeuren · video, korte stappen</div></div>
-            </div>
-            <div className="grid" style={{gridTemplateColumns:'repeat(3, 1fr)', gap:12}}>
-              <RecCard tag="Video" title="Hoe schrijf je een goede inleiding?" meta="6 min · Nederlands" tone="primary"/>
-              <RecCard tag="Stap-voor-stap" title="Breuken bij elkaar optellen" meta="8 stappen · Wiskunde" tone="accent"/>
-              <RecCard tag="Podcast" title="De Tweede Wereldoorlog uitgelegd" meta="22 min · Geschiedenis" tone="warning"/>
+            <div className="row" style={{gap:16, alignItems:'center'}}>
+              <div style={{fontSize:40, fontWeight:600, color:'var(--primary-700)', lineHeight:1}}>4</div>
+              <div className="grow">
+                <div style={{fontWeight:500, fontSize:15}}>taken voor vandaag</div>
+                <div style={{fontSize:13, color:'var(--muted)'}}>1 met een deadline</div>
+              </div>
+              <button className="btn subtle" onClick={()=>setPage('taken')}>Naar alle taken <Icon name="arrow-right" size={14}/></button>
             </div>
           </div>
         </div>
@@ -82,23 +78,29 @@ function Welkom() {
             </div>
           </div>
 
+          {/* Uitschakelbaar: voor een leerling die het lastig heeft kan een lijst
+              successen confronterend zijn (feedback Mark Timmermans 12-06-2026). */}
           <div className="card">
-            <div className="card-head"><h3>Successen</h3><span className="chip success">+3 deze week</span></div>
-            <div className="col" style={{gap:10}}>
-              <Success icon="check" title="Cursus 'Tekst structureren' afgerond" when="Maandag"/>
-              <Success icon="star" title="Eerste opdracht ingeleverd" when="Dinsdag" tone="accent"/>
-              <Success icon="flame" title="4 dagen op rij ingelogd" when="Vandaag" tone="warning"/>
+            <div className="card-head">
+              <h3>Successen</h3>
+              <div className="row" style={{gap:8}}>
+                {showSuccess && <span className="chip success">+3 deze week</span>}
+                <button
+                  className="btn ghost sm"
+                  aria-pressed={!showSuccess}
+                  onClick={()=>setShowSuccess(!showSuccess)}
+                >{showSuccess ? 'Verbergen' : 'Tonen'}</button>
+              </div>
             </div>
-          </div>
-
-          <div className="card">
-            <div className="card-head"><h3>Snelkoppelingen</h3></div>
-            <div className="grid" style={{gridTemplateColumns:'1fr 1fr', gap:8}}>
-              <QuickLink icon="plan" label="Coachplan" onClick={()=>setPage('coachplan')}/>
-              <QuickLink icon="course" label="Cursussen" onClick={()=>setPage('cursussen')}/>
-              <QuickLink icon="chat" label="Chat met Mira" onClick={()=>setPage('chat')}/>
-              <QuickLink icon="lightbulb" label="Eigen idee"/>
-            </div>
+            {showSuccess ? (
+              <div className="col" style={{gap:10}}>
+                <Success icon="check" title="Cursus 'Tekst structureren' afgerond" when="Maandag"/>
+                <Success icon="star" title="Eerste opdracht ingeleverd" when="Dinsdag" tone="accent"/>
+                <Success icon="flame" title="4 dagen op rij ingelogd" when="Vandaag" tone="warning"/>
+              </div>
+            ) : (
+              <div style={{fontSize:13, color:'var(--muted)'}}>Successen staan even uit.</div>
+            )}
           </div>
 
           <div className="card">

@@ -1,0 +1,634 @@
+{
+  "source": "Backlog Incluvo.xlsx (Mark Timmermans, 2026-04-24)",
+  "prototype": "https://g0x45795pgfaglr7yx3q.share.dreamflow.app/#/student/welkom",
+  "componenten": [
+    "Algemeen",
+    "Chat",
+    "Coachplan",
+    "Takenlijst",
+    "Online cursus",
+    "Dashboard coach"
+  ],
+  "gebruikers": [
+    "Alle gebruikers",
+    "Leerling",
+    "Coach/docent",
+    "Superadmin",
+    "Keyuser",
+    "Leerling/coach",
+    "Ontwikkelaar"
+  ],
+  "item_count": 61,
+  "items": [
+    {
+      "id": "1",
+      "titel": "Voldoen aan de WCAG normen",
+      "component": "Algemeen",
+      "omschrijving": "WCAG zijn richtlijnen die digitale content toegankelijk maken voor iedereen, ook voor mensen met een beperking.",
+      "eis_of_wens": "Eis",
+      "gebruiker": "Alle gebruikers",
+      "acceptatiecriteria": "Niveau AA",
+      "opmerkingen": "Waar mogelijk! \n\nEventueel vertaaloptie met behulp van AI zou ook mooi zijn voor leerlingen (en ouders) die nog niet goed Nederlands spreken.\nZie ook dropdownmenu prototype zoals contrast, lettertype etc."
+    },
+    {
+      "id": "2",
+      "titel": "Gehost bij voorkeur in Nederland, anders in Europa",
+      "component": "Algemeen",
+      "omschrijving": "Digitale soevereiniteit is een hot item binnen het onderwijs en tevens een verkoopargument",
+      "eis_of_wens": "Eis",
+      "gebruiker": "Alle gebruikers",
+      "acceptatiecriteria": null,
+      "opmerkingen": null
+    },
+    {
+      "id": "3",
+      "titel": "Notificaties",
+      "component": "Algemeen",
+      "omschrijving": "De leerling en coach krijgt notificaties vanuit de leeromgeving",
+      "eis_of_wens": "Eis",
+      "gebruiker": "Leerling/coach",
+      "acceptatiecriteria": "Minimaal bij verzenden en ontvangen van coachplan, taken voor vandaag, nieuwe taken, activiteiten binnen de leeromgeving.",
+      "opmerkingen": "Zie prototype"
+    },
+    {
+      "id": "4",
+      "titel": "Leerling vriendelijke landingspagina",
+      "component": "Algemeen",
+      "omschrijving": "Welkom en foto\nHoe zit jer erbij vandaag (smileys) (kan door coach/leerling worden uitgezet)\nJouw succcessen\nSociaal (chats)\nSnelkoppelingen",
+      "eis_of_wens": "Eis",
+      "gebruiker": "Leerling",
+      "acceptatiecriteria": "Zie omschrijving",
+      "opmerkingen": "Zie prototype"
+    },
+    {
+      "id": "5",
+      "titel": "Chat coach/leerling",
+      "component": "Chat",
+      "omschrijving": "Het chatgesprek tussen leerling en coach. Notificatie bij aparte chaticon",
+      "eis_of_wens": "Eis",
+      "gebruiker": "Leerling/coach",
+      "acceptatiecriteria": "Werkende chatfunctionaliteit",
+      "opmerkingen": "Zie prototype"
+    },
+    {
+      "id": "6",
+      "titel": "Groepschat, coach supervisor",
+      "component": "Chat",
+      "omschrijving": "Dit betreft de chat/forum die gestart is binnen een cursus als opdracht met andere leerlingen. Coach van de leerling kan altijd meekijken",
+      "eis_of_wens": "Eis",
+      "gebruiker": "Leerling/coach",
+      "acceptatiecriteria": "Werkende chatfunctionaliteit",
+      "opmerkingen": "Zie prototype"
+    },
+    {
+      "id": "7",
+      "titel": "Chat coach/leerling",
+      "component": "Chat",
+      "omschrijving": "Mogelijkheid om een coachtaak (niet aan een cursus gerelateerd) te maken vanuit chatvenster",
+      "eis_of_wens": "Wens",
+      "gebruiker": "Coach/docent",
+      "acceptatiecriteria": "Taak aanmaken binnen chatfunctionaliteit. Deze taak komt ook in de takenlijst.",
+      "opmerkingen": "Link naar de taak komt ook in de berichtenoverzicht van de chat en is aanklikbaar om naar de details van de taak te gaan."
+    },
+    {
+      "id": "8",
+      "titel": "Formulieren templates",
+      "component": "Coachplan",
+      "omschrijving": "Mogelijkheid om meerdere formulierentemplates te maken en te kopiëren naar de omgeving van een klant zodat ze die kunnen aanpassen voor hun doelgroep.",
+      "eis_of_wens": "Eis",
+      "gebruiker": "Superadmin",
+      "acceptatiecriteria": "Er is een formulierenmanager beschikbaar.",
+      "opmerkingen": "Let op: enkele vraagtypes die nodig zijn als trigger naar de leeromgeving komt terug in alle formulieren. Elk formulier heeft een leerling gedeelte en coachgedeelte"
+    },
+    {
+      "id": "9",
+      "titel": "Formulieren templates gebruiken",
+      "component": "Coachplan",
+      "omschrijving": "Een keyuser van een klant kan formulieren templates gebruiken, aanpassen of een volledig nieuwe samenstellen",
+      "eis_of_wens": "Eis",
+      "gebruiker": "Keyuser",
+      "acceptatiecriteria": "Er is een formulierenmanager beschikbaar op klantniveau.",
+      "opmerkingen": "Let op: enkele vraagtypes die nodig zijn als trigger naar de leeromgeving komt terug in alle formulieren. Elk formulier heeft een leerling gedeelte en coachgedeelte"
+    },
+    {
+      "id": "10",
+      "titel": "Formulier koppelen aan leerlingen",
+      "component": "Coachplan",
+      "omschrijving": "Een klant kan aangeven welk formulier standaard gebruikt wordt binnen zijn school en kan per leerling een ander formulier koppelen.",
+      "eis_of_wens": "Eis",
+      "gebruiker": "Keyuser",
+      "acceptatiecriteria": "Standaard formulier aangeven op klantniveau en deze aanpassen.",
+      "opmerkingen": null
+    },
+    {
+      "id": "11",
+      "titel": "Vragen voor leerling",
+      "component": "Coachplan",
+      "omschrijving": "Er zijn diverse vragen die een leerling mag/kan invullen. Op basis van een wizard. De vragen worden tussentijds opgeslagen. Aan het eind van de vragenlijst kan de leerling de antwoorden sturen naar de coach",
+      "eis_of_wens": "Eis",
+      "gebruiker": "Leerling",
+      "acceptatiecriteria": "Invullen formuliervelden",
+      "opmerkingen": "Zie prototype"
+    },
+    {
+      "id": "12",
+      "titel": "Keuze: bespreken met coach",
+      "component": "Coachplan",
+      "omschrijving": "Een leerling kan aangeven of hij een vraag specifiek wilt bespreken met de coach. Dit wordt benadrukt in de inzending.",
+      "eis_of_wens": "Eis",
+      "gebruiker": "Leerling",
+      "acceptatiecriteria": "Optie bij het invullen van de vragenlijst",
+      "opmerkingen": "Zie prototype"
+    },
+    {
+      "id": "13",
+      "titel": "Keuze: bewust vraag overslaan",
+      "component": "Coachplan",
+      "omschrijving": "Een leerling kan aangeven of dat hij een vraag wilt overslaan. Dit wordt benadrukt in de inzending.",
+      "eis_of_wens": "Eis",
+      "gebruiker": "Leerling",
+      "acceptatiecriteria": "Optie bij het invullen van de vragenlijst. Na aanklikken gaat de leerling naar de volgende vraag.",
+      "opmerkingen": "Zie prototype"
+    },
+    {
+      "id": "14",
+      "titel": "Overzicht antwoorden",
+      "component": "Coachplan",
+      "omschrijving": "De leerling krijgt een mooi overzicht van zijn antwoorden en de mogelijkheid om de antwoorden te bewerken",
+      "eis_of_wens": "Eis",
+      "gebruiker": "Leerling",
+      "acceptatiecriteria": "Na het versturen van de vragenlijst krijgt de leerling een overzicht van zijn antwoorden",
+      "opmerkingen": "Zie prototype"
+    },
+    {
+      "id": "15",
+      "titel": "Antwoorden bekijken",
+      "component": "Coachplan",
+      "omschrijving": "De coach krijgt een notificatie van een ingeleverd coachplan en kan de antwoorden bekijken (inclusief de aandachtspunten zoals deze vraag is bewust overgeslagen of deze vraag wil ik graag bespreken met de coach",
+      "eis_of_wens": "Eis",
+      "gebruiker": "Coach/docent",
+      "acceptatiecriteria": "Overzicht met antwoorden van leerlingen. Dit overzicht kan de coach niet aanpassen",
+      "opmerkingen": "Zie prototype"
+    },
+    {
+      "id": "16",
+      "titel": "Mapping van antwoorden op de vragenlijst van coach",
+      "component": "Coachplan",
+      "omschrijving": "Een aantal antwoorden worden gemapt op de vragenlijst van de coach (ingevuld door student). Deze kunnen worden aangepast.",
+      "eis_of_wens": "Eis",
+      "gebruiker": "Coach/docent",
+      "acceptatiecriteria": "Antwoorden worden gemapt",
+      "opmerkingen": "Zie prototype, we hebben een overzicht van welke antwoorden leerling op welke plaats gemapt moet worden in de vragenlijst coach/docent"
+    },
+    {
+      "id": "17",
+      "titel": "Vragenlijst coach",
+      "component": "Coachplan",
+      "omschrijving": "Coach kan een aantal vragenbeantwoorden naar aanleiding van het gesprek met de leerling. Als de vragenlijst is ingevuld dan kan deze worden aangeboden aan de leerling.",
+      "eis_of_wens": "Eis",
+      "gebruiker": "Coach/docent",
+      "acceptatiecriteria": "Invullen formuliervelden",
+      "opmerkingen": "Zie prototype"
+    },
+    {
+      "id": "18",
+      "titel": "Transcriptietool",
+      "component": "Coachplan",
+      "omschrijving": "Een optie binnen het coachgedeelte is dat de coach een gesprek met leerling kan opnemen. Dit kan een fysiek gesprek zijn of een gesprek via Teams/Zoom. De transcriptie wordt omgezet naar de formuliervelden in de vragenlijst die door Incluvo wordt aangeboden (dus niet eigen vragenlijsten!). De antwoorden kan door de coach worden aangepast.",
+      "eis_of_wens": "Eis",
+      "gebruiker": "Coach/docent",
+      "acceptatiecriteria": "Transcriptie die doormiddel van AI een voorstel doet voor de antwoorden op de vragen.",
+      "opmerkingen": "Hierdoor kan de coach de volledige aandacht leggen op het overleg. Invullen van dit soort plannen kost veel tijd en energie"
+    },
+    {
+      "id": "19",
+      "titel": "Standaardlabels voorkeuren leeromgeving",
+      "component": "Coachplan",
+      "omschrijving": "De coach geeft in overleg met de leerling aan wat de leervoorkeuren zijn van de leerling. Dit element komt in alle formulieren terug. Deze zijn namelijk ook de triggers binnen de leeromgeving",
+      "eis_of_wens": "Eis",
+      "gebruiker": "Coach/docent",
+      "acceptatiecriteria": "Aangeven leervoorkeuren",
+      "opmerkingen": "Zie prototype stap 6 van 8."
+    },
+    {
+      "id": "20",
+      "titel": "PDF genereren",
+      "component": "Coachplan",
+      "omschrijving": "Het is mogelijk een PDF te genereren van een ingevuld coachplan (bijv. voor ouders of leerlingendossier)",
+      "eis_of_wens": "Eis",
+      "gebruiker": "Coach/docent",
+      "acceptatiecriteria": "Genereren PDF",
+      "opmerkingen": "Zie prototype"
+    },
+    {
+      "id": "21",
+      "titel": "Plan afgestemd met ouders",
+      "component": "Coachplan",
+      "omschrijving": "Coach kan aangeven dat het plan is afgestemd met de ouders.",
+      "eis_of_wens": "Eis",
+      "gebruiker": "Coach/docent",
+      "acceptatiecriteria": "Schuifje om aan te geven dat het plan is afgestemd",
+      "opmerkingen": "Later kan dit verder uitgebreid worden met een ondertekentool"
+    },
+    {
+      "id": "22",
+      "titel": "AI-assistent",
+      "component": "Coachplan",
+      "omschrijving": "Een AI-assistent die een advies geeft op basis van de informatie in het coachplan welke interventies deze leerling kan helpen.",
+      "eis_of_wens": "Wens",
+      "gebruiker": "Coach/docent",
+      "acceptatiecriteria": "Popup die indien gewenst een advies geeft?",
+      "opmerkingen": "We hebben veel kennisdocumenten die gebruikt kunnen worden, daarnaast de bestaande LLM die ook kunnen helpen. Belangrijk is een goede prompt te maken."
+    },
+    {
+      "id": "23",
+      "titel": "Beheer cursussen",
+      "component": "Online cursus",
+      "omschrijving": "Er zijn drie type cursussen. Namelijk een \"Ondivera Sjabloon\" cursus, een \"School Template\" cursus en een cursus \"Uitvoering voor een Leerling\". Een Ondivera sjabloon kan gekopieerd worden naar een schooltemplate en de schooltemplate is de bron voor de leeromgeving van de leerling. De cursusfunctionaliteiten binnen de 3 type zijn hetzelfde.",
+      "eis_of_wens": "Eis",
+      "gebruiker": "Keyuser",
+      "acceptatiecriteria": "Mogelijkheid om deze cursussen afzonderlijk te beheren. Ondivera kan zo advies geven voor een inrichting van een cursus. De school kan hun eigen varianten beheren en de leerling heeft een eigen (kopie) omgeving (waar eventueel wijzigingen of extra materiaal/oefeningen aan kunnen worden toegevoegd (individueel niveau).",
+      "opmerkingen": "Hier even goed over nadenken wat het handigst is"
+    },
+    {
+      "id": "24",
+      "titel": "Voortgangsbalk bij cursussen",
+      "component": "Online cursus",
+      "omschrijving": "Een voortgangsbalk boven de cursus op basis van de aanbevolen/actieve content/opdrachten",
+      "eis_of_wens": "Eis",
+      "gebruiker": "Leerling/coach",
+      "acceptatiecriteria": "Voortgangsbalk die op basis van bekeken/afgevinkte content en uitgevoerde opdracht de voortgang laat zien. De voortgangsbalk moet door een docent onzichtbaar gemaakt kunnen worden (oogje sluiten)",
+      "opmerkingen": null
+    },
+    {
+      "id": "25",
+      "titel": "Aanmaken secties binnen cursus",
+      "component": "Online cursus",
+      "omschrijving": "Toevoegen van een sectie binnen een online cursus",
+      "eis_of_wens": "Eis",
+      "gebruiker": "Ontwikkelaar",
+      "acceptatiecriteria": "Aanmaken van een sectie doormiddel van een + icoon",
+      "opmerkingen": "Zie prototype: Een structurerend element waarmee je content in volgorde aanbiedt, op termijn inclusief voorwaarden (volg dit voordat je door mag)\nVoorbeeld week 1, week 2, week 3 of thema 1, thema 2)"
+    },
+    {
+      "id": "26",
+      "titel": "Content binnen een sectie (CbS)",
+      "component": "Online cursus",
+      "omschrijving": "Mogelijkheid om meerdere vormen van content (zie alle CbS'en) binnen een sectie toe te voegen.",
+      "eis_of_wens": "Eis",
+      "gebruiker": "Ontwikkelaar",
+      "acceptatiecriteria": "Aanmaken van een CbS doormiddel van een + icoon",
+      "opmerkingen": "Zie prototype. Misschien een andere manier van denken: WYSIWYG met knop opdracht en knop document koppelen een een + knopje voor de andere toepassingen (vraag toelichting Mark)"
+    },
+    {
+      "id": "27",
+      "titel": "CbS: Opdracht",
+      "component": "Online cursus",
+      "omschrijving": "Mogelijkheid om een opdracht te maken binnen een sectie.",
+      "eis_of_wens": "Eis",
+      "gebruiker": "Ontwikkelaar",
+      "acceptatiecriteria": "Mogelijkheid om een opdracht aan te maken met de benoemde attributen.",
+      "opmerkingen": "Zie prototype.\nNaam opdracht\nOmschrijving opdracht\nIndividuele opdracht of groepsopdracht\nAntwoordmogelijkheid (tekst en bestanden inleveren) (komt in takenlijst coach/docent)\nInleverpogingen\nInleverdatum en tijd\nBeschikbaar van/tot\nInlegeleverde opdracht beoordelen (cijfer en teks en later een rubics) door coach/docent\n(Toewijzen aan:)"
+    },
+    {
+      "id": "28",
+      "titel": "Beoordelen opdracht",
+      "component": "Online cursus",
+      "omschrijving": "Een docent kan een ingeleverde opdracht beoordelen met een tekst, cijfer (niet verplicht) en een spraak of videobericht",
+      "eis_of_wens": "Eis",
+      "gebruiker": "Leerling/coach",
+      "acceptatiecriteria": "Mogelijkheid om de opdracht te beoordelen",
+      "opmerkingen": "Zie prototype"
+    },
+    {
+      "id": "29",
+      "titel": "CbS: pagina",
+      "component": "Online cursus",
+      "omschrijving": "Mogelijkheid om een pagina aan te maken binnen een sectie.",
+      "eis_of_wens": "Eis",
+      "gebruiker": "Ontwikkelaar",
+      "acceptatiecriteria": "Mogelijk om een pagina aan te maken.",
+      "opmerkingen": "Vrij vorm te geven pagina doormiddel van een WYSIWYG en eventueel een blokdesigner"
+    },
+    {
+      "id": "30",
+      "titel": "CbS: bestanden",
+      "component": "Online cursus",
+      "omschrijving": "Mogelijk om een bestand toe te voegen zoals een PDF, PowerPoint, Word, etc.",
+      "eis_of_wens": "Eis",
+      "gebruiker": "Ontwikkelaar",
+      "acceptatiecriteria": "Mogelijk om een bestand toe te voegen",
+      "opmerkingen": "Zie prototype"
+    },
+    {
+      "id": "31",
+      "titel": "CbS: Youtube link",
+      "component": "Online cursus",
+      "omschrijving": "Mogelijk om een youtube link te plaatsen die via een player kan worden afgespeeld.",
+      "eis_of_wens": "Eis",
+      "gebruiker": "Ontwikkelaar",
+      "acceptatiecriteria": "Youtube filmpje via een player toevoegen",
+      "opmerkingen": "Zie prototype"
+    },
+    {
+      "id": "32",
+      "titel": "CbS: Forum/ groepschat",
+      "component": "Online cursus",
+      "omschrijving": "Mogelijk om een forum/groepschat te starten.",
+      "eis_of_wens": "Eis",
+      "gebruiker": "Ontwikkelaar",
+      "acceptatiecriteria": "Mogelijkheid om een forum/groepchat te starten",
+      "opmerkingen": "Zie prototype"
+    },
+    {
+      "id": "33",
+      "titel": "CbS: LTI-content",
+      "component": "Online cursus",
+      "omschrijving": "Mogelijkheid om Lti content te koppelen conform LTI standaard",
+      "eis_of_wens": "Wens",
+      "gebruiker": "Ontwikkelaar",
+      "acceptatiecriteria": "Koppelen van content van leverancier via beheer en ontwikkelaar kan dan content koppelen als item binnen een sectie.",
+      "opmerkingen": "Lti 1.3 of -advance"
+    },
+    {
+      "id": "34",
+      "titel": "CbS: Ondivera content advies overnemen",
+      "component": "Online cursus",
+      "omschrijving": "Binnen het Ondivera Kennispunt (platform) zijn adviesarrangementen beschikbaar met inclusief leermateriaal vanuit diverse bronnen. Deze informatie kunnen selecteren en overnemen naar een item binnen de sectie",
+      "eis_of_wens": "Wens",
+      "gebruiker": "Ontwikkelaar",
+      "acceptatiecriteria": null,
+      "opmerkingen": "Expertisepunt is nog in ontwikkeling. De leverancier van PortalCMS levert een API oplossing."
+    },
+    {
+      "id": "35",
+      "titel": "Aanbevolen en actieve content",
+      "component": "Online cursus",
+      "omschrijving": "Voor de leerling wordt aanbevolen/actieve content op basis van de leervoorkeuren uit het plan zichtbaar. Andere keuzes worden ook beschikbaar via een uitklapmenu. Bij de andere keuzes kunnen ze deze bekijken. Als ze liever willen dat deze keuze als actief komt dan kunnen ze een signaalbericht sturen naar de coach. De coach moet deze dan aanpassen in het plan (en/of via de leeromgeving = nog bespreken, wat logisch is).",
+      "eis_of_wens": "Eis",
+      "gebruiker": null,
+      "acceptatiecriteria": null,
+      "opmerkingen": null
+    },
+    {
+      "id": "36",
+      "titel": "Alle CbS'en labellen met leervoorkeuren uit plan",
+      "component": "Online cursus",
+      "omschrijving": "Alle CbS'en moeten gelabeld worden met de leervoorkeuren die overeenkomen met het plan, zodat ze als aanbevolen en actief getoond kunnen worden op basis van de aangegeven leervoorkeuren in het plan",
+      "eis_of_wens": "Eis",
+      "gebruiker": "Ontwikkelaar",
+      "acceptatiecriteria": null,
+      "opmerkingen": null
+    },
+    {
+      "id": "37",
+      "titel": "Takenoverzicht voor de leerling gesplits in vandaag en toekomst",
+      "component": "Takenlijst",
+      "omschrijving": "Een takenlijst op basis van de taken (opdrachten) uit de leeromgeving en de taken die door de coach of leerling zijn aangemaakt.",
+      "eis_of_wens": "Eis",
+      "gebruiker": "Leerling",
+      "acceptatiecriteria": "Overzicht met taken (te zien door leerling en coach. Taken met deadline vandaag komen onder vandaag te staan. De coach kan eventueel makkelijk de deadline van een taak (ook uit leeromgeving!) aanpassen.",
+      "opmerkingen": "Zie prototype"
+    },
+    {
+      "id": "38",
+      "titel": "Extra taken voor vandaag",
+      "component": "Takenlijst",
+      "omschrijving": "Mogelijkheid om taken die niet onder vandaag staat aan te vinken zodat ze onder vandaag komen te staan",
+      "eis_of_wens": "Eis",
+      "gebruiker": "Leerling",
+      "acceptatiecriteria": "Aanvinken extra taken die onder vandaag komen te staan",
+      "opmerkingen": "Zie prototype?"
+    },
+    {
+      "id": "39",
+      "titel": "Tijdelijk takenoverzicht uitzetten",
+      "component": "Takenlijst",
+      "omschrijving": "Een coach kan tijdelijk voor een leerling de takenlijst uitzetten",
+      "eis_of_wens": "Eis",
+      "gebruiker": "Coach/docent",
+      "acceptatiecriteria": "Oogje sluiten bij takenlijst door coach?",
+      "opmerkingen": null
+    },
+    {
+      "id": "40",
+      "titel": "Taken afvinken",
+      "component": "Takenlijst",
+      "omschrijving": "Mogelijkheid om taken af te vinken",
+      "eis_of_wens": "Eis",
+      "gebruiker": "Leerling",
+      "acceptatiecriteria": null,
+      "opmerkingen": "Zie prototype"
+    },
+    {
+      "id": "41",
+      "titel": "Mogelijkheid om taken toe te voegen",
+      "component": "Takenlijst",
+      "omschrijving": "Mogelijkheid om taken toe te voegen",
+      "eis_of_wens": "Eis",
+      "gebruiker": "Leerling/coach",
+      "acceptatiecriteria": "Door leerling en coach",
+      "opmerkingen": "Zie prototype"
+    },
+    {
+      "id": "42",
+      "titel": "Dashboard coach/docent",
+      "component": "Dashboard coach",
+      "omschrijving": "Dashboard met overzicht leerlingen, coachplan status, laatste activiteit, voortgang, aandachtsindicatie en snelacties (chat, naar plan)",
+      "eis_of_wens": "Eis",
+      "gebruiker": "Coach/docent",
+      "acceptatiecriteria": "Exacte dashboard bespreken",
+      "opmerkingen": "Zie prototype"
+    },
+    {
+      "id": "43",
+      "titel": "Quickpanel coach/docent",
+      "component": "Dashboard coach",
+      "omschrijving": "Bij aanklikken van leerling komt er een Quickpanel in scherm. Hier staan wat snelle gegevens zoals leervooerkeuren, taken en actieve cursussen (link om de cursus op leerlingniveau aan te passen). Mogelijkheid om een bericht te sturen of een taak aan te maken.",
+      "eis_of_wens": "Eis",
+      "gebruiker": "Coach/docent",
+      "acceptatiecriteria": "Exacte dashboard bespreken",
+      "opmerkingen": "Zie prototype"
+    },
+    {
+      "id": "44",
+      "titel": "Bekijken volledig profiel leerling",
+      "component": "Dashboard coach",
+      "omschrijving": "Mogelijkheid om het volledig profiel te bekijken.",
+      "eis_of_wens": "Eis",
+      "gebruiker": "Coach/docent",
+      "acceptatiecriteria": "Exacte layout nog bespreken",
+      "opmerkingen": "Zie prototype"
+    },
+    {
+      "id": "45",
+      "titel": null,
+      "component": null,
+      "omschrijving": null,
+      "eis_of_wens": null,
+      "gebruiker": null,
+      "acceptatiecriteria": null,
+      "opmerkingen": null
+    },
+    {
+      "id": "46",
+      "titel": null,
+      "component": null,
+      "omschrijving": null,
+      "eis_of_wens": null,
+      "gebruiker": null,
+      "acceptatiecriteria": null,
+      "opmerkingen": null
+    },
+    {
+      "id": "47",
+      "titel": null,
+      "component": null,
+      "omschrijving": null,
+      "eis_of_wens": null,
+      "gebruiker": null,
+      "acceptatiecriteria": null,
+      "opmerkingen": null
+    },
+    {
+      "id": "48",
+      "titel": null,
+      "component": null,
+      "omschrijving": null,
+      "eis_of_wens": null,
+      "gebruiker": null,
+      "acceptatiecriteria": null,
+      "opmerkingen": null
+    },
+    {
+      "id": "49",
+      "titel": null,
+      "component": null,
+      "omschrijving": null,
+      "eis_of_wens": null,
+      "gebruiker": null,
+      "acceptatiecriteria": null,
+      "opmerkingen": null
+    },
+    {
+      "id": "50",
+      "titel": null,
+      "component": null,
+      "omschrijving": null,
+      "eis_of_wens": null,
+      "gebruiker": null,
+      "acceptatiecriteria": null,
+      "opmerkingen": null
+    },
+    {
+      "id": "51",
+      "titel": null,
+      "component": null,
+      "omschrijving": null,
+      "eis_of_wens": null,
+      "gebruiker": null,
+      "acceptatiecriteria": null,
+      "opmerkingen": null
+    },
+    {
+      "id": "52",
+      "titel": null,
+      "component": null,
+      "omschrijving": null,
+      "eis_of_wens": null,
+      "gebruiker": null,
+      "acceptatiecriteria": null,
+      "opmerkingen": null
+    },
+    {
+      "id": "53",
+      "titel": null,
+      "component": null,
+      "omschrijving": null,
+      "eis_of_wens": null,
+      "gebruiker": null,
+      "acceptatiecriteria": null,
+      "opmerkingen": null
+    },
+    {
+      "id": "54",
+      "titel": null,
+      "component": null,
+      "omschrijving": null,
+      "eis_of_wens": null,
+      "gebruiker": null,
+      "acceptatiecriteria": null,
+      "opmerkingen": null
+    },
+    {
+      "id": "55",
+      "titel": null,
+      "component": null,
+      "omschrijving": null,
+      "eis_of_wens": null,
+      "gebruiker": null,
+      "acceptatiecriteria": null,
+      "opmerkingen": null
+    },
+    {
+      "id": "56",
+      "titel": null,
+      "component": null,
+      "omschrijving": null,
+      "eis_of_wens": null,
+      "gebruiker": null,
+      "acceptatiecriteria": null,
+      "opmerkingen": null
+    },
+    {
+      "id": "57",
+      "titel": null,
+      "component": null,
+      "omschrijving": null,
+      "eis_of_wens": null,
+      "gebruiker": null,
+      "acceptatiecriteria": null,
+      "opmerkingen": null
+    },
+    {
+      "id": "58",
+      "titel": null,
+      "component": null,
+      "omschrijving": null,
+      "eis_of_wens": null,
+      "gebruiker": null,
+      "acceptatiecriteria": null,
+      "opmerkingen": null
+    },
+    {
+      "id": "59",
+      "titel": null,
+      "component": null,
+      "omschrijving": null,
+      "eis_of_wens": null,
+      "gebruiker": null,
+      "acceptatiecriteria": null,
+      "opmerkingen": null
+    },
+    {
+      "id": "60",
+      "titel": "Admin omgeving voor school en ondivera",
+      "component": null,
+      "omschrijving": null,
+      "eis_of_wens": null,
+      "gebruiker": null,
+      "acceptatiecriteria": null,
+      "opmerkingen": null
+    },
+    {
+      "id": "61",
+      "titel": "Eigen opdracht voorstellen via leeromgeving",
+      "component": "Online cursus",
+      "omschrijving": "Een leerling kan ook zelf iets bedenken hoe hij wilt aantonen of hij iets geleerd heeft. Dit voorstel moet besproken worden met coach",
+      "eis_of_wens": "Wensn",
+      "gebruiker": "Leerling/coach",
+      "acceptatiecriteria": null,
+      "opmerkingen": null
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+node_modules
+dist
+.output
+.turbo
+.vinxi
+.tanstack
+
+# env
+.env
+.env.local
+.env.*.local
+
+# generated
+apps/web/src/routeTree.gen.ts
+
+# local-dev course uploads (S3 fallback)
+apps/server/uploads
+
+# logs
+*.log
+npm-debug.log*
+
+# os / editor
+.DS_Store
+.idea
+.vscode/*
+!.vscode/extensions.json

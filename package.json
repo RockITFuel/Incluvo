@@ -1,0 +1,33 @@
+{
+	"name": "incluvo",
+	"private": true,
+	"type": "module",
+	"workspaces": {
+		"packages": ["apps/*", "packages/*"],
+		"catalog": {
+			"typescript": "^5.7.2"
+		}
+	},
+	"scripts": {
+		"dev": "turbo dev",
+		"dev:web": "turbo -F @incluvo/web dev",
+		"dev:server": "turbo -F @incluvo/server dev",
+		"build": "turbo build",
+		"check-types": "turbo check-types",
+		"lint": "oxlint -c .oxlintrc.json apps/*/src packages",
+		"format": "oxfmt --write .",
+		"format:check": "oxfmt --check .",
+		"db:push": "bun run --cwd packages/drizzle push",
+		"db:generate": "bun run --cwd packages/drizzle generate",
+		"db:migrate": "bun run --cwd packages/drizzle migrate",
+		"db:studio": "bun run --cwd packages/drizzle studio",
+		"db:seed": "bun run --cwd packages/drizzle seed"
+	},
+	"devDependencies": {
+		"@types/node": "^22.15.0",
+		"oxfmt": "^0.46.0",
+		"oxlint": "^1.61.0",
+		"turbo": "^2.9.6"
+	},
+	"packageManager": "bun@1.2.21"
+}

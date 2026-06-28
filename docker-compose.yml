@@ -1,0 +1,29 @@
+services:
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: incluvo
+      POSTGRES_PASSWORD: incluvo
+      POSTGRES_DB: incluvo
+    ports:
+      - "5435:5432"
+    volumes:
+      # Postgres 18+ expects the mount at /var/lib/postgresql (data lives in a subdir).
+      - incluvo_pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U incluvo -d incluvo"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Catches all outgoing email in development. UI at http://localhost:8025
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports:
+      - "1025:1025" # SMTP
+      - "8025:8025" # Web UI
+
+volumes:
+  incluvo_pgdata:

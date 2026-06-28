@@ -1,0 +1,33 @@
+{
+	"name": "@incluvo/permissions",
+	"version": "1.0.0",
+	"description": "Role-based access control (RBAC) policies shared by server and web.",
+	"type": "module",
+	"main": "index.ts",
+	"types": "index.ts",
+	"exports": {
+		".": {
+			"types": "./index.ts",
+			"default": "./index.ts"
+		},
+		"./solid": {
+			"types": "./solid.ts",
+			"default": "./solid.ts"
+		}
+	},
+	"scripts": {
+		"check-types": "tsc --noEmit"
+	},
+	"devDependencies": {
+		"solid-js": "^1.9.12",
+		"typescript": "catalog:"
+	},
+	"peerDependencies": {
+		"solid-js": "^1.9.0"
+	},
+	"peerDependenciesMeta": {
+		"solid-js": {
+			"optional": true
+		}
+	}
+}

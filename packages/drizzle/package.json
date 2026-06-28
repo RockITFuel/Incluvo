@@ -1,0 +1,44 @@
+{
+	"name": "@incluvo/drizzle",
+	"version": "1.0.0",
+	"type": "module",
+	"main": "src/index.ts",
+	"types": "src/index.ts",
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"default": "./src/index.ts"
+		},
+		"./schema": {
+			"types": "./src/schema/index.ts",
+			"default": "./src/schema/index.ts"
+		},
+		"./client": {
+			"types": "./src/client.ts",
+			"default": "./src/client.ts"
+		},
+		"./load-env": {
+			"types": "./src/load-env.ts",
+			"default": "./src/load-env.ts"
+		}
+	},
+	"scripts": {
+		"generate": "drizzle-kit generate",
+		"migrate": "drizzle-kit migrate",
+		"push": "drizzle-kit push",
+		"studio": "drizzle-kit studio",
+		"seed": "bun run src/seed/index.ts",
+		"check-types": "tsc --noEmit"
+	},
+	"dependencies": {
+		"better-auth": "1.4.18",
+		"drizzle-orm": "^0.44.2",
+		"pg": "^8.13.3"
+	},
+	"devDependencies": {
+		"@types/node": "^22.15.0",
+		"@types/pg": "^8.11.11",
+		"drizzle-kit": "^0.31.1",
+		"typescript": "catalog:"
+	}
+}

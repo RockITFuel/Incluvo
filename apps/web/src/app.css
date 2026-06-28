@@ -1,0 +1,208 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Incluvo design tokens.
+ *
+ * All visual values live in CSS variables on :root so that the accessibility
+ * settings can override them at runtime via `data-*` attributes on <html>
+ * (set by the a11y store in src/lib/a11y). Tailwind's theme (tailwind.config.ts)
+ * maps its color/radius/spacing utilities onto these same variables, so every
+ * component automatically responds to contrast / font-size / density changes.
+ */
+:root {
+	color-scheme: light;
+
+	/* Brand & neutrals (ported from the approved demo) */
+	--ink: 14 42 51; /* #0E2A33 — primary text */
+	--ink-2: 31 61 71; /* #1F3D47 */
+	--muted: 90 110 118; /* #5A6E76 */
+	--muted-2: 96 110 118; /* #606E76 — ≥4.5:1 on bg/surface (was #8A9AA0, 2.59:1) */
+	--line: 228 220 206; /* #E4DCCE */
+	--line-2: 239 233 220; /* #EFE9DC */
+	--bg: 245 241 234; /* #F5F1EA — calm warm canvas */
+	--bg-2: 251 248 242; /* #FBF8F2 */
+	--surface: 255 255 255; /* #FFFFFF */
+
+	--primary: 14 94 111; /* #0E5E6F — calm teal */
+	--primary-700: 10 71 83; /* #0A4753 */
+	--primary-100: 221 235 238; /* #DDEBEE */
+	--primary-50: 238 246 247; /* #EEF6F7 */
+	--primary-fg: 255 255 255;
+
+	--accent: 232 118 91; /* #E8765B — warm coral (decorative fills only) */
+	--accent-700: 160 62 44; /* #A03E2C — accent *text*: 5.36:1 on accent-100, 6.52:1 white-on */
+	--accent-100: 252 228 220; /* #FCE4DC */
+
+	--success: 46 125 91; /* #2E7D5B */
+	--success-100: 221 238 227; /* #DDEEE3 */
+	--warning: 133 96 30; /* #85601E — warning *text*: 4.84:1 on warning-100, 5.06:1 on bg */
+	--warning-100: 246 236 211; /* #F6ECD3 */
+	--danger: 176 65 62; /* #B0413E */
+	--danger-100: 245 222 220; /* #F5DEDC */
+
+	/* Focus ring — always high enough contrast for WCAG 2.4.7 */
+	--ring: 14 94 111;
+
+	/* Radii */
+	--r-1: 6px;
+	--r-2: 10px;
+	--r-3: 14px;
+	--r-4: 20px;
+	--r-5: 28px;
+	--r-pill: 999px;
+
+	/* Type scale */
+	--t-display: 44px;
+	--t-h1: 32px;
+	--t-h2: 24px;
+	--t-h3: 19px;
+	--t-body: 15px;
+	--t-small: 13px;
+	--t-micro: 12px;
+
+	/* Density: drives both root font-size and the control-padding scale.
+	 * Components use the `--density-*` vars for paddings/heights so the whole
+	 * UI breathes consistently when the leerling changes the setting. */
+	--root-size: 16px;
+	--density-1: 0.25rem;
+	--density-2: 0.5rem;
+	--density-3: 0.75rem;
+	--density-y: 0.625rem; /* default control vertical padding */
+	--density-x: 0.875rem; /* default control horizontal padding */
+
+	--shadow-1: 0 1px 0 rgb(14 42 51 / 0.04), 0 1px 2px rgb(14 42 51 / 0.04);
+	--shadow-2: 0 1px 0 rgb(14 42 51 / 0.04), 0 4px 12px rgb(14 42 51 / 0.06);
+	--shadow-3: 0 12px 32px rgb(14 42 51 / 0.12), 0 2px 6px rgb(14 42 51 / 0.06);
+
+	--font-head: "Bricolage Grotesque", "Inter", system-ui, sans-serif;
+	--font-body: "Inter", system-ui, sans-serif;
+
+	--motion-fast: 150ms;
+	--motion: 250ms;
+}
+
+/* ── Accessibility modes (set on <html> by the a11y store) ──────────────── */
+
+/* High contrast: stronger borders + text, pure-white surfaces (WCAG 1.4.11) */
+html[data-contrast="high"] {
+	--bg: 255 255 255;
+	--bg-2: 255 255 255;
+	--surface: 255 255 255;
+	--line: 14 42 51;
+	--line-2: 31 61 71;
+	--muted: 14 42 51;
+	--muted-2: 31 61 71;
+	--primary: 10 71 83;
+	--ring: 14 42 51;
+	/* Darker warning/accent text & fills so tinted banners/badges/the bell stay
+	 * ≥4.5:1 (text) / ≥3:1 (white-on-fill) in high-contrast mode too. */
+	--warning: 110 78 20; /* #6E4E14 — 6.46:1 on warning-100 */
+	--accent-700: 140 52 36; /* #8C3424 — 6.56:1 on accent-100, 7.98:1 white-on */
+	--accent: 160 62 44; /* #A03E2C — white-on (decorative dot bg) */
+}
+
+/* Dyslexia-friendly font */
+html[data-font="dyslexic"] {
+	--font-body: "Atkinson Hyperlegible", "Inter", sans-serif;
+	--font-head: "Atkinson Hyperlegible", "Bricolage Grotesque", sans-serif;
+}
+
+/* Font size (S/M/L) — scales the whole UI because rem-based sizing is used */
+html[data-size="s"] {
+	--root-size: 15px;
+}
+html[data-size="m"] {
+	--root-size: 16px;
+}
+html[data-size="l"] {
+	--root-size: 18px;
+}
+
+/* Density — control breathing room */
+html[data-density="compact"] {
+	--density-y: 0.4rem;
+	--density-x: 0.7rem;
+}
+html[data-density="cozy"] {
+	--density-y: 0.625rem;
+	--density-x: 0.875rem;
+}
+html[data-density="comfortable"] {
+	--density-y: 0.85rem;
+	--density-x: 1.1rem;
+}
+
+/* Reduce motion — honour both the user setting and the OS preference */
+html[data-reduce-motion="true"] *,
+html[data-reduce-motion="true"] *::before,
+html[data-reduce-motion="true"] *::after {
+	animation-duration: 0.001ms !important;
+	animation-iteration-count: 1 !important;
+	transition-duration: 0.001ms !important;
+	scroll-behavior: auto !important;
+}
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.001ms !important;
+		transition-duration: 0.001ms !important;
+	}
+}
+
+* {
+	box-sizing: border-box;
+}
+
+html {
+	font-size: var(--root-size);
+}
+
+body {
+	margin: 0;
+	font-family: var(--font-body);
+	@apply bg-bg text-ink antialiased;
+	-webkit-font-smoothing: antialiased;
+	text-rendering: optimizeLegibility;
+}
+
+h1,
+h2,
+h3,
+h4 {
+	font-family: var(--font-head);
+	font-weight: 600;
+	letter-spacing: -0.01em;
+	line-height: 1.15;
+}
+
+/* Visible focus ring everywhere keyboard focus lands (WCAG 2.4.7) */
+:focus-visible {
+	outline: 2px solid rgb(var(--ring));
+	outline-offset: 2px;
+	border-radius: 4px;
+}
+
+/* Skip-link target helper */
+.sr-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border: 0;
+}
+.not-sr-only-focus:focus {
+	position: static;
+	width: auto;
+	height: auto;
+	margin: 0;
+	overflow: visible;
+	clip: auto;
+	white-space: normal;
+}
