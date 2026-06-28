@@ -8,3 +8,4 @@ export * from "./course";
 export * from "./task";
 export * from "./chat";
 export * from "./notification";
+export * from "./kennisdocument";

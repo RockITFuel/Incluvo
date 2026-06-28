@@ -61,6 +61,8 @@ export const QuestionSchema = z.object({
 	helpText: z.string().nullable(),
 	required: z.boolean(),
 	position: z.number().int(),
+	// Template-level correspondence to a coach (POPP) question (#18).
+	mapsToQuestionId: z.string().nullable(),
 	options: QuestionOptions,
 });
 export type QuestionDTO = z.infer<typeof QuestionSchema>;

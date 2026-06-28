@@ -17,7 +17,7 @@ import {
 	sameTenant,
 } from "@incluvo/permissions";
 import { ORPCError } from "@orpc/server";
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { z } from "zod";
 import {
 	type PdfPlan,
@@ -104,6 +104,7 @@ function questionDto(row: typeof formQuestion.$inferSelect) {
 		helpText: row.helpText,
 		required: row.required,
 		position: row.position,
+		mapsToQuestionId: row.mapsToQuestionId,
 		options: (row.options ?? null) as never,
 	};
 }
@@ -356,6 +357,8 @@ const questionsCreate = protectedProcedure
 			helpText: z.string().nullable().optional(),
 			required: z.boolean().default(false),
 			position: z.number().int().optional(),
+			// #18 — optional correspondence to a coach (POPP) question.
+			mapsToQuestionId: z.string().uuid().nullable().optional(),
 			options: QuestionOptions.optional(),
 		}),
 	)
@@ -381,6 +384,7 @@ const questionsCreate = protectedProcedure
 				helpText: input.helpText ?? null,
 				required: input.required,
 				position,
+				mapsToQuestionId: input.mapsToQuestionId ?? null,
 				options: (input.options ?? null) as never,
 			})
 			.returning();
@@ -404,6 +408,8 @@ const questionsUpdate = protectedProcedure
 			helpText: z.string().nullable().optional(),
 			required: z.boolean().optional(),
 			position: z.number().int().optional(),
+			// #18 — optional correspondence to a coach (POPP) question.
+			mapsToQuestionId: z.string().uuid().nullable().optional(),
 			options: QuestionOptions.optional(),
 		}),
 	)
@@ -744,19 +750,98 @@ const saveAnswer = protectedProcedure
  * Submit the wizard (#11/#14): flips status to `submitted`, stamps
  * `submittedAt`, attaches the assigned coach, and notifies them (#15).
  */
+/** Transaction handle type (same query-builder surface as `db`). */
+type CoachplanTx = Parameters<
+	Parameters<(typeof import("@incluvo/drizzle").db)["transaction"]>[0]
+>[0];
+
+/**
+ * #18 — apply the template-level leerling→coach correspondences for a submission.
+ *
+ * For every leerling question that declares `mapsToQuestionId`, point the
+ * leerling's answer at the corresponding coach (POPP) question via an
+ * `answerCoachMapping` row, so the coach-gedeelte opens pre-filled. Idempotent
+ * and non-destructive: it never overwrites an existing mapping (a coach edit),
+ * and skips empty or deliberately-skipped answers.
+ */
+async function applyCorrespondenceMappings(
+	tx: CoachplanTx,
+	submission: typeof formSubmission.$inferSelect,
+): Promise<void> {
+	const corr = await tx
+		.select({
+			leerlingQuestionId: formQuestion.id,
+			coachQuestionId: formQuestion.mapsToQuestionId,
+		})
+		.from(formQuestion)
+		.where(
+			and(
+				eq(formQuestion.templateId, submission.templateId),
+				eq(formQuestion.section, "leerling"),
+				isNotNull(formQuestion.mapsToQuestionId),
+			),
+		);
+	if (corr.length === 0) return;
+
+	const leerlingQIds = corr.map((c) => c.leerlingQuestionId);
+	const answers = await tx
+		.select({
+			id: formAnswer.id,
+			questionId: formAnswer.questionId,
+			value: formAnswer.value,
+			skipped: formAnswer.deliberatelySkipped,
+		})
+		.from(formAnswer)
+		.where(
+			and(
+				eq(formAnswer.submissionId, submission.id),
+				inArray(formAnswer.questionId, leerlingQIds),
+			),
+		);
+	const answerByQuestion = new Map(answers.map((a) => [a.questionId, a]));
+
+	// Never overwrite a coach's existing mapping for a coach question.
+	const existing = await tx
+		.select({ coachQuestionId: answerCoachMapping.coachQuestionId })
+		.from(answerCoachMapping)
+		.where(eq(answerCoachMapping.submissionId, submission.id));
+	const alreadyMapped = new Set(existing.map((m) => m.coachQuestionId));
+
+	const toInsert: (typeof answerCoachMapping.$inferInsert)[] = [];
+	for (const c of corr) {
+		if (!c.coachQuestionId || alreadyMapped.has(c.coachQuestionId)) continue;
+		const ans = answerByQuestion.get(c.leerlingQuestionId);
+		if (!ans || ans.skipped || !ans.value || !ans.value.trim()) continue;
+		toInsert.push({
+			submissionId: submission.id,
+			sourceAnswerId: ans.id,
+			coachQuestionId: c.coachQuestionId,
+		});
+	}
+	if (toInsert.length > 0) {
+		await tx.insert(answerCoachMapping).values(toInsert);
+	}
+}
+
 const submit = protectedProcedure
 	.route({ method: "POST", path: "/coachplan/submit", tags: ["coachplan"] })
 	.input(z.object({ submissionId: z.string().uuid() }))
 	.output(SubmissionSchema)
 	.handler(async ({ input, context }) => {
 		const sub = await loadFillable(context, input.submissionId);
-		const [row] = await context.db.transaction(async (tx) =>
-			tx
+		const [row] = await context.db.transaction(async (tx) => {
+			const [updated] = await tx
 				.update(formSubmission)
 				.set({ status: "submitted", submittedAt: new Date(), updatedAt: new Date() })
 				.where(eq(formSubmission.id, sub.id))
-				.returning(),
-		);
+				.returning();
+			// #18 — auto-prefill the coach (POPP) fields from corresponding leerling
+			// answers. For every leerling question that declares a `mapsToQuestionId`,
+			// create an `answerCoachMapping` pointing the leerling's answer at the
+			// coach question (idempotent; the coach can still override the value).
+			await applyCorrespondenceMappings(tx, sub);
+			return [updated];
+		});
 		if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
 		// Realtime to the leerling's coach(es) only (C1) — they're the audience
 		// for a freshly submitted plan.

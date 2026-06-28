@@ -6,6 +6,7 @@ import { z } from "zod";
 import { isMockProvider } from "../../ai/config";
 import { adviceSystemPrompt } from "../../ai/prompts";
 import { getAiProvider } from "../../ai/provider";
+import { formatKennisContext, retrieveKennisHits } from "../../ai/retrieval";
 import { deleteObject } from "../../courses/storage";
 import { rateLimit } from "../../rate-limit";
 import { type AuthedContext, base, protectedProcedure } from "../base";
@@ -325,8 +326,34 @@ const assistant = coachProcedure
 		}
 
 		const provider = getAiProvider();
+
+		// #20 — ground the advice in the kennisdocumenten (RAG). Embed the coach's
+		// latest question, retrieve the nearest chunks (global + own tenant) and
+		// fold them into the system-prompt context. Best-effort: a retrieval
+		// failure (e.g. pgvector not enabled) must never break the advice stream.
+		let promptContext = input.coachplanContext?.trim() ?? "";
+		try {
+			const lastUser = input.messages.findLast((m) => m.role === "user");
+			if (lastUser) {
+				const hits = await retrieveKennisHits(context.db, provider, lastUser.content, {
+					organizationId: context.actor.organizationId,
+				});
+				const kennis = formatKennisContext(hits);
+				if (kennis) {
+					promptContext = promptContext
+						? `${promptContext}\n\n${kennis}`
+						: kennis;
+				}
+			}
+		} catch (err) {
+			console.error("kennisdocumenten retrieval failed", err);
+		}
+
 		const messages = [
-			{ role: "system" as const, content: adviceSystemPrompt(input.coachplanContext) },
+			{
+				role: "system" as const,
+				content: adviceSystemPrompt(promptContext || undefined),
+			},
 			...input.messages,
 		];
 

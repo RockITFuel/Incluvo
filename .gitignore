@@ -16,6 +16,12 @@ apps/web/src/routeTree.gen.ts
 # local-dev course uploads (S3 fallback)
 apps/server/uploads
 
+# kennisdocumenten source texts — third-party reference material (UDL paper,
+# manuscript). Kept local, NOT committed (copyright). Regenerate from the source
+# attachments; see apps/server/seed-data/kennisdocumenten/README.md. manifest.json
+# IS tracked.
+apps/server/seed-data/kennisdocumenten/*.txt
+
 # logs
 *.log
 npm-debug.log*

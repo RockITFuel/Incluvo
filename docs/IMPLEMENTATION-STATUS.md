@@ -24,7 +24,7 @@ Seed: `bun run --cwd apps/server seed:demo && … seed:coachplan && … seed:cou
 | 19 | Leervoorkeur-labels | 2 | ✅ |
 | 20 | PDF coachplan | 2 | ✅ (Playwright; ship Chromium in Docker) |
 | 21 | Afgestemd met ouders | 2 | ✅ |
-| 22 | AI-assistent advies (Wens) | 7 | ✅ streaming (mock); RAG/pgvector = follow-up |
+| 22 | AI-assistent advies (Wens) | 7 | ✅ streaming (mock); ✅ kennisdocumenten RAG (pgvector + mock embeddings, #20) |
 | 23–32 | Cursussen: 3 types+overerving, secties, CbS opdracht/pagina/bestand/youtube/forum | 4 | ✅ |
 | 24/28 | Voortgangsbalk + beoordelen | 4 | ✅ |
 | 33 | LTI 1.3 (Wens) | 4 | ⏸ stub (NOT_IMPLEMENTED) |
@@ -43,7 +43,7 @@ Seed: `bun run --cwd apps/server seed:demo && … seed:coachplan && … seed:cou
 ## Schema follow-ups (need a Drizzle migration — deliberately deferred by agents)
 - **Retention/settings table** (#4 AVG bewaartermijnen) — admin UI + typed shape exist; persistence stubbed (`NOT_IMPLEMENTED`).
 - **`user.active`** deactivate/reactivate flag (#60) — not present, so deactivation not built.
-- **pgvector + `kennisdocument`/embeddings** table for RAG-grounded AI advies (#22).
+- ~~**pgvector + `kennisdocument`/embeddings** table for RAG-grounded AI advies (#22).~~ ✅ done — `kennisdocument(_chunk)` + pgvector; ingest via `seed:kennis`; see `docs/decisions/coachplan-vragenlijst-en-rag.md`.
 - **`readAudit` policy** — relax to formalise keyuser tenant-scoped audit (currently enforced in-handler).
 
 ## Production config (before go-live)

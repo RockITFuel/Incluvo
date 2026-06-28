@@ -17,6 +17,7 @@
 		"lint": "oxlint -c .oxlintrc.json apps/*/src packages",
 		"format": "oxfmt --write .",
 		"format:check": "oxfmt --check .",
+		"db:pgvector": "bun run --cwd packages/drizzle pgvector",
 		"db:push": "bun run --cwd packages/drizzle push",
 		"db:generate": "bun run --cwd packages/drizzle generate",
 		"db:migrate": "bun run --cwd packages/drizzle migrate",

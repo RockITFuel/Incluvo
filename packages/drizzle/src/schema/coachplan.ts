@@ -85,6 +85,12 @@ export const formQuestion = pgTable("form_question", {
 	helpText: text("help_text"),
 	required: boolean("required").notNull().default(false),
 	position: integer("position").notNull().default(0),
+	// Template-level correspondence (#18): a leerling question may point at a
+	// coach (POPP) question. When the leerling answers it, `submit` auto-creates
+	// an `answerCoachMapping` so the answer prefills the coach's POPP field (the
+	// coach can still override). Plain uuid (no inline self-ref) to mirror
+	// `formTemplate.parentTemplateId`.
+	mapsToQuestionId: uuid("maps_to_question_id"),
 	// Options for choice/scale/leervoorkeur questions, as JSON.
 	options: jsonb("options"),
 	createdAt: timestamp("created_at").notNull().defaultNow(),

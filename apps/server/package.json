@@ -8,6 +8,7 @@
 		"seed:demo": "BETTER_AUTH_URL=http://localhost:3200 bun --env-file=../../.env src/seed-demo.ts",
 		"seed:coachplan": "BETTER_AUTH_URL=http://localhost:3200 bun --env-file=../../.env src/seed-coachplan.ts",
 		"seed:courses": "BETTER_AUTH_URL=http://localhost:3200 bun --env-file=../../.env src/seed-courses.ts",
+		"seed:kennis": "BETTER_AUTH_URL=http://localhost:3200 bun --env-file=../../.env src/seed-kennis.ts",
 		"check-types": "tsc --noEmit"
 	},
 	"dependencies": {

@@ -29,6 +29,8 @@ export interface AiConfig {
 	readonly apiKey: string | undefined;
 	readonly model: string;
 	readonly transcribeModel: string;
+	/** Embeddings model for the kennisdocumenten RAG-laag (#20/#22). */
+	readonly embedModel: string;
 }
 
 /**
@@ -108,11 +110,13 @@ export function readAiConfig(): AiConfig {
 	const model = process.env.AI_MODEL?.trim() || "gpt-4o-mini";
 	const transcribeModel =
 		process.env.AI_TRANSCRIBE_MODEL?.trim() || "gpt-4o-transcribe";
+	const embedModel =
+		process.env.AI_EMBED_MODEL?.trim() || "text-embedding-3-small";
 
 	// Both a base URL and a key are required to go live; otherwise mock.
 	const live = Boolean(baseURL && apiKey);
 
-	return { live, baseURL, apiKey, model, transcribeModel };
+	return { live, baseURL, apiKey, model, transcribeModel, embedModel };
 }
 
 /** Whether the AI layer is running against the mock provider (no credentials). */

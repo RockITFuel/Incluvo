@@ -1,6 +1,8 @@
 services:
   postgres:
-    image: postgres:18-alpine
+    # pgvector image (Postgres 18) for the kennisdocumenten RAG-laag (#20/#22).
+    # Drop-in for postgres:18; run `CREATE EXTENSION vector` once (db:pgvector).
+    image: pgvector/pgvector:pg18
     restart: unless-stopped
     environment:
       POSTGRES_USER: incluvo

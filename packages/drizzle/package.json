@@ -26,6 +26,7 @@
 		"generate": "drizzle-kit generate",
 		"migrate": "drizzle-kit migrate",
 		"push": "drizzle-kit push",
+		"pgvector": "bun --env-file=../../.env run src/enable-pgvector.ts",
 		"studio": "drizzle-kit studio",
 		"seed": "bun run src/seed/index.ts",
 		"check-types": "tsc --noEmit"

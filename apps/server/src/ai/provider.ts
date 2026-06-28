@@ -13,6 +13,7 @@
  * EU endpoint (or vendor) is a config change, not a code change.
  */
 
+import { KENNIS_EMBED_DIM } from "@incluvo/drizzle/schema";
 import OpenAI from "openai";
 import { type AiConfig, assertEuResidency, readAiConfig } from "./config";
 import {
@@ -62,6 +63,13 @@ export interface AiProvider {
 	streamAdvice(input: {
 		messages: AdviceMessage[];
 	}): AsyncIterable<string>;
+
+	/**
+	 * #20 — embed one or more texts for the kennisdocumenten RAG-laag. Returns a
+	 * `KENNIS_EMBED_DIM`-length vector per input (same order). The mock returns
+	 * deterministic vectors so ingestion + retrieval are demoable offline.
+	 */
+	embed(texts: string[]): Promise<number[][]>;
 }
 
 // ---------------------------------------------------------------------------
@@ -161,6 +169,52 @@ class OpenAiCompatibleProvider implements AiProvider {
 			if (delta) yield delta;
 		}
 	}
+
+	async embed(texts: string[]): Promise<number[][]> {
+		if (texts.length === 0) return [];
+		const res = await this.client.embeddings.create({
+			model: this.config.embedModel,
+			input: texts,
+		});
+		// Preserve input order and coerce to the fixed column dimension.
+		return res.data
+			.toSorted((a, b) => a.index - b.index)
+			.map((d) => fitToDim(d.embedding as number[]));
+	}
+}
+
+/** Coerce a vector to exactly `KENNIS_EMBED_DIM` (pad with 0 / truncate). */
+function fitToDim(v: number[]): number[] {
+	if (v.length === KENNIS_EMBED_DIM) return v;
+	if (v.length > KENNIS_EMBED_DIM) return v.slice(0, KENNIS_EMBED_DIM);
+	return [...v, ...Array.from({ length: KENNIS_EMBED_DIM - v.length }, () => 0)];
+}
+
+/**
+ * Deterministic, dependency-free mock embedding (#20). Hashes whitespace tokens
+ * into a fixed-width bag-of-words vector and L2-normalises it, so identical or
+ * overlapping texts land near each other under cosine distance. Not semantic —
+ * a stand-in so ingestion + retrieval work offline without an embeddings API.
+ */
+function mockEmbed(text: string): number[] {
+	const counts = new Map<number, number>();
+	const tokens = text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+	for (const tok of tokens) {
+		let h = 2166136261;
+		for (let i = 0; i < tok.length; i++) {
+			h ^= tok.charCodeAt(i);
+			h = Math.imul(h, 16777619);
+		}
+		const idx = Math.abs(h) % KENNIS_EMBED_DIM;
+		counts.set(idx, (counts.get(idx) ?? 0) + 1);
+	}
+	let norm = 0;
+	for (const c of counts.values()) norm += c * c;
+	norm = Math.sqrt(norm) || 1;
+	return Array.from(
+		{ length: KENNIS_EMBED_DIM },
+		(_, i) => (counts.get(i) ?? 0) / norm,
+	);
 }
 
 // ---------------------------------------------------------------------------
@@ -247,6 +301,10 @@ class MockProvider implements AiProvider {
 			await new Promise((r) => setTimeout(r, 18));
 			yield token;
 		}
+	}
+
+	async embed(texts: string[]): Promise<number[][]> {
+		return texts.map(mockEmbed);
 	}
 }
 

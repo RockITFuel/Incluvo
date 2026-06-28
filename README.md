@@ -54,13 +54,24 @@ cp .env.example .env   # then edit if needed
 docker compose up -d
 
 # 4. Create the schema, the audit trigger, and seed data
+bun run db:pgvector   # enable the pgvector extension (once, before db:push — #20 RAG)
 bun run db:push
 psql "$DATABASE_URL" -f packages/drizzle/drizzle/audit-trigger.sql
 bun run db:seed
 
-# 5. Run everything (server :3210, web :3200)
+# 5. (optional) Domain seeds — coachplan questionnaire, courses, kennisdocumenten
+bun run --cwd apps/server seed:demo
+bun run --cwd apps/server seed:coachplan   # Ondivera "Mijn Plan" + POPP (#18)
+bun run --cwd apps/server seed:courses
+bun run --cwd apps/server seed:kennis      # ingest kennisdocumenten for AI-advies (#20)
+
+# 6. Run everything (server :3210, web :3200)
 bun run dev
 ```
+
+> The `kennisdocumenten` RAG-laag (#20/#22) needs the `pgvector/pgvector` Postgres
+> image (already set in `docker-compose.yml`) and the `db:pgvector` step above.
+> With no `AI_*` credentials, embeddings + advice run on a deterministic **mock**.
 
 Then open:
 
@@ -82,6 +93,7 @@ Then open:
 | `bun run check-types` | Typecheck every package                      |
 | `bun run lint`        | oxlint                                        |
 | `bun run format`      | oxfmt --write                                |
+| `bun run db:pgvector` | Enable the pgvector extension (run before push) |
 | `bun run db:push`     | Push Drizzle schema to the database          |
 | `bun run db:generate` | Generate a SQL migration                     |
 | `bun run db:migrate`  | Apply migrations                             |
