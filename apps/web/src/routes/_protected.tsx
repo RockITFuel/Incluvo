@@ -16,6 +16,15 @@ import { useMe } from "../lib/auth/use-me";
  */
 export const Route = createFileRoute("/_protected")({
 	beforeLoad: async () => {
+		// The SPA shell is prerendered with Bun at build time, where there is no
+		// `window` and no backend to reach. Calling `getSession()` there hits an
+		// empty baseURL (see auth-client) and throws "fetch() URL is invalid",
+		// which gets baked into the shell so every protected route renders the
+		// error boundary on first paint. Skip the probe during prerender; the real
+		// gate runs client-side on load and the server enforces auth on every RPC.
+		if (typeof window === "undefined") {
+			return { user: undefined };
+		}
 		const { data } = await authClient.getSession();
 		if (!data?.session) {
 			throw redirect({ to: "/login" });

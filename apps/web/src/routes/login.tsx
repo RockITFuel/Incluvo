@@ -1,5 +1,6 @@
+import { atLeast, type UserRole } from "@incluvo/permissions";
 import { createFileRoute, useRouter } from "@tanstack/solid-router";
-import { Show, createSignal } from "solid-js";
+import { Show, createSignal, onMount } from "solid-js";
 import { PublicLayout } from "../components/shell/public-layout";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
@@ -17,12 +18,17 @@ function Login() {
 	const [mode, setMode] = createSignal<"sign-in" | "sign-up">("sign-in");
 	const [error, setError] = createSignal<string | null>(null);
 	const [busy, setBusy] = createSignal(false);
+	// Guards against a native GET form submit before the SPA hydrates (which
+	// would put the e-mail + password in the URL/history). The button stays
+	// disabled in the prerendered shell until `onMount` runs on the client.
+	const [ready, setReady] = createSignal(false);
+	onMount(() => setReady(true));
 
 	async function submit(e: Event) {
 		e.preventDefault();
 		setBusy(true);
 		setError(null);
-		const { error: err } =
+		const { data, error: err } =
 			mode() === "sign-in"
 				? await authClient.signIn.email({
 						email: email(),
@@ -38,7 +44,11 @@ function Login() {
 			setError(err.message ?? "Er ging iets mis");
 			return;
 		}
-		router.navigate({ to: "/items" });
+		// Land on the role's real home, not the demo `/items` route. coach+ get
+		// the dashboard; everyone else their task list.
+		const role = ((data?.user as { role?: string } | undefined)?.role ??
+			"member") as UserRole;
+		router.navigate({ to: atLeast(role, "coach") ? "/dashboard" : "/taken" });
 	}
 
 	return (
@@ -68,7 +78,7 @@ function Login() {
 								{error()}
 							</p>
 						</Show>
-						<Button type="submit" disabled={busy()}>
+						<Button type="submit" disabled={busy() || !ready()}>
 							{busy()
 								? "Bezig…"
 								: mode() === "sign-in"

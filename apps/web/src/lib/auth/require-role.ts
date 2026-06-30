@@ -19,6 +19,12 @@ export async function requireRole(
 	minRole: UserRole,
 	to: string = "/",
 ): Promise<{ role: UserRole }> {
+	// Skip the session probe during the Bun SPA-shell prerender (no `window`,
+	// empty auth baseURL → "fetch() URL is invalid", which would bake an error
+	// into the shell). The real check runs client-side; the server re-enforces.
+	if (typeof window === "undefined") {
+		return { role: minRole };
+	}
 	const { data } = await authClient.getSession();
 	const role = ((data?.user as { role?: string } | undefined)?.role ??
 		"member") as UserRole;
