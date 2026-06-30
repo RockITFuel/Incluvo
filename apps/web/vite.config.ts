@@ -19,5 +19,13 @@ export default defineConfig({
 		tanstackStart({ spa: { enabled: true } }),
 		solidPlugin({ ssr: true }),
 	],
+	preview: {
+		// Explicit IPv4 loopback — the SPA prerender step starts a Vite preview
+		// server and fetches from it. In Docker with Bun, "localhost" can resolve
+		// to ::1 (IPv6) on one side and 127.0.0.1 (IPv4) on the other, causing
+		// ConnectionRefused ("Unable to connect") during the build. Pinning to
+		// 127.0.0.1 avoids the mismatch. (Same fix as clp.)
+		host: "127.0.0.1",
+	},
 	server: { proxy },
 });
