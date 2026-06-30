@@ -22,6 +22,10 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/apps/server/dist ./dist
 COPY --from=builder /app/packages/drizzle/drizzle ./drizzle
+# CLP-style startup: migrate the DB (pgvector ext + Drizzle migrations + audit
+# trigger) before booting the server. Copied before the chown so it's owned by
+# the unprivileged runtime user.
+COPY apps/server/startup.ts ./startup.ts
 
 # Coachplan PDF rendering needs Chromium + its system libs (see coachplan/pdf.ts).
 # Install as root, then drop privileges. --with-deps pulls the apt dependencies.
@@ -34,4 +38,4 @@ RUN groupadd --system --gid 1001 incluvo \
 USER incluvo
 
 EXPOSE 3210
-CMD ["bun", "dist/index.js"]
+CMD ["bun", "startup.ts"]
