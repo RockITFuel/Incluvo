@@ -19,6 +19,15 @@ export default defineConfig({
 		tanstackStart({ spa: { enabled: true } }),
 		solidPlugin({ ssr: true }),
 	],
+	// CRITICAL: force a single Solid instance. The dependency tree can resolve
+	// two solid-js copies (apps/web pins 1.9.12, transitive deps pull 1.9.13).
+	// Bundling two Solid runtimes silently breaks hydration — the prerendered
+	// DOM renders but no events/onMount ever attach, so the whole SPA is inert.
+	// This reproduces ONLY in the Docker/CI install (which hoists 1.9.13),
+	// never in the local dev install — making it a deploy-only failure. Dedupe
+	// collapses them to one runtime. (Same fix as clp.)
+	optimizeDeps: { include: ["lucide-solid"] },
+	resolve: { dedupe: ["lucide-solid", "solid-js", "solid-js/web"] },
 	preview: {
 		// Explicit IPv4 loopback — the SPA prerender step starts a Vite preview
 		// server and fetches from it. In Docker with Bun, "localhost" can resolve
