@@ -1,6 +1,6 @@
 import { atLeast, type UserRole } from "@incluvo/permissions";
 import { redirect } from "@tanstack/solid-router";
-import { authClient } from "./auth-client";
+import { getCachedSession } from "./session";
 
 /**
  * Route guard for `beforeLoad`. Ensures the signed-in user's session role is at
@@ -25,7 +25,7 @@ export async function requireRole(
 	if (typeof window === "undefined") {
 		return { role: minRole };
 	}
-	const { data } = await authClient.getSession();
+	const data = await getCachedSession();
 	const role = ((data?.user as { role?: string } | undefined)?.role ??
 		"member") as UserRole;
 

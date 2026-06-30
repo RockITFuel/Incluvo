@@ -8,7 +8,7 @@ import {
 import { createEffect, createSignal, onMount, Show } from "solid-js";
 import { AppShell } from "../components/shell/app-shell";
 import { navForRole, roleLabel } from "../components/shell/nav";
-import { authClient } from "../lib/auth/auth-client";
+import { getCachedSession } from "../lib/auth/session";
 import { useMe } from "../lib/auth/use-me";
 
 /**
@@ -30,7 +30,7 @@ export const Route = createFileRoute("/_protected")({
 		if (typeof window === "undefined") {
 			return { user: undefined };
 		}
-		const { data } = await authClient.getSession();
+		const data = await getCachedSession();
 		if (!data?.session) {
 			throw redirect({ to: "/login" });
 		}

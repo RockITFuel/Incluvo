@@ -3,6 +3,7 @@ import { useRouter } from "@tanstack/solid-router";
 import { ChevronDown, LogOut, User as UserIcon } from "lucide-solid";
 import { Show } from "solid-js";
 import { authClient } from "../../lib/auth/auth-client";
+import { clearCachedSession } from "../../lib/auth/session";
 import { Avatar } from "../ui/avatar";
 
 export type ShellUser = {
@@ -24,6 +25,7 @@ export function UserMenu(props: { user: ShellUser }) {
 
 	async function signOut() {
 		await authClient.signOut();
+		clearCachedSession();
 		router.navigate({ to: "/login" });
 	}
 
