@@ -49,12 +49,6 @@ export const auth = betterAuth({
 			"/sign-up/email": { window: 60, max: 5 },
 			"/forget-password": { window: 60, max: 3 },
 			"/reset-password": { window: 60, max: 5 },
-			// `get-session` is a read-only session probe the SPA calls on every
-			// navigation/route preload — it is not a brute-force target and must
-			// not share the tight global budget (that caused 429 floods). The
-			// client also caches it for 30s (see lib/auth/session.ts); this is a
-			// generous ceiling for multi-tab / reload bursts.
-			"/get-session": { window: 60, max: 120 },
 		},
 	},
 	plugins: [bearer()],
