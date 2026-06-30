@@ -6,8 +6,9 @@
 		"suspicious": "warn"
 	},
 	"rules": {
-		"eqeqeq": "error",
+		"eqeqeq": ["error", "always", { "null": "ignore" }],
 		"no-console": "off",
+		"no-unassigned-vars": "off",
 		"typescript/no-explicit-any": "warn",
 		"unicorn/prefer-node-protocol": "error"
 	},

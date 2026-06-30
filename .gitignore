@@ -10,8 +10,8 @@ dist
 .env.local
 .env.*.local
 
-# generated
-apps/web/src/routeTree.gen.ts
+# generated route tree — committed (like clp) so CI type-check has it; the
+# Vite build regenerates it. See apps/web/vite.config.ts (TanStack Start plugin).
 
 # local-dev course uploads (S3 fallback)
 apps/server/uploads

@@ -40,6 +40,7 @@ function ensureDomListener(type: string) {
 		// closure freeze).
 		const subs = registry.get(type);
 		if (!subs) return;
+		// oxlint-disable-next-line unicorn/no-useless-spread -- deliberate snapshot (see above)
 		for (const ref of [...subs]) ref.current(payload);
 	};
 	domListeners.set(type, listener);
