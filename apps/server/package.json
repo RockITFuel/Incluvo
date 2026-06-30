@@ -4,7 +4,7 @@
 	"type": "module",
 	"scripts": {
 		"dev": "PORT=3210 BETTER_AUTH_URL=http://localhost:3200 bun --env-file=../../.env --watch src/index.ts",
-		"build": "bun build src/index.ts --outdir dist --target bun",
+		"build": "bun build src/index.ts --outdir dist --target bun --external playwright",
 		"seed:demo": "BETTER_AUTH_URL=http://localhost:3200 bun --env-file=../../.env src/seed-demo.ts",
 		"seed:coachplan": "BETTER_AUTH_URL=http://localhost:3200 bun --env-file=../../.env src/seed-coachplan.ts",
 		"seed:courses": "BETTER_AUTH_URL=http://localhost:3200 bun --env-file=../../.env src/seed-courses.ts",
