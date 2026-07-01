@@ -31,6 +31,18 @@ export interface AiConfig {
 	readonly transcribeModel: string;
 	/** Embeddings model for the kennisdocumenten RAG-laag (#20/#22). */
 	readonly embedModel: string;
+	/**
+	 * Optional DEDICATED embeddings endpoint. The chat/transcription provider
+	 * (e.g. Groq) may not serve embeddings, so embeddings can be pointed at a
+	 * separate OpenAI-compatible endpoint. When unset, `embed()` falls back to a
+	 * deterministic mock (never a broken call against a chat-only provider).
+	 * Must be EU-allow-listed too — it carries minors' data.
+	 */
+	readonly embedBaseURL: string | undefined;
+	readonly embedApiKey: string | undefined;
+	/** Per-request timeout (ms) and retry budget for provider calls. */
+	readonly timeoutMs: number;
+	readonly maxRetries: number;
 }
 
 /**
@@ -86,22 +98,25 @@ export function isAllowedAiBaseUrl(baseURL: string): boolean {
  * a live endpoint is configured but its host is not approved — so minors' data
  * can never silently flow to a non-EU endpoint. No-op for the mock provider.
  */
-export function assertEuResidency(config: AiConfig): void {
-	if (!config.live || !config.baseURL) return;
-	if (!isAllowedAiBaseUrl(config.baseURL)) {
-		const host = (() => {
-			try {
-				return new URL(config.baseURL as string).hostname;
-			} catch {
-				return config.baseURL;
-			}
-		})();
-		throw new Error(
-			`AI EU residency check failed: AI_BASE_URL host "${host}" is not on the ` +
-				`approved allow-list (${allowedAiHosts().join(", ")}). Refusing to send ` +
-				`minors' data to a non-EU endpoint. Fix AI_BASE_URL or set AI_ALLOWED_HOSTS.`,
-		);
+function assertHostAllowed(url: string, envName: string): void {
+	if (isAllowedAiBaseUrl(url)) return;
+	let host: string;
+	try {
+		host = new URL(url).hostname;
+	} catch {
+		host = url;
 	}
+	throw new Error(
+		`AI EU residency check failed: ${envName} host "${host}" is not on the ` +
+			`approved allow-list (${allowedAiHosts().join(", ")}). Refusing to send ` +
+			`minors' data to a non-EU endpoint. Fix ${envName} or set AI_ALLOWED_HOSTS.`,
+	);
+}
+
+export function assertEuResidency(config: AiConfig): void {
+	if (config.live && config.baseURL) assertHostAllowed(config.baseURL, "AI_BASE_URL");
+	// The dedicated embeddings endpoint carries minors' data too — gate it.
+	if (config.embedBaseURL) assertHostAllowed(config.embedBaseURL, "AI_EMBED_BASE_URL");
 }
 
 export function readAiConfig(): AiConfig {
@@ -112,11 +127,29 @@ export function readAiConfig(): AiConfig {
 		process.env.AI_TRANSCRIBE_MODEL?.trim() || "gpt-4o-transcribe";
 	const embedModel =
 		process.env.AI_EMBED_MODEL?.trim() || "text-embedding-3-small";
+	const embedBaseURL = process.env.AI_EMBED_BASE_URL?.trim() || undefined;
+	const embedApiKey = process.env.AI_EMBED_API_KEY?.trim() || undefined;
+
+	const timeoutMs = Number(process.env.AI_REQUEST_TIMEOUT_MS) || 60_000;
+	const maxRetries = Number.isFinite(Number(process.env.AI_MAX_RETRIES))
+		? Number(process.env.AI_MAX_RETRIES)
+		: 2;
 
 	// Both a base URL and a key are required to go live; otherwise mock.
 	const live = Boolean(baseURL && apiKey);
 
-	return { live, baseURL, apiKey, model, transcribeModel, embedModel };
+	return {
+		live,
+		baseURL,
+		apiKey,
+		model,
+		transcribeModel,
+		embedModel,
+		embedBaseURL,
+		embedApiKey,
+		timeoutMs,
+		maxRetries,
+	};
 }
 
 /** Whether the AI layer is running against the mock provider (no credentials). */

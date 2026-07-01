@@ -26,11 +26,15 @@ export async function retrieveKennisHits(
 	db: Db,
 	provider: AiProvider,
 	query: string,
-	opts: { organizationId?: string | null; limit?: number } = {},
+	opts: {
+		organizationId?: string | null;
+		limit?: number;
+		signal?: AbortSignal;
+	} = {},
 ): Promise<KennisHit[]> {
 	const text = query.trim();
 	if (!text) return [];
-	const [embedding] = await provider.embed([text]);
+	const [embedding] = await provider.embed([text], opts.signal);
 	if (!embedding) return [];
 
 	const distance = cosineDistance(kennisdocumentChunk.embedding, embedding);

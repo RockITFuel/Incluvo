@@ -41,7 +41,11 @@ export interface AiProvider {
 	readonly model: string;
 
 	/** #1 — translate text to a target language code (nl/en/ar/uk/…). */
-	translate(text: string, targetLanguageCode: string): Promise<string>;
+	translate(
+		text: string,
+		targetLanguageCode: string,
+		signal?: AbortSignal,
+	): Promise<string>;
 
 	/**
 	 * #18 — produce a transcript from audio (or, in mock/dev, from a text
@@ -54,14 +58,17 @@ export interface AiProvider {
 		/** Text stand-in for the transcript (mock/dev path). */
 		textStandIn?: string;
 		questions: CoachQuestionRef[];
+		signal?: AbortSignal;
 	}): Promise<TranscribeResult>;
 
 	/**
 	 * #22 — stream interventie-advies token by token. Returns an async iterable
-	 * of text deltas, consumed by the oRPC Event Iterator.
+	 * of text deltas, consumed by the oRPC Event Iterator. Pass the request's
+	 * `signal` so a client disconnect cancels the upstream provider call.
 	 */
 	streamAdvice(input: {
 		messages: AdviceMessage[];
+		signal?: AbortSignal;
 	}): AsyncIterable<string>;
 
 	/**
@@ -69,7 +76,7 @@ export interface AiProvider {
 	 * `KENNIS_EMBED_DIM`-length vector per input (same order). The mock returns
 	 * deterministic vectors so ingestion + retrieval are demoable offline.
 	 */
-	embed(texts: string[]): Promise<number[][]>;
+	embed(texts: string[], signal?: AbortSignal): Promise<number[][]>;
 }
 
 // ---------------------------------------------------------------------------
@@ -81,27 +88,55 @@ class OpenAiCompatibleProvider implements AiProvider {
 	readonly model: string;
 	private readonly client: OpenAI;
 	private readonly config: AiConfig;
+	/**
+	 * Dedicated embeddings client. Undefined when no separate embeddings endpoint
+	 * is configured — the chat provider (e.g. Groq) may not serve embeddings, so
+	 * `embed()` then falls back to a deterministic mock instead of making a call
+	 * that would 404.
+	 */
+	private readonly embedClient: OpenAI | undefined;
 
 	constructor(config: AiConfig) {
-		// EU data-residency gate — fail closed if the base URL host isn't on the
-		// approved EU allow-list, so minors' data never reaches a non-EU endpoint.
+		// EU data-residency gate — fail closed if the base URL host (or the
+		// dedicated embeddings host) isn't on the approved EU allow-list, so
+		// minors' data never reaches a non-EU endpoint.
 		assertEuResidency(config);
 		this.config = config;
 		this.model = config.model;
 		this.client = new OpenAI({
 			apiKey: config.apiKey,
 			baseURL: config.baseURL,
+			// A hung upstream must not hang the request forever; retries cover
+			// transient connection errors (streams aren't retried once flowing).
+			timeout: config.timeoutMs,
+			maxRetries: config.maxRetries,
 		});
+		this.embedClient =
+			config.embedBaseURL && config.embedApiKey
+				? new OpenAI({
+						apiKey: config.embedApiKey,
+						baseURL: config.embedBaseURL,
+						timeout: config.timeoutMs,
+						maxRetries: config.maxRetries,
+					})
+				: undefined;
 	}
 
-	async translate(text: string, targetLanguageCode: string): Promise<string> {
-		const res = await this.client.chat.completions.create({
-			model: this.model,
-			messages: [
-				{ role: "system", content: translateSystemPrompt(languageName(targetLanguageCode)) },
-				{ role: "user", content: text },
-			],
-		});
+	async translate(
+		text: string,
+		targetLanguageCode: string,
+		signal?: AbortSignal,
+	): Promise<string> {
+		const res = await this.client.chat.completions.create(
+			{
+				model: this.model,
+				messages: [
+					{ role: "system", content: translateSystemPrompt(languageName(targetLanguageCode)) },
+					{ role: "user", content: text },
+				],
+			},
+			{ signal },
+		);
 		return res.choices[0]?.message?.content?.trim() ?? "";
 	}
 
@@ -110,6 +145,7 @@ class OpenAiCompatibleProvider implements AiProvider {
 		audioFilename?: string;
 		textStandIn?: string;
 		questions: CoachQuestionRef[];
+		signal?: AbortSignal;
 	}): Promise<TranscribeResult> {
 		let transcript: string;
 		if (input.audio) {
@@ -117,11 +153,14 @@ class OpenAiCompatibleProvider implements AiProvider {
 				[new Uint8Array(input.audio)],
 				input.audioFilename ?? "gesprek.webm",
 			);
-			const res = await this.client.audio.transcriptions.create({
-				file,
-				model: this.config.transcribeModel,
-				language: "nl",
-			});
+			const res = await this.client.audio.transcriptions.create(
+				{
+					file,
+					model: this.config.transcribeModel,
+					language: "nl",
+				},
+				{ signal: input.signal },
+			);
 			transcript = res.text;
 		} else {
 			// A text stand-in lets the real provider still propose answers from a
@@ -129,21 +168,29 @@ class OpenAiCompatibleProvider implements AiProvider {
 			transcript = input.textStandIn ?? "";
 		}
 
-		const proposals = await this.proposeAnswers(transcript, input.questions);
+		const proposals = await this.proposeAnswers(
+			transcript,
+			input.questions,
+			input.signal,
+		);
 		return { transcript, proposals };
 	}
 
 	private async proposeAnswers(
 		transcript: string,
 		questions: CoachQuestionRef[],
+		signal?: AbortSignal,
 	): Promise<ProposedAnswer[]> {
 		if (!transcript.trim() || questions.length === 0) return [];
 		const messages = buildAnswerProposalMessages(transcript, questions);
-		const res = await this.client.chat.completions.create({
-			model: this.model,
-			messages,
-			response_format: { type: "json_object" },
-		});
+		const res = await this.client.chat.completions.create(
+			{
+				model: this.model,
+				messages,
+				response_format: { type: "json_object" },
+			},
+			{ signal },
+		);
 		const raw = res.choices[0]?.message?.content ?? "{}";
 		try {
 			const parsed = JSON.parse(raw) as { answers?: ProposedAnswer[] };
@@ -158,24 +205,35 @@ class OpenAiCompatibleProvider implements AiProvider {
 
 	async *streamAdvice(input: {
 		messages: AdviceMessage[];
+		signal?: AbortSignal;
 	}): AsyncIterable<string> {
-		const stream = await this.client.chat.completions.create({
-			model: this.model,
-			stream: true,
-			messages: input.messages,
-		});
+		const stream = await this.client.chat.completions.create(
+			{
+				model: this.model,
+				stream: true,
+				messages: input.messages,
+			},
+			{ signal: input.signal },
+		);
 		for await (const chunk of stream) {
 			const delta = chunk.choices[0]?.delta?.content;
 			if (delta) yield delta;
 		}
 	}
 
-	async embed(texts: string[]): Promise<number[][]> {
+	async embed(texts: string[], signal?: AbortSignal): Promise<number[][]> {
 		if (texts.length === 0) return [];
-		const res = await this.client.embeddings.create({
-			model: this.config.embedModel,
-			input: texts,
-		});
+		// No dedicated embeddings endpoint → deterministic mock rather than a
+		// call the chat provider (e.g. Groq) can't serve. Keeps RAG degrading
+		// gracefully to non-semantic retrieval instead of throwing.
+		if (!this.embedClient) return texts.map(mockEmbed);
+		const res = await this.embedClient.embeddings.create(
+			{
+				model: this.config.embedModel,
+				input: texts,
+			},
+			{ signal },
+		);
 		// Preserve input order and coerce to the fixed column dimension.
 		return res.data
 			.toSorted((a, b) => a.index - b.index)

@@ -81,7 +81,7 @@ const translate = protectedProcedure
 			mock: z.boolean(),
 		}),
 	)
-	.handler(async ({ input, context }) => {
+	.handler(async ({ input, context, signal }) => {
 		// Throttle the abusable translation endpoint per user (H3).
 		if (!rateLimit(`ai:translate:${context.actor.userId}`, { max: 30, windowMs: 60_000 })) {
 			throw new ORPCError("TOO_MANY_REQUESTS", {
@@ -89,7 +89,11 @@ const translate = protectedProcedure
 			});
 		}
 		const provider = getAiProvider();
-		const translated = await provider.translate(input.text, input.targetLanguage);
+		const translated = await provider.translate(
+			input.text,
+			input.targetLanguage,
+			signal,
+		);
 		return { translated, targetLanguage: input.targetLanguage, mock: provider.mock };
 	});
 
@@ -142,7 +146,7 @@ const transcribe = coachProcedure
 			mock: z.boolean(),
 		}),
 	)
-	.handler(async ({ input, context }) => {
+	.handler(async ({ input, context, signal }) => {
 		// Throttle transcription per user — it hits the AI provider and persists
 		// minors' audio-derived text (H3).
 		if (!rateLimit(`ai:transcribe:${context.actor.userId}`, { max: 10, windowMs: 60_000 })) {
@@ -201,6 +205,7 @@ const transcribe = coachProcedure
 					label: q.label,
 					helpText: q.helpText,
 				})),
+				signal,
 			});
 		} catch (err) {
 			await context.db
@@ -313,7 +318,7 @@ const assistant = coachProcedure
 			messages: z.array(AdviceMessageSchema).min(1),
 		}),
 	)
-	.handler(async function* ({ input, context }) {
+	.handler(async function* ({ input, context, signal }) {
 		// Throttle the streaming advice endpoint per user (H3).
 		if (!rateLimit(`ai:assistant:${context.actor.userId}`, { max: 20, windowMs: 60_000 })) {
 			throw new ORPCError("TOO_MANY_REQUESTS", {
@@ -337,6 +342,7 @@ const assistant = coachProcedure
 			if (lastUser) {
 				const hits = await retrieveKennisHits(context.db, provider, lastUser.content, {
 					organizationId: context.actor.organizationId,
+					signal,
 				});
 				const kennis = formatKennisContext(hits);
 				if (kennis) {
@@ -363,7 +369,7 @@ const assistant = coachProcedure
 			| { delta: string }
 			| { done: true };
 
-		for await (const delta of provider.streamAdvice({ messages })) {
+		for await (const delta of provider.streamAdvice({ messages, signal })) {
 			yield { delta };
 		}
 		yield { done: true };
