@@ -72,7 +72,11 @@ export function UserMenu(props: { user: ShellUser }) {
 						</div>
 					</div>
 					<DropdownMenu.Separator class="my-1 border-line-2 border-t" />
-					<DropdownMenu.Item class={itemClass} closeOnSelect>
+					<DropdownMenu.Item
+						class={itemClass}
+						closeOnSelect
+						onSelect={() => router.navigate({ to: "/profiel" })}
+					>
 						<UserIcon class="size-4" /> Mijn profiel
 					</DropdownMenu.Item>
 					<DropdownMenu.Item class={itemClass} onSelect={signOut}>

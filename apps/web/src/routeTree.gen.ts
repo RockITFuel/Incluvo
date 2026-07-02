@@ -15,6 +15,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as ProtectedItemsRouteImport } from './routes/_protected/items'
 import { Route as ProtectedWelkomIndexRouteImport } from './routes/_protected/welkom/index'
 import { Route as ProtectedTakenIndexRouteImport } from './routes/_protected/taken/index'
+import { Route as ProtectedProfielIndexRouteImport } from './routes/_protected/profiel/index'
 import { Route as ProtectedPlanIndexRouteImport } from './routes/_protected/plan/index'
 import { Route as ProtectedNotificatiesIndexRouteImport } from './routes/_protected/notificaties/index'
 import { Route as ProtectedDashboardIndexRouteImport } from './routes/_protected/dashboard/index'
@@ -55,6 +56,11 @@ const ProtectedWelkomIndexRoute = ProtectedWelkomIndexRouteImport.update({
 const ProtectedTakenIndexRoute = ProtectedTakenIndexRouteImport.update({
   id: '/taken/',
   path: '/taken/',
+  getParentRoute: () => ProtectedRoute,
+} as any)
+const ProtectedProfielIndexRoute = ProtectedProfielIndexRouteImport.update({
+  id: '/profiel/',
+  path: '/profiel/',
   getParentRoute: () => ProtectedRoute,
 } as any)
 const ProtectedPlanIndexRoute = ProtectedPlanIndexRouteImport.update({
@@ -139,6 +145,7 @@ export interface FileRoutesByFullPath {
   '/dashboard/': typeof ProtectedDashboardIndexRoute
   '/notificaties/': typeof ProtectedNotificatiesIndexRoute
   '/plan/': typeof ProtectedPlanIndexRoute
+  '/profiel/': typeof ProtectedProfielIndexRoute
   '/taken/': typeof ProtectedTakenIndexRoute
   '/welkom/': typeof ProtectedWelkomIndexRoute
   '/plan/beheer/': typeof ProtectedPlanBeheerIndexRoute
@@ -158,6 +165,7 @@ export interface FileRoutesByTo {
   '/dashboard': typeof ProtectedDashboardIndexRoute
   '/notificaties': typeof ProtectedNotificatiesIndexRoute
   '/plan': typeof ProtectedPlanIndexRoute
+  '/profiel': typeof ProtectedProfielIndexRoute
   '/taken': typeof ProtectedTakenIndexRoute
   '/welkom': typeof ProtectedWelkomIndexRoute
   '/plan/beheer': typeof ProtectedPlanBeheerIndexRoute
@@ -179,6 +187,7 @@ export interface FileRoutesById {
   '/_protected/dashboard/': typeof ProtectedDashboardIndexRoute
   '/_protected/notificaties/': typeof ProtectedNotificatiesIndexRoute
   '/_protected/plan/': typeof ProtectedPlanIndexRoute
+  '/_protected/profiel/': typeof ProtectedProfielIndexRoute
   '/_protected/taken/': typeof ProtectedTakenIndexRoute
   '/_protected/welkom/': typeof ProtectedWelkomIndexRoute
   '/_protected/plan/beheer/': typeof ProtectedPlanBeheerIndexRoute
@@ -200,6 +209,7 @@ export interface FileRouteTypes {
     | '/dashboard/'
     | '/notificaties/'
     | '/plan/'
+    | '/profiel/'
     | '/taken/'
     | '/welkom/'
     | '/plan/beheer/'
@@ -219,6 +229,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/notificaties'
     | '/plan'
+    | '/profiel'
     | '/taken'
     | '/welkom'
     | '/plan/beheer'
@@ -239,6 +250,7 @@ export interface FileRouteTypes {
     | '/_protected/dashboard/'
     | '/_protected/notificaties/'
     | '/_protected/plan/'
+    | '/_protected/profiel/'
     | '/_protected/taken/'
     | '/_protected/welkom/'
     | '/_protected/plan/beheer/'
@@ -292,6 +304,13 @@ declare module '@tanstack/solid-router' {
       path: '/taken'
       fullPath: '/taken/'
       preLoaderRoute: typeof ProtectedTakenIndexRouteImport
+      parentRoute: typeof ProtectedRoute
+    }
+    '/_protected/profiel/': {
+      id: '/_protected/profiel/'
+      path: '/profiel'
+      fullPath: '/profiel/'
+      preLoaderRoute: typeof ProtectedProfielIndexRouteImport
       parentRoute: typeof ProtectedRoute
     }
     '/_protected/plan/': {
@@ -394,6 +413,7 @@ interface ProtectedRouteChildren {
   ProtectedDashboardIndexRoute: typeof ProtectedDashboardIndexRoute
   ProtectedNotificatiesIndexRoute: typeof ProtectedNotificatiesIndexRoute
   ProtectedPlanIndexRoute: typeof ProtectedPlanIndexRoute
+  ProtectedProfielIndexRoute: typeof ProtectedProfielIndexRoute
   ProtectedTakenIndexRoute: typeof ProtectedTakenIndexRoute
   ProtectedWelkomIndexRoute: typeof ProtectedWelkomIndexRoute
   ProtectedPlanBeheerIndexRoute: typeof ProtectedPlanBeheerIndexRoute
@@ -412,6 +432,7 @@ const ProtectedRouteChildren: ProtectedRouteChildren = {
   ProtectedDashboardIndexRoute: ProtectedDashboardIndexRoute,
   ProtectedNotificatiesIndexRoute: ProtectedNotificatiesIndexRoute,
   ProtectedPlanIndexRoute: ProtectedPlanIndexRoute,
+  ProtectedProfielIndexRoute: ProtectedProfielIndexRoute,
   ProtectedTakenIndexRoute: ProtectedTakenIndexRoute,
   ProtectedWelkomIndexRoute: ProtectedWelkomIndexRoute,
   ProtectedPlanBeheerIndexRoute: ProtectedPlanBeheerIndexRoute,

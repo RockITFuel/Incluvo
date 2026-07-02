@@ -6,11 +6,13 @@ import {
 	redirect,
 	useNavigate,
 } from "@tanstack/solid-router";
+import { useQuery } from "@tanstack/solid-query";
 import { createEffect, createSignal, onMount, Show } from "solid-js";
 import { AppShell } from "../components/shell/app-shell";
 import { navForRole, roleLabel } from "../components/shell/nav";
 import { getCachedSession } from "../lib/auth/session";
 import { useMe } from "../lib/auth/use-me";
+import { orpc } from "../lib/orpc";
 
 /**
  * Layout route that gates everything under it behind an authenticated session
@@ -90,6 +92,23 @@ function AuthedShell() {
 
 	const role = (): UserRole => me.role();
 
+	// Live nav-badge counts, like the prototype's sidebar badges: a leerling
+	// sees their open taken voor vandaag, a coach the ingeleverde coachplannen.
+	// (Chat has no unread-concept in the API yet, so no chat badge — never
+	// fabricated.) Both queries piggyback on caches the pages themselves use.
+	const takenQuery = useQuery(() => ({
+		...orpc.tasks.list.queryOptions({ input: {} }),
+		enabled: me.is("leerling"),
+	}));
+	const inboxQuery = useQuery(() => ({
+		...orpc.coachplan.inbox.queryOptions(),
+		enabled: me.hasAtLeast("coach"),
+	}));
+	const badges = () => ({
+		taken: takenQuery.data?.vandaag.length ?? 0,
+		coachplannen: inboxQuery.data?.length ?? 0,
+	});
+
 	const user = () => {
 		const tone = role() === "coach" ? "coach" : "leerling";
 		return {
@@ -102,7 +121,7 @@ function AuthedShell() {
 	};
 
 	return (
-		<AppShell user={user()} nav={navForRole(role())}>
+		<AppShell user={user()} nav={navForRole(role(), badges())}>
 			<Outlet />
 		</AppShell>
 	);
