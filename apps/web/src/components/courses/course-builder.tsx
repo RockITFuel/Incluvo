@@ -1,20 +1,28 @@
 import { useQueryClient } from "@tanstack/solid-query";
 import {
+	Check,
 	ChevronDown,
+	ChevronRight,
 	ChevronUp,
+	ClipboardList,
+	Copy,
+	Eye,
+	File as FileIcon,
 	FileText,
 	GripVertical,
 	MessageSquare,
 	PlayCircle,
 	Plus,
+	Sparkles,
 	Trash2,
 	Upload,
+	Youtube,
 } from "lucide-solid";
 import { createSignal, For, Show } from "solid-js";
+import type { Component } from "solid-js";
+import { Dynamic } from "solid-js/web";
 import { client, orpc } from "../../lib/orpc";
-import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
-import { Card } from "../ui/card";
 import { Dialog } from "../ui/dialog";
 import { Select } from "../ui/select";
 import { Switch } from "../ui/switch";
@@ -31,15 +39,48 @@ type Section = {
 	blocks: BlockDTO[];
 };
 
+const blockIcon: Record<BlockDTO["type"], Component<{ style?: Record<string, string> }>> = {
+	pagina: FileText,
+	youtube: Youtube,
+	bestand: FileIcon,
+	opdracht: ClipboardList,
+	forum: MessageSquare,
+	lti: Sparkles,
+};
+const blockLabel: Record<BlockDTO["type"], string> = {
+	pagina: "Pagina",
+	youtube: "Video",
+	bestand: "Bestand",
+	opdracht: "Opdracht",
+	forum: "Forum",
+	lti: "Externe tool",
+};
+
+const palette: [BlockDTO["type"] | "lti", string, Component<{ style?: Record<string, string> }>][] = [
+	["pagina", "Pagina", FileText],
+	["opdracht", "Opdracht", ClipboardList],
+	["bestand", "Bestand", FileIcon],
+	["youtube", "YouTube", Youtube],
+	["forum", "Forum", MessageSquare],
+	["lti", "LTI", Sparkles],
+];
+
 /**
- * Ontwikkelaar/keyuser course builder (#25/#26). Add/rename/reorder sections;
- * add content blocks of each CbS type (#27–#32) via a typed dialog with a Tiptap
- * page editor (#29), YouTube id (#31), file upload (#30), opdracht fields (#27)
- * and leervoorkeur labels (#36); reorder/delete blocks. Reorder uses up/down
- * buttons (keyboard-accessible; DnD is an enhancement, see ORCHESTRATOR TODO).
+ * Ontwikkelaar/keyuser course builder (#25/#26) — a 1:1 port of the prototype's
+ * "Cursusbouwer". Collapsible sections; add/reorder/delete sections and content
+ * blocks of each CbS type (#27–#32) via a typed dialog (Tiptap page editor #29,
+ * YouTube id #31, file upload #30, opdracht fields #27, leervoorkeur labels #36).
+ * Reorder uses up/down buttons (keyboard-accessible; the drag handle is a visual
+ * a11y-substitute). The sidebar exposes the leervoorkeur-labels of the course and
+ * a real "Toon voortgangsbalk aan leerlingen" toggle (#24); the content-palette
+ * and Publiceren/kopiëren buttons are visual affordances (no publish endpoint —
+ * afleiden lives on the detail header via DeriveDialog).
  */
 export function CourseBuilder(props: {
 	courseId: string;
+	courseTitle: string;
+	courseKindLabel: string;
+	progressBarHidden: boolean;
 	sections: Section[];
 	availableLabels: string[];
 	refetch: () => void;
@@ -51,6 +92,18 @@ export function CourseBuilder(props: {
 	};
 
 	const [newSection, setNewSection] = createSignal("");
+	const [addingSection, setAddingSection] = createSignal(false);
+	// Collapsed section ids — sections default to open, like the prototype.
+	const [collapsed, setCollapsed] = createSignal<Set<string>>(new Set());
+	const isOpen = (id: string) => !collapsed().has(id);
+	const toggleSection = (id: string) =>
+		setCollapsed((prev) => {
+			const next = new Set(prev);
+			if (next.has(id)) next.delete(id);
+			else next.add(id);
+			return next;
+		});
+
 	// Polite live-region text announced after a keyboard reorder so screen-reader
 	// users hear where the section/block landed (the visual order changes silently).
 	const [reorderStatus, setReorderStatus] = createSignal("");
@@ -66,6 +119,7 @@ export function CourseBuilder(props: {
 				title: newSection(),
 			});
 			setNewSection("");
+			setAddingSection(false);
 			toast({ title: "Sectie toegevoegd", tone: "success" });
 			await invalidate();
 		} catch {
@@ -149,119 +203,418 @@ export function CourseBuilder(props: {
 		}
 	};
 
+	const toggleProgressBar = async () => {
+		try {
+			await client.courses.setProgressBarHidden({
+				id: props.courseId,
+				hidden: !props.progressBarHidden,
+			});
+			toast({
+				title: props.progressBarHidden
+					? "Voortgangsbalk getoond"
+					: "Voortgangsbalk verborgen",
+			});
+			await invalidate();
+		} catch {
+			toast({ title: "Aanpassen mislukt. Probeer het opnieuw.", tone: "danger" });
+		}
+	};
+
 	return (
-		<div class="flex flex-col gap-4">
+		<>
 			<p aria-live="polite" class="sr-only">
 				{reorderStatus()}
 			</p>
-			<For each={props.sections}>
-				{(section, i) => (
-					<Card class="flex flex-col gap-3">
-						<div class="flex items-center justify-between gap-2">
-							<div class="flex items-center gap-2">
-								<GripVertical class="size-4 text-muted" aria-hidden="true" />
-								<h2 class="font-head text-h3 text-ink">{section.title}</h2>
-							</div>
-							<div class="flex items-center gap-1">
-								<Button
-									variant="ghost"
-									size="icon"
-									aria-label="Sectie omhoog"
-									disabled={reordering()}
-									onClick={() => moveSection(i(), -1)}
-								>
-									<ChevronUp class="size-4" />
-								</Button>
-								<Button
-									variant="ghost"
-									size="icon"
-									aria-label="Sectie omlaag"
-									disabled={reordering()}
-									onClick={() => moveSection(i(), 1)}
-								>
-									<ChevronDown class="size-4" />
-								</Button>
-								<Button
-									variant="ghost"
-									size="icon"
-									aria-label="Sectie verwijderen"
-									onClick={() => deleteSection(section.id)}
-								>
-									<Trash2 class="size-4 text-danger" />
-								</Button>
-							</div>
-						</div>
 
-						<For each={section.blocks}>
-							{(block, bi) => (
-								<div class="flex items-center justify-between gap-2 rounded-2 border border-line px-3 py-2">
-									<div class="flex items-center gap-2">
-										<Badge variant="neutral">{block.type}</Badge>
-										<span class="text-body text-ink-2">{block.title}</span>
-										<Show when={block.labels.length > 0}>
-											<For each={block.labels}>
-												{(l) => <Badge variant="outline">{l}</Badge>}
-											</For>
+			<div class="page-head">
+				<div>
+					<h1>Cursusbouwer</h1>
+					<div class="sub">
+						{props.courseTitle} · {props.courseKindLabel}
+					</div>
+				</div>
+				<div class="ds-row">
+					<span class="chip">
+						<Eye style={{ width: "12px", height: "12px" }} /> Voorvertoning
+					</span>
+					<button
+						type="button"
+						class="btn ghost"
+						onClick={() =>
+							toast({
+								title: "Sjabloon kopiëren",
+								description: "Gebruik ‘Afleiden’ bovenaan om een kopie te maken.",
+							})
+						}
+					>
+						<Copy style={{ width: "14px", height: "14px" }} /> Sjabloon kopiëren
+					</button>
+					<button
+						type="button"
+						class="btn primary"
+						onClick={() =>
+							toast({
+								title: "Publiceren is niet nodig",
+								description:
+									"Elke aanpassing wordt direct opgeslagen en is meteen zichtbaar voor gekoppelde leerlingen.",
+							})
+						}
+					>
+						<Check style={{ width: "14px", height: "14px" }} /> Publiceren
+					</button>
+				</div>
+			</div>
+
+			<div
+				class="ds-grid"
+				style={{ "grid-template-columns": "1fr 280px", gap: "24px" }}
+			>
+				{/* ── Sections column ─────────────────────────────────────────── */}
+				<div class="ds-col" style={{ gap: "16px" }}>
+					<For each={props.sections}>
+						{(section, i) => (
+							<div class="card" style={{ padding: "0", overflow: "hidden" }}>
+								<div
+									class="ds-row"
+									style={{
+										padding: "14px 18px",
+										background: "rgb(var(--bg-2))",
+										"border-bottom": isOpen(section.id)
+											? "1px solid rgb(var(--line))"
+											: "none",
+										gap: "10px",
+									}}
+								>
+									<GripVertical
+										style={{ width: "16px", height: "16px", color: "rgb(var(--muted))" }}
+										aria-hidden="true"
+									/>
+									<button
+										type="button"
+										onClick={() => toggleSection(section.id)}
+										aria-expanded={isOpen(section.id)}
+										style={{
+											border: "0",
+											background: "transparent",
+											padding: "0",
+											cursor: "pointer",
+											display: "flex",
+											"align-items": "center",
+											gap: "8px",
+											flex: "1",
+											"text-align": "left",
+											"min-width": "0",
+										}}
+									>
+										<Show
+											when={isOpen(section.id)}
+											fallback={
+												<ChevronRight style={{ width: "16px", height: "16px" }} />
+											}
+										>
+											<ChevronDown style={{ width: "16px", height: "16px" }} />
 										</Show>
-									</div>
-									<div class="flex items-center gap-1">
-										<Button
-											variant="ghost"
-											size="icon"
-											aria-label="Blok omhoog"
-											disabled={reordering()}
-											onClick={() =>
-												moveBlock(section.id, section.blocks, bi(), -1)
-											}
+										<span
+											style={{
+												"font-family": "var(--font-head)",
+												"font-weight": "600",
+												"font-size": "16px",
+											}}
 										>
-											<ChevronUp class="size-4" />
-										</Button>
-										<Button
-											variant="ghost"
-											size="icon"
-											aria-label="Blok omlaag"
-											disabled={reordering()}
-											onClick={() =>
-												moveBlock(section.id, section.blocks, bi(), 1)
-											}
+											{section.title}
+										</span>
+										<span
+											class="chip"
+											style={{ "margin-left": "8px", "font-size": "11px" }}
 										>
-											<ChevronDown class="size-4" />
-										</Button>
-										<Button
-											variant="ghost"
-											size="icon"
-											aria-label="Blok verwijderen"
-											onClick={() => deleteBlock(block.id)}
-										>
-											<Trash2 class="size-4 text-danger" />
-										</Button>
-									</div>
+											{section.blocks.length} items
+										</span>
+									</button>
+									<button
+										type="button"
+										class="icon-btn"
+										style={{ width: "30px", height: "30px" }}
+										aria-label="Sectie omhoog"
+										disabled={reordering()}
+										onClick={() => moveSection(i(), -1)}
+									>
+										<ChevronUp style={{ width: "13px", height: "13px" }} />
+									</button>
+									<button
+										type="button"
+										class="icon-btn"
+										style={{ width: "30px", height: "30px" }}
+										aria-label="Sectie omlaag"
+										disabled={reordering()}
+										onClick={() => moveSection(i(), 1)}
+									>
+										<ChevronDown style={{ width: "13px", height: "13px" }} />
+									</button>
+									<button
+										type="button"
+										class="icon-btn"
+										style={{ width: "30px", height: "30px" }}
+										aria-label="Sectie verwijderen"
+										onClick={() => deleteSection(section.id)}
+									>
+										<Trash2
+											style={{ width: "13px", height: "13px", color: "rgb(var(--danger))" }}
+										/>
+									</button>
 								</div>
-							)}
-						</For>
 
-						<AddBlockDialog
-							sectionId={section.id}
-							availableLabels={props.availableLabels}
-							onDone={invalidate}
+								<Show when={isOpen(section.id)}>
+									<div
+										style={{
+											padding: "14px",
+											display: "flex",
+											"flex-direction": "column",
+											gap: "8px",
+										}}
+									>
+										<For each={section.blocks}>
+											{(block, bi) => (
+												<div
+													class="ds-row"
+													style={{
+														padding: "10px 12px",
+														border: "1px solid rgb(var(--line))",
+														"border-radius": "10px",
+														gap: "12px",
+													}}
+												>
+													<GripVertical
+														style={{ width: "14px", height: "14px", color: "rgb(var(--muted))" }}
+														aria-hidden="true"
+													/>
+													<div
+														style={{
+															width: "32px",
+															height: "32px",
+															"border-radius": "8px",
+															background: "rgb(var(--bg-2))",
+															display: "grid",
+															"place-items": "center",
+															"flex-shrink": "0",
+														}}
+													>
+														<Dynamic
+															component={blockIcon[block.type]}
+															style={{ width: "15px", height: "15px" }}
+														/>
+													</div>
+													<div class="ds-grow" style={{ "min-width": "0" }}>
+														<div
+															style={{
+																"font-size": "11px",
+																color: "rgb(var(--muted))",
+																"text-transform": "uppercase",
+																"letter-spacing": "0.06em",
+																"font-weight": "600",
+																"margin-bottom": "2px",
+															}}
+														>
+															{blockLabel[block.type]}
+														</div>
+														<div style={{ "font-size": "14px", "font-weight": "500" }}>
+															{block.title}
+														</div>
+													</div>
+													<Show when={block.labels.length > 0}>
+														<div class="ds-row" style={{ gap: "4px", "flex-wrap": "wrap" }}>
+															<For each={block.labels}>
+																{(l) => (
+																	<span class="chip" style={{ "font-size": "11px" }}>
+																		{l}
+																	</span>
+																)}
+															</For>
+														</div>
+													</Show>
+													<button
+														type="button"
+														class="icon-btn"
+														style={{ width: "28px", height: "28px" }}
+														aria-label="Blok omhoog"
+														disabled={reordering()}
+														onClick={() => moveBlock(section.id, section.blocks, bi(), -1)}
+													>
+														<ChevronUp style={{ width: "12px", height: "12px" }} />
+													</button>
+													<button
+														type="button"
+														class="icon-btn"
+														style={{ width: "28px", height: "28px" }}
+														aria-label="Blok omlaag"
+														disabled={reordering()}
+														onClick={() => moveBlock(section.id, section.blocks, bi(), 1)}
+													>
+														<ChevronDown style={{ width: "12px", height: "12px" }} />
+													</button>
+													<button
+														type="button"
+														class="icon-btn"
+														style={{ width: "28px", height: "28px" }}
+														aria-label="Blok verwijderen"
+														onClick={() => deleteBlock(block.id)}
+													>
+														<Trash2
+															style={{ width: "12px", height: "12px", color: "rgb(var(--danger))" }}
+														/>
+													</button>
+												</div>
+											)}
+										</For>
+
+										<AddBlockDialog
+											sectionId={section.id}
+											availableLabels={props.availableLabels}
+											onDone={invalidate}
+										/>
+									</div>
+								</Show>
+							</div>
+						)}
+					</For>
+
+					<Show
+						when={addingSection()}
+						fallback={
+							<button
+								type="button"
+								onClick={() => setAddingSection(true)}
+								style={{
+									padding: "14px",
+									border: "1.5px dashed rgb(var(--line))",
+									"border-radius": "12px",
+									background: "transparent",
+									color: "rgb(var(--muted))",
+									"font-size": "14px",
+									"font-weight": "500",
+									cursor: "pointer",
+									display: "inline-flex",
+									"align-items": "center",
+									"justify-content": "center",
+									gap: "8px",
+								}}
+							>
+								<Plus style={{ width: "14px", height: "14px" }} /> Sectie toevoegen
+							</button>
+						}
+					>
+						<div class="card ds-row" style={{ "align-items": "flex-end", gap: "8px" }}>
+							<Input
+								class="flex-1"
+								label="Nieuwe sectie"
+								placeholder="Bijv. Week 1 of Thema 1"
+								value={newSection()}
+								onInput={(e) => setNewSection(e.currentTarget.value)}
+							/>
+							<Button onClick={addSection} disabled={!newSection().trim()}>
+								<Plus class="size-4" /> Sectie
+							</Button>
+							<Button
+								variant="ghost"
+								onClick={() => {
+									setAddingSection(false);
+									setNewSection("");
+								}}
+							>
+								Annuleren
+							</Button>
+						</div>
+					</Show>
+				</div>
+
+				{/* ── Sidebar ─────────────────────────────────────────────────── */}
+				<div class="ds-col" style={{ gap: "14px" }}>
+					<div class="card">
+						<div class="card-head">
+							<h3 style={{ "font-size": "15px" }}>Content toevoegen</h3>
+						</div>
+						<div
+							class="ds-grid"
+							style={{ "grid-template-columns": "1fr 1fr", gap: "6px" }}
+						>
+							<For each={palette}>
+								{([, label, Icon]) => (
+									<button
+										type="button"
+										class="btn ghost sm"
+										style={{ "justify-content": "flex-start", padding: "10px 12px" }}
+										onClick={() =>
+											toast({
+												title: "Kies een sectie",
+												description:
+													"Gebruik ‘+ Content toevoegen’ binnen een sectie om dit type toe te voegen.",
+											})
+										}
+									>
+										<Dynamic component={Icon} style={{ width: "14px", height: "14px" }} />{" "}
+										{label}
+									</button>
+								)}
+							</For>
+						</div>
+						<div
+							style={{
+								"margin-top": "10px",
+								padding: "10px 12px",
+								background: "rgb(var(--accent-100))",
+								"border-radius": "10px",
+								"font-size": "12px",
+								color: "rgb(var(--accent-700))",
+							}}
+						>
+							<Sparkles style={{ width: "12px", height: "12px" }} /> Tip:
+							Ondivera-advies importeren →
+						</div>
+					</div>
+
+					<div class="card">
+						<div class="card-head">
+							<h3 style={{ "font-size": "15px" }}>Leervoorkeur-labels</h3>
+						</div>
+						<div
+							style={{
+								"font-size": "12px",
+								color: "rgb(var(--muted))",
+								"margin-bottom": "10px",
+							}}
+						>
+							Items met deze labels worden aanbevolen aan leerlingen die ze in hun
+							plan hebben.
+						</div>
+						<Show
+							when={props.availableLabels.length > 0}
+							fallback={
+								<div style={{ "font-size": "12px", color: "rgb(var(--muted))" }}>
+									Nog geen labels — deze komen uit het coachplan van de gekoppelde
+									leerling (#36).
+								</div>
+							}
+						>
+							<div class="ds-row" style={{ "flex-wrap": "wrap", gap: "6px" }}>
+								<For each={props.availableLabels}>
+									{(l) => <span class="chip primary">{l}</span>}
+								</For>
+							</div>
+						</Show>
+					</div>
+
+					<div class="card">
+						<div class="card-head">
+							<h3 style={{ "font-size": "15px" }}>Voortgang</h3>
+						</div>
+						<Switch
+							label="Toon voortgangsbalk aan leerlingen"
+							checked={!props.progressBarHidden}
+							onChange={toggleProgressBar}
 						/>
-					</Card>
-				)}
-			</For>
-
-			<Card class="flex items-end gap-2">
-				<Input
-					class="flex-1"
-					label="Nieuwe sectie"
-					placeholder="Bijv. Week 1 of Thema 1"
-					value={newSection()}
-					onInput={(e) => setNewSection(e.currentTarget.value)}
-				/>
-				<Button onClick={addSection} disabled={!newSection().trim()}>
-					<Plus class="size-4" /> Sectie
-				</Button>
-			</Card>
-		</div>
+					</div>
+				</div>
+			</div>
+		</>
 	);
 }
 
@@ -380,11 +733,11 @@ function AddBlockDialog(props: {
 			title="Content toevoegen"
 			class="max-w-2xl"
 			trigger={{
-				variant: "subtle",
-				size: "sm",
+				class:
+					"w-full justify-center border border-dashed border-line bg-transparent px-3 py-2.5 text-small font-medium text-muted hover:bg-line-2",
 				children: (
 					<>
-						<Plus class="size-4" aria-hidden="true" /> Content
+						<Plus class="size-4" aria-hidden="true" /> Content toevoegen
 					</>
 				),
 			}}
@@ -481,8 +834,8 @@ function AddBlockDialog(props: {
 
 				<Show when={type() === "forum"}>
 					<p class="text-small text-muted">
-						Er wordt automatisch een groepschat/forum aangemaakt en gekoppeld
-						aan dit blok (#32).
+						Er wordt automatisch een groepschat/forum aangemaakt en gekoppeld aan
+						dit blok (#32).
 					</p>
 				</Show>
 

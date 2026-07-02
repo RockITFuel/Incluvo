@@ -3,14 +3,15 @@ import { Send, Sparkles } from "lucide-solid";
 import { createEffect, createSignal, For, on, Show } from "solid-js";
 import { useAssistant } from "../../lib/ai/use-assistant";
 import { orpc } from "../../lib/orpc";
-import { Button } from "../ui/button";
 import { MockBanner } from "./mock-banner";
 
 /**
- * Reusable AI-assistent paneel (#22). A calm, WCAG-AA chat that streams
+ * AI-advies paneel (#22), styled as the sidebar card from the approved
+ * "Coachplan invullen" prototype. A calm, WCAG-AA panel that streams
  * interventie-advies token-by-token over the oRPC Event Iterator (via the thin
- * `useAssistant` hook). Drop it on the /assistent route or embed it in the
- * coach-review of a coachplan by passing `submissionId` + `coachplanContext`.
+ * `useAssistant` hook). Embed it in the coach-review by passing `submissionId`
+ * + `coachplanContext`; the "Wens" chip and the suggestion cards surface the
+ * prompt-starters, and "Meer adviezen" asks the model to continue.
  */
 
 const STARTERS = [
@@ -54,87 +55,94 @@ export function AssistantPanel(props: {
 	};
 
 	return (
-		<section
-			class="flex min-h-0 flex-col rounded-3 border border-line bg-surface"
-			aria-label="AI-assistent voor interventie-advies"
-		>
-			<header class="flex items-center gap-3 border-line border-b px-5 py-4">
-				<span
-					class="grid size-9 place-items-center rounded-2 bg-primary-50 text-primary-700"
-					aria-hidden="true"
-				>
-					<Sparkles class="size-5" />
+		<section class="card" aria-label="AI-advies over interventies">
+			<div class="card-head">
+				<h3 style={{ "font-size": "15px" }}>{props.title ?? "AI-advies"}</h3>
+				<span class="chip primary">
+					<Sparkles class="size-3" aria-hidden="true" /> Wens
 				</span>
-				<div class="min-w-0">
-					<h2 class="font-head text-h3 text-ink">
-						{props.title ?? "AI-assistent"}
-					</h2>
-					<p class="text-micro text-muted">
-						Advies over interventies op basis van het coachplan — als concept.
-					</p>
-				</div>
-			</header>
-
-			<div class="px-5 pt-4">
-				<MockBanner mock={isMock()} model={providerQuery.data?.model} />
+			</div>
+			<div
+				style={{
+					"font-size": "13px",
+					color: "rgb(var(--muted))",
+					"margin-bottom": "12px",
+				}}
+			>
+				Op basis van plan + leervoorkeuren — als concept.
 			</div>
 
-			{/* Conversation */}
+			<MockBanner mock={isMock()} model={providerQuery.data?.model} />
+
+			{/* Conversation / suggestions */}
 			<div
 				ref={scrollEl}
-				class="min-h-[18rem] flex-1 overflow-y-auto px-5 py-4"
+				style={{ "max-height": "18rem", "overflow-y": "auto", "margin-top": "8px" }}
 				aria-live="polite"
 				aria-busy={assistant.streaming() ? "true" : "false"}
 			>
 				<Show
 					when={assistant.messages().length > 0}
 					fallback={
-						<div class="flex flex-col gap-4 py-6 text-center">
-							<p class="text-muted text-small">
-								Stel een vraag om advies te krijgen, of kies een suggestie.
-							</p>
-							<ul class="mx-auto flex max-w-md flex-col gap-2">
-								<For each={STARTERS}>
-									{(s) => (
-										<li>
-											<button
-												type="button"
-												class="w-full rounded-2 border border-line bg-bg px-3 py-2 text-left text-body text-ink-2 hover:bg-primary-50 hover:text-primary-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-												onClick={() => {
-													setDraft("");
-													void assistant.send(s);
-												}}
-											>
-												{s}
-											</button>
-										</li>
-									)}
-								</For>
-							</ul>
+						<div class="ds-col" style={{ gap: "8px" }}>
+							<For each={STARTERS}>
+								{(s) => (
+									<button
+										type="button"
+										style={{
+											padding: "10px 12px",
+											background: "rgb(var(--bg-2))",
+											"border-radius": "10px",
+											"font-size": "13px",
+											"font-weight": "500",
+											"text-align": "left",
+											border: "0",
+											cursor: "pointer",
+											width: "100%",
+										}}
+										onClick={() => {
+											setDraft("");
+											void assistant.send(s);
+										}}
+									>
+										{s}
+									</button>
+								)}
+							</For>
 						</div>
 					}
 				>
-					<ul class="flex flex-col gap-3">
+					<ul class="ds-col" style={{ gap: "8px" }}>
 						<For each={assistant.messages()}>
 							{(m) => (
 								<li
-									class="max-w-[85%]"
+									style={{ "max-width": "92%" }}
 									classList={{
 										"self-end ml-auto": m.role === "user",
 										"self-start": m.role === "assistant",
 									}}
 								>
 									<div
-										class="whitespace-pre-wrap rounded-3 px-3.5 py-2.5 text-body leading-relaxed"
-										classList={{
-											"bg-primary text-primary-fg": m.role === "user",
-											"border border-line bg-bg text-ink": m.role === "assistant",
+										style={{
+											padding: "10px 12px",
+											"border-radius": "10px",
+											"font-size": "13px",
+											"line-height": "1.5",
+											"white-space": "pre-wrap",
+											background:
+												m.role === "user"
+													? "rgb(var(--primary))"
+													: "rgb(var(--bg-2))",
+											color: m.role === "user" ? "#fff" : "rgb(var(--ink))",
 										}}
 									>
 										<Show
 											when={m.content}
 											fallback={
-												<span class="text-muted" aria-label="Advies wordt gegenereerd">
+												<span
+													style={{ color: "rgb(var(--muted))" }}
+													aria-label="Advies wordt gegenereerd"
+												>
 													Advies wordt opgesteld…
 												</span>
 											}
@@ -149,15 +157,36 @@ export function AssistantPanel(props: {
 				</Show>
 
 				<Show when={assistant.error()}>
-					<p role="alert" class="mt-3 text-danger text-small">
+					<p
+						role="alert"
+						style={{
+							"margin-top": "10px",
+							color: "rgb(var(--danger))",
+							"font-size": "12px",
+						}}
+					>
 						{assistant.error()}
 					</p>
 				</Show>
 			</div>
 
+			{/* "Meer adviezen" — ask the model to continue with more suggestions. */}
+			<Show when={assistant.messages().length > 0}>
+				<button
+					type="button"
+					class="btn ghost sm"
+					style={{ "margin-top": "10px", width: "100%", "justify-content": "center" }}
+					disabled={assistant.streaming()}
+					onClick={() => void assistant.send("Geef nog een paar concrete adviezen.")}
+				>
+					Meer adviezen
+				</button>
+			</Show>
+
 			{/* Composer */}
 			<form
-				class="flex items-end gap-2 border-line border-t px-4 py-3"
+				class="ds-row"
+				style={{ "align-items": "flex-end", gap: "8px", "margin-top": "12px" }}
 				onSubmit={(e) => {
 					e.preventDefault();
 					submit();
@@ -168,7 +197,8 @@ export function AssistantPanel(props: {
 				</label>
 				<textarea
 					id="assistant-composer"
-					class="min-h-[2.75rem] flex-1 resize-none rounded-2 border border-line bg-surface px-ctl-x py-ctl-y text-body text-ink placeholder:text-muted-2 focus-visible:border-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+					class="textarea"
+					style={{ "min-height": "44px", "font-size": "13px", resize: "none", flex: "1" }}
 					placeholder="Stel een vraag over interventies…"
 					rows={1}
 					value={draft()}
@@ -181,14 +211,15 @@ export function AssistantPanel(props: {
 						}
 					}}
 				/>
-				<Button
+				<button
 					type="submit"
+					class="btn primary sm"
 					disabled={assistant.streaming() || !draft().trim()}
 					aria-label="Verstuur vraag"
 				>
-					<Send class="size-4" aria-hidden="true" />
+					<Send class="size-3.5" aria-hidden="true" />
 					{assistant.streaming() ? "Bezig…" : "Vraag"}
-				</Button>
+				</button>
 			</form>
 		</section>
 	);

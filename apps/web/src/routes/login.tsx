@@ -53,7 +53,7 @@ function Login() {
 		// the dashboard; everyone else their task list.
 		const role = ((data?.user as { role?: string } | undefined)?.role ??
 			"member") as UserRole;
-		router.navigate({ to: atLeast(role, "coach") ? "/dashboard" : "/taken" });
+		router.navigate({ to: atLeast(role, "coach") ? "/dashboard" : "/welkom" });
 	}
 
 	return (

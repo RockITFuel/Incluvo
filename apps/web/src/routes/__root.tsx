@@ -13,6 +13,7 @@ import { Toaster } from "../components/ui/toast";
 import "../lib/a11y/store";
 import { OrpcQueryProvider } from "../lib/orpc/query-provider";
 import "../app.css";
+import "../design-system.css";
 
 export const Route = createRootRoute({
 	component: RootComponent,
@@ -33,6 +34,16 @@ function RootComponent() {
 				<meta charset="utf-8" />
 				<meta content="width=device-width, initial-scale=1" name="viewport" />
 				<link href="/favicon.ico" rel="icon" />
+				<link href="https://fonts.googleapis.com" rel="preconnect" />
+				<link
+					crossorigin="anonymous"
+					href="https://fonts.gstatic.com"
+					rel="preconnect"
+				/>
+				<link
+					href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700&family=Inter:wght@400;500;600;700&family=Atkinson+Hyperlegible:wght@400;700&display=swap"
+					rel="stylesheet"
+				/>
 				<title>Incluvo</title>
 				<HydrationScript />
 				<HeadContent />

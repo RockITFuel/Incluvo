@@ -53,7 +53,7 @@ export function navForRole(role: UserRole): NavSection[] {
 		{
 			label: "Navigatie",
 			items: [
-				{ label: "Welkom", href: "/", icon: Home },
+				{ label: "Welkom", href: "/welkom", icon: Home },
 				{ label: "Mijn taken", href: "/taken", icon: ListChecks },
 				{ label: "Cursussen", href: "/cursussen", icon: GraduationCap },
 				{ label: "Mijn plan", href: "/plan", icon: NotebookPen },

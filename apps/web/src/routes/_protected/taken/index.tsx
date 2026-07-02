@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/solid-router";
 import { useQuery, useQueryClient } from "@tanstack/solid-query";
-import { Show } from "solid-js";
+import { Plus } from "lucide-solid";
+import { createSignal, For, Show } from "solid-js";
 import { Button } from "../../../components/ui/button";
 import { TaskBoard } from "../../../components/tasks/task-board";
 import { useMe } from "../../../lib/auth/use-me";
@@ -8,10 +9,10 @@ import { orpc } from "../../../lib/orpc";
 import { useServerEvent } from "../../../lib/sse/use-events";
 
 /**
- * Takenlijst (#37–#41). A leerling sees their own list split into Vandaag /
- * Toekomst / Klaar and can check off, pin and add tasks. A coach lands here too
- * but is pointed to a leerling to manage (the coach view lives at
- * `/taken/$leerlingId`).
+ * Takenlijst (#37–#41) — a 1:1 port of the approved "Taken" prototype. A
+ * leerling sees their own list split into Vandaag / Toekomst / Klaar and can
+ * check off, pin and add tasks. A coach lands here too but is pointed to a
+ * leerling to manage (the coach view lives at `/taken/$leerlingId`).
  */
 export const Route = createFileRoute("/_protected/taken/")({
 	component: TakenPage,
@@ -20,6 +21,7 @@ export const Route = createFileRoute("/_protected/taken/")({
 function TakenPage() {
 	const me = useMe();
 	const queryClient = useQueryClient();
+	const [adding, setAdding] = createSignal(false);
 
 	const tasksQuery = useQuery(() => ({
 		...orpc.tasks.list.queryOptions({ input: {} }),
@@ -32,12 +34,19 @@ function TakenPage() {
 	);
 
 	return (
-		<section class="flex flex-col gap-6">
-			<div>
-				<h1 class="font-head text-h1 text-ink">Mijn taken</h1>
-				<p class="mt-1 text-body text-muted">
-					Splits per dag — focus op vandaag, zicht op de week.
-				</p>
+		<>
+			<div class="page-head">
+				<div>
+					<h1>Mijn taken</h1>
+					<div class="sub">Splits per dag — focus op vandaag, zicht op de week.</div>
+				</div>
+				<Show when={me.is("leerling")}>
+					<div class="ds-row">
+						<button type="button" class="btn ghost" onClick={() => setAdding(true)}>
+							<Plus class="size-3.5" aria-hidden="true" /> Taak toevoegen
+						</button>
+					</div>
+				</Show>
 			</div>
 
 			{/* Leerling view */}
@@ -58,7 +67,12 @@ function TakenPage() {
 								</p>
 							}
 						>
-							<TaskBoard data={data()} canManage={true} />
+							<TaskBoard
+								data={data()}
+								canManage={true}
+								adding={adding()}
+								onAddingChange={setAdding}
+							/>
 						</Show>
 					)}
 				</Show>
@@ -66,14 +80,14 @@ function TakenPage() {
 
 			{/* Coach view: point them to a leerling to manage. */}
 			<Show when={me.hasAtLeast("coach")}>
-				<div class="flex flex-col gap-2">
-					<p class="text-body text-muted">
+				<div class="ds-col" style={{ gap: "8px", "margin-top": "24px" }}>
+					<p class="card-sub">
 						Kies een leerling om diens takenlijst te bekijken en te beheren.
 					</p>
 					<CoachLeerlingPicker />
 				</div>
 			</Show>
-		</section>
+		</>
 	);
 }
 
@@ -89,14 +103,16 @@ function CoachLeerlingPicker() {
 			when={!usersQuery.isLoading}
 			fallback={<p class="text-muted">Leerlingen laden…</p>}
 		>
-			<ul class="flex flex-col gap-2">
-				{leerlingen().map((u) => (
-					<li>
-						<Link to="/taken/$leerlingId" params={{ leerlingId: u.id }}>
-							<Button variant="subtle">{u.name}</Button>
-						</Link>
-					</li>
-				))}
+			<ul class="ds-col" style={{ gap: "8px" }}>
+				<For each={leerlingen()}>
+					{(u) => (
+						<li>
+							<Link to="/taken/$leerlingId" params={{ leerlingId: u.id }}>
+								<Button variant="subtle">{u.name}</Button>
+							</Link>
+						</li>
+					)}
+				</For>
 				<Show when={leerlingen().length === 0}>
 					<p class="text-muted">Geen leerlingen in je organisatie.</p>
 				</Show>

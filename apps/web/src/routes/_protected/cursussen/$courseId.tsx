@@ -1,8 +1,15 @@
 import { createFileRoute, Link } from "@tanstack/solid-router";
 import { useQuery, useQueryClient } from "@tanstack/solid-query";
-import { ArrowLeft, Eye, EyeOff, GitBranch, Lightbulb } from "lucide-solid";
+import {
+	ArrowLeft,
+	Eye,
+	EyeOff,
+	GitBranch,
+	Lightbulb,
+	Sparkles,
+} from "lucide-solid";
 import { createSignal, For, Show } from "solid-js";
-import { BlockView } from "../../../components/courses/block-view";
+import { type BlockDTO, BlockView } from "../../../components/courses/block-view";
 import { CourseBuilder } from "../../../components/courses/course-builder";
 import { GradingView } from "../../../components/courses/grading-view";
 import { CourseProgressBar } from "../../../components/courses/progress-bar";
@@ -30,6 +37,12 @@ export const Route = createFileRoute("/_protected/cursussen/$courseId")({
 	component: CourseDetail,
 });
 
+const kindLabel: Record<string, string> = {
+	ondivera_template: "Ondivera-sjabloon",
+	school_template: "Schooltemplate",
+	student_execution: "Mijn cursus",
+};
+
 function CourseDetail() {
 	const params = Route.useParams();
 	const me = useMe();
@@ -46,6 +59,9 @@ function CourseDetail() {
 
 	const [view, setView] = createSignal<"leren" | "bouwen" | "beoordelen">("leren");
 	const [onlyRecommended, setOnlyRecommended] = createSignal(true);
+	// The prototype's personal hide/show "oogje" on the progress strip (client-only;
+	// the coach's server-side progressBarHidden #24 stays a separate control below).
+	const [localHideProgress, setLocalHideProgress] = createSignal(false);
 
 	const refetch = () => treeQuery.refetch();
 
@@ -58,13 +74,55 @@ function CourseDetail() {
 		return t;
 	};
 
+	const canComplete = () => me.is("leerling") || me.hasAtLeast("coach");
+
 	return (
 		<section class="flex flex-col gap-5">
-			<Link to="/cursussen">
-				<Button variant="ghost" size="sm">
-					<ArrowLeft class="size-4" /> Alle cursussen
-				</Button>
-			</Link>
+			<div class="ds-row ds-between">
+				<Link to="/cursussen" style={{ "text-decoration": "none" }}>
+					<span class="btn ghost sm">
+						<ArrowLeft style={{ width: "14px", height: "14px" }} /> Cursussen
+					</span>
+				</Link>
+				<Show when={treeQuery.data}>
+					{(data) => (
+						<div class="ds-row" style={{ gap: "8px" }}>
+							<Show when={me.hasAtLeast("ontwikkelaar")}>
+								<DeriveDialog course={data().course} onDone={refetch} />
+							</Show>
+							<Show when={me.hasAtLeast("coach")}>
+								<Button
+									variant="ghost"
+									size="sm"
+									onClick={async () => {
+										await client.courses.setProgressBarHidden({
+											id: courseId(),
+											hidden: !data().course.progressBarHidden,
+										});
+										toast({
+											title: data().course.progressBarHidden
+												? "Voortgangsbalk getoond"
+												: "Voortgangsbalk verborgen",
+										});
+										refetch();
+									}}
+								>
+									<Show
+										when={data().course.progressBarHidden}
+										fallback={
+											<>
+												<EyeOff class="size-4" /> Verberg balk
+											</>
+										}
+									>
+										<Eye class="size-4" /> Toon balk
+									</Show>
+								</Button>
+							</Show>
+						</div>
+					)}
+				</Show>
+			</div>
 
 			<Show when={treeQuery.isLoading}>
 				<p class="text-muted">Laden…</p>
@@ -74,159 +132,248 @@ function CourseDetail() {
 			</Show>
 
 			<Show when={treeQuery.data}>
-				{(data) => (
-					<>
-						<div class="flex flex-col gap-3">
-							<div class="flex items-start justify-between gap-4">
-								<div>
-									<h1 class="font-head text-h1 text-ink">{data().course.title}</h1>
-									<Show when={data().course.description}>
-										<p class="mt-1 text-body text-muted">
-											{data().course.description}
-										</p>
-									</Show>
-								</div>
-								<div class="flex items-center gap-2">
-									<Show when={me.hasAtLeast("ontwikkelaar")}>
-										<DeriveDialog course={data().course} onDone={refetch} />
-									</Show>
-									<Show when={me.hasAtLeast("coach")}>
-										<Button
-											variant="ghost"
-											size="sm"
-											onClick={async () => {
-												await client.courses.setProgressBarHidden({
-													id: courseId(),
-													hidden: !data().course.progressBarHidden,
-												});
-												toast({
-													title: data().course.progressBarHidden
-														? "Voortgangsbalk getoond"
-														: "Voortgangsbalk verborgen",
-												});
-												refetch();
+				{(data) => {
+					const visibleBlocks = (section: { blocks: BlockDTO[] }) =>
+						me.is("leerling") && onlyRecommended()
+							? section.blocks.filter((b) => b.recommended)
+							: section.blocks;
+					// The first not-yet-done progress block gets the accent "Verder" state.
+					const firstActiveId = () => {
+						for (const section of data().sections) {
+							for (const b of visibleBlocks(section)) {
+								if (!b.completed && b.countsForProgress) return b.id;
+							}
+						}
+						return undefined;
+					};
+					const leervoorkeurenText = () =>
+						data().leervoorkeuren.length > 0
+							? data().leervoorkeuren.join(", ")
+							: "jouw leervoorkeuren";
+					return (
+						<>
+							<Show when={tabs().length > 1}>
+								<SegmentedControl
+									options={tabs()}
+									value={view()}
+									onChange={(v) => setView((v as never) ?? "leren")}
+								/>
+							</Show>
+
+							{/* ── Cursus (leerling + default) ──────────────────────────── */}
+							<Show when={view() === "leren"}>
+								<div class="card" style={{ padding: "0", overflow: "hidden" }}>
+									<div
+										style={{
+											height: "140px",
+											background:
+												"linear-gradient(135deg, rgb(var(--primary)), rgb(var(--primary-700)))",
+											position: "relative",
+											padding: "24px",
+											color: "#fff",
+											display: "flex",
+											"align-items": "flex-end",
+										}}
+									>
+										<div>
+											<div
+												style={{
+													"font-size": "13px",
+													opacity: "0.85",
+													"margin-bottom": "6px",
+												}}
+											>
+												{kindLabel[data().course.kind]}
+											</div>
+											<h1 style={{ color: "#fff", "font-size": "30px" }}>
+												{data().course.title}
+											</h1>
+										</div>
+									</div>
+
+									<Show when={!data().course.progressBarHidden}>
+										<div
+											style={{
+												padding: "16px 24px",
+												"border-bottom": "1px solid rgb(var(--line))",
+												display: "flex",
+												"align-items": "center",
+												gap: "16px",
 											}}
 										>
-											<Show
-												when={data().course.progressBarHidden}
-												fallback={
-													<>
-														<EyeOff class="size-4" /> Verberg balk
-													</>
+											<div class="ds-grow">
+												<Show
+													when={!localHideProgress()}
+													fallback={
+														<div
+															style={{
+																"font-size": "13px",
+																color: "rgb(var(--muted))",
+															}}
+														>
+															Voortgang verborgen
+														</div>
+													}
+												>
+													<CourseProgressBar
+														percent={data().progress.percent}
+														done={data().progress.done}
+														total={data().progress.total}
+													/>
+												</Show>
+											</div>
+											<button
+												type="button"
+												class="btn ghost sm"
+												title={
+													localHideProgress()
+														? "Voortgang tonen"
+														: "Voortgang verbergen"
 												}
+												aria-pressed={localHideProgress()}
+												onClick={() => setLocalHideProgress((v) => !v)}
 											>
-												<Eye class="size-4" /> Toon balk
-											</Show>
-										</Button>
+												<Show
+													when={localHideProgress()}
+													fallback={<EyeOff class="size-4" />}
+												>
+													<Eye class="size-4" />
+												</Show>
+											</button>
+										</div>
+									</Show>
+
+									<Show when={me.is("leerling")}>
+										<div
+											style={{
+												padding: "14px 24px",
+												background: "rgb(var(--bg-2))",
+												display: "flex",
+												"align-items": "center",
+												gap: "10px",
+												"font-size": "13px",
+												color: "rgb(var(--muted))",
+												"flex-wrap": "wrap",
+											}}
+										>
+											<Sparkles style={{ width: "14px", height: "14px" }} />
+											<span>
+												Aanbevolen op basis van jouw leervoorkeuren:{" "}
+												<strong style={{ color: "rgb(var(--primary-700))" }}>
+													{leervoorkeurenText()}
+												</strong>
+												.
+											</span>
+											<button
+												type="button"
+												onClick={() => setOnlyRecommended((v) => !v)}
+												style={{
+													"margin-left": "auto",
+													background: "transparent",
+													border: "0",
+													color: "rgb(var(--primary))",
+													"font-weight": "500",
+													"font-size": "13px",
+													cursor: "pointer",
+												}}
+											>
+												{onlyRecommended()
+													? "Toon alles →"
+													: "Alleen aanbevolen →"}
+											</button>
+										</div>
 									</Show>
 								</div>
-							</div>
 
-							<CourseProgressBar
-								percent={data().progress.percent}
-								done={data().progress.done}
-								total={data().progress.total}
-								hidden={data().course.progressBarHidden}
-							/>
-						</div>
+								<Show when={me.is("leerling")}>
+									<div class="ds-row ds-between">
+										<span class="text-small text-muted">
+											{onlyRecommended()
+												? "Je ziet alleen aanbevolen content (#35)."
+												: "Je ziet alle content."}
+										</span>
+										<ProposeDialog courseId={courseId()} onDone={refetch} />
+									</div>
+								</Show>
 
-						<Show when={tabs().length > 1}>
-							<SegmentedControl
-								options={tabs()}
-								value={view()}
-								onChange={(v) => setView((v as never) ?? "leren")}
-							/>
-						</Show>
-
-						{/* ── Leren (leerling + default) ───────────────────────────── */}
-						<Show when={view() === "leren"}>
-							<Show when={me.is("leerling")}>
-								<div class="flex items-center justify-between gap-2">
-									<label class="flex items-center gap-2 text-small text-ink-2">
-										<input
-											type="checkbox"
-											checked={onlyRecommended()}
-											onChange={(e) =>
-												setOnlyRecommended(e.currentTarget.checked)
-											}
-										/>
-										Toon alleen aanbevolen content (#35)
-									</label>
-									<ProposeDialog courseId={courseId()} onDone={refetch} />
-								</div>
-							</Show>
-
-							<For each={data().sections}>
-								{(section) => {
-									const blocks = () =>
-										me.is("leerling") && onlyRecommended()
-											? section.blocks.filter((b) => b.recommended)
-											: section.blocks;
-									return (
-										<Show when={blocks().length > 0}>
-											<div class="flex flex-col gap-3">
-												<h2 class="font-head text-h2 text-ink">
+								<For each={data().sections}>
+									{(section) => (
+										<Show when={visibleBlocks(section).length > 0}>
+											<div class="ds-col" style={{ gap: "12px" }}>
+												<div
+													style={{
+														"font-family": "var(--font-head)",
+														"font-size": "18px",
+														"font-weight": "600",
+													}}
+												>
 													{section.title}
-												</h2>
-												<For each={blocks()}>
-													{(block) => (
-														<BlockView
-															block={block}
-															courseId={courseId()}
-															canComplete={
-																me.is("leerling") ||
-																me.hasAtLeast("coach")
-															}
-															onToggleDone={async (completed) => {
-																await client.courses.setProgress({
-																	id: block.id,
-																	completed,
-																});
-																refetch();
-															}}
-														/>
-													)}
-												</For>
+												</div>
+												<div class="ds-col" style={{ gap: "8px" }}>
+													<For each={visibleBlocks(section)}>
+														{(block) => (
+															<BlockView
+																block={block}
+																courseId={courseId()}
+																canComplete={canComplete()}
+																active={block.id === firstActiveId()}
+																onToggleDone={async (completed) => {
+																	await client.courses.setProgress({
+																		id: block.id,
+																		completed,
+																	});
+																	refetch();
+																}}
+															/>
+														)}
+													</For>
+												</div>
 											</div>
 										</Show>
-									);
-								}}
-							</For>
+									)}
+								</For>
 
-							<Show when={data().sections.length === 0}>
-								<Card class="text-muted">
-									Deze cursus heeft nog geen inhoud.
-								</Card>
+								<Show when={data().sections.length === 0}>
+									<Card class="text-muted">
+										Deze cursus heeft nog geen inhoud.
+									</Card>
+								</Show>
+
+								<Show when={me.hasAtLeast("coach")}>
+									<ProposalsList courseId={courseId()} />
+								</Show>
 							</Show>
 
-							<Show when={me.hasAtLeast("coach")}>
-								<ProposalsList courseId={courseId()} />
+							{/* ── Bouwen (ontwikkelaar/keyuser) ────────────────────────── */}
+							<Show when={view() === "bouwen" && me.hasAtLeast("ontwikkelaar")}>
+								<CourseBuilder
+									courseId={courseId()}
+									courseTitle={data().course.title}
+									courseKindLabel={kindLabel[data().course.kind] ?? ""}
+									progressBarHidden={data().course.progressBarHidden}
+									sections={data().sections}
+									availableLabels={data().leervoorkeuren}
+									refetch={refetch}
+								/>
+								<Show when={data().leervoorkeuren.length === 0}>
+									<p class="text-micro text-muted">
+										Tip: leervoorkeur-labels komen uit het coachplan van de
+										leerling (#19/#36). Voor templates zonder gekoppelde leerling
+										zijn er nog geen labels beschikbaar.
+									</p>
+								</Show>
 							</Show>
-						</Show>
 
-						{/* ── Bouwen (ontwikkelaar/keyuser) ────────────────────────── */}
-						<Show when={view() === "bouwen" && me.hasAtLeast("ontwikkelaar")}>
-							<CourseBuilder
-								courseId={courseId()}
-								sections={data().sections}
-								availableLabels={data().leervoorkeuren}
-								refetch={refetch}
-							/>
-							<Show when={data().leervoorkeuren.length === 0}>
-								<p class="text-micro text-muted">
-									Tip: leervoorkeur-labels komen uit het coachplan van de
-									leerling (#19/#36). Voor templates zonder gekoppelde leerling
-									zijn er nog geen labels beschikbaar.
-								</p>
+							{/* ── Beoordelen (coach+) ──────────────────────────────────── */}
+							<Show when={view() === "beoordelen" && me.hasAtLeast("coach")}>
+								<h1 class="font-head text-h1 text-ink">
+									Beoordelen — {data().course.title}
+								</h1>
+								<GradingView sections={data().sections} />
 							</Show>
-						</Show>
-
-						{/* ── Beoordelen (coach+) ──────────────────────────────────── */}
-						<Show when={view() === "beoordelen" && me.hasAtLeast("coach")}>
-							<GradingView sections={data().sections} />
-						</Show>
-					</>
-				)}
+						</>
+					);
+				}}
 			</Show>
 		</section>
 	);

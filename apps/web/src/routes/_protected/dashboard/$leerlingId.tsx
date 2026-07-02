@@ -2,29 +2,38 @@ import { createFileRoute, Link } from "@tanstack/solid-router";
 import { useQuery } from "@tanstack/solid-query";
 import {
 	ArrowLeft,
+	Check,
+	Clock,
+	FileText,
 	Flag,
+	ListChecks,
 	MessageSquare,
 	NotebookPen,
+	Sparkles,
+	type LucideProps,
 } from "lucide-solid";
-import { For, Show } from "solid-js";
-import { Avatar } from "../../../components/ui/avatar";
-import { Badge } from "../../../components/ui/badge";
-import { buttonVariants } from "../../../components/ui/button";
-import { Card, CardHeader, CardTitle } from "../../../components/ui/card";
+import { For, type JSX, Show } from "solid-js";
 import {
 	PlanStatusBadge,
 	relativeTime,
 } from "../../../components/dashboard/plan-status";
-import { cn } from "../../../lib/cn";
+import { toast } from "../../../components/ui/toast";
 import { requireRole } from "../../../lib/auth/require-role";
 import { RequireRole } from "../../../lib/auth/role-guard";
-import { orpc } from "../../../lib/orpc";
+import { client, orpc } from "../../../lib/orpc";
 
 /**
- * Full leerling profile (#44). A fuller read-only view for a coach: coachplan
- * status + leervoorkeuren, task progress and today's tasks, active courses,
- * recent coachplan submissions and coach assignments. Gated to coach+; the
- * server re-asserts the coach↔leerling assignment within the tenant.
+ * Full leerling profile (#44) — a 1:1 port of the approved "StudentProfile"
+ * prototype: a gradient hero with an overlapping avatar, a 2fr/1fr body with a
+ * coachplan card, an activiteit-timeline, leervoorkeuren, a mood-strip and a
+ * parent card.
+ *
+ * The coachplan metadata, leervoorkeuren, taken, cursussen, inzendingen and
+ * begeleiding are all wired to the live `dashboard.profile` payload. The
+ * mood-strip and the ouders-card have no backend yet, so they render the
+ * prototype's structure with clearly-static demo content (never fabricated per
+ * leerling). Gated to coach+; the server re-asserts the coach↔leerling
+ * assignment within the tenant.
  */
 export const Route = createFileRoute("/_protected/dashboard/$leerlingId")({
 	beforeLoad: () => requireRole("coach"),
@@ -43,6 +52,27 @@ const STATUS_LABEL: Record<string, string> = {
 	completed: "Afgerond",
 };
 
+const MOOD_EMOJI = ["😞", "😕", "😐", "🙂", "😄"];
+/** Static demo mood pattern for the week strip (no backend). */
+const MOOD_WEEK: { day: string; mood: number | null }[] = [
+	{ day: "M", mood: 3 },
+	{ day: "D", mood: 4 },
+	{ day: "W", mood: 2 },
+	{ day: "D", mood: 3 },
+	{ day: "V", mood: 3 },
+	{ day: "Z", mood: null },
+	{ day: "Z", mood: null },
+];
+
+const initials = (name: string): string =>
+	name
+		.trim()
+		.split(/\s+/)
+		.map((w) => w[0] ?? "")
+		.slice(0, 2)
+		.join("")
+		.toUpperCase();
+
 function ProfilePage() {
 	const params = Route.useParams();
 	const profile = useQuery(() =>
@@ -50,64 +80,139 @@ function ProfilePage() {
 			input: { leerlingId: params().leerlingId },
 		}),
 	);
+	// The real "afgestemd met ouders" flag lives on the coachplan submission.
+	const submissionId = () => profile.data?.plan.submissionId ?? null;
+	const submissionQuery = useQuery(() => ({
+		...orpc.coachplan.getSubmission.queryOptions({
+			input: { id: submissionId() ?? "" },
+		}),
+		enabled: submissionId() != null,
+	}));
+	const setApprovedWithParents = async (approved: boolean) => {
+		const id = submissionId();
+		if (!id) return;
+		try {
+			await client.coachplan.setApprovedWithParents({
+				submissionId: id,
+				approved,
+			});
+			submissionQuery.refetch();
+		} catch {
+			toast({ title: "Opslaan lukte niet", tone: "danger" });
+		}
+	};
 
 	return (
-		<section class="mx-auto flex w-full max-w-4xl flex-col gap-6">
-			<Link
-				to="/dashboard"
-				class={cn(
-					buttonVariants({ variant: "ghost", size: "sm" }),
-					"self-start",
-				)}
-			>
-				<ArrowLeft class="size-4" /> Dashboard
-			</Link>
+		<>
+			<div class="ds-row" style={{ "margin-bottom": "16px" }}>
+				<Link to="/dashboard" class="btn ghost sm">
+					<ArrowLeft class="size-3.5" aria-hidden="true" /> Dashboard
+				</Link>
+			</div>
 
 			<Show when={profile.isLoading}>
-				<p class="text-muted">Laden…</p>
+				<div class="card" style={{ color: "rgb(var(--muted))" }}>
+					Laden…
+				</div>
 			</Show>
 
 			<Show when={profile.isError}>
-				<Card class="border-warning bg-warning-100/40 text-ink-2">
+				<div
+					class="card"
+					style={{
+						"border-color": "rgb(var(--warning))",
+						color: "rgb(var(--ink-2))",
+					}}
+				>
 					Geen toegang tot dit profiel of leerling niet gevonden.
-				</Card>
+				</div>
 			</Show>
 
 			<Show when={profile.data}>
 				{(data) => (
 					<>
-						{/* Header */}
-						<Card padding="lg">
-							<div class="flex flex-wrap items-center gap-4">
-								<Avatar
-									name={data().leerling.name}
-									tone="leerling"
-									size="lg"
-								/>
-								<div class="min-w-0 flex-1">
-									<h1 class="flex items-center gap-2 font-head text-h1 text-ink">
+						{/* Hero */}
+						<div
+							class="card"
+							style={{
+								padding: "0",
+								overflow: "hidden",
+								"margin-bottom": "24px",
+							}}
+						>
+							<div
+								style={{
+									height: "120px",
+									background:
+										"linear-gradient(135deg, rgb(var(--primary)), #1A8094)",
+								}}
+							/>
+							<div
+								style={{
+									padding: "0 24px 24px",
+									"margin-top": "-40px",
+									display: "flex",
+									"align-items": "flex-end",
+									gap: "18px",
+									"flex-wrap": "wrap",
+								}}
+							>
+								<div
+									class="avatar"
+									style={{
+										width: "88px",
+										height: "88px",
+										"font-size": "28px",
+										border: "4px solid rgb(var(--surface))",
+									}}
+									aria-hidden="true"
+								>
+									{initials(data().leerling.name)}
+								</div>
+								<div
+									class="ds-grow"
+									style={{ "padding-bottom": "8px", "min-width": "0" }}
+								>
+									<h1
+										class="ds-row"
+										style={{ "font-size": "26px", gap: "8px" }}
+									>
 										{data().leerling.name}
 										<Show when={data().aandacht}>
-											<Badge variant="danger">
-												<Flag class="size-3" /> Aandacht
-											</Badge>
+											<span class="chip danger" style={{ "font-size": "11px" }}>
+												<Flag class="size-3" aria-hidden="true" /> Aandacht
+											</span>
 										</Show>
 									</h1>
-									<p class="text-small text-muted">{data().leerling.email}</p>
-									<Show when={data().aandacht && data().aandachtRedenen.length}>
-										<p class="mt-1 text-small text-ink-2">
+									<div
+										style={{
+											"font-size": "14px",
+											color: "rgb(var(--muted))",
+										}}
+									>
+										{data().leerling.email}
+									</div>
+									<Show
+										when={data().aandacht && data().aandachtRedenen.length}
+									>
+										<div
+											style={{
+												"font-size": "13px",
+												color: "rgb(var(--ink-2))",
+												"margin-top": "4px",
+											}}
+										>
 											{data().aandachtRedenen.join(" · ")}
-										</p>
+										</div>
 									</Show>
 								</div>
-								<div class="flex shrink-0 gap-2">
+								<div class="ds-row" style={{ "padding-bottom": "8px" }}>
 									<Link
 										to="/chat"
-										class={cn(
-											buttonVariants({ variant: "ghost", size: "sm" }),
-										)}
+										search={{ otherUserId: data().leerling.id }}
+										class="btn ghost sm"
 									>
-										<MessageSquare class="size-4" /> Bericht
+										<MessageSquare class="size-3.5" aria-hidden="true" /> Bericht
 									</Link>
 									<Show when={data().plan.submissionId}>
 										<Link
@@ -115,162 +220,365 @@ function ProfilePage() {
 											params={{
 												submissionId: data().plan.submissionId ?? "",
 											}}
-											class={cn(buttonVariants({ size: "sm" }))}
+											class="btn primary sm"
 										>
-											<NotebookPen class="size-4" /> Open coachplan
+											<NotebookPen class="size-3.5" aria-hidden="true" /> Open
+											coachplan
 										</Link>
 									</Show>
 								</div>
 							</div>
-						</Card>
+						</div>
 
-						<div class="grid gap-6 md:grid-cols-[1.6fr_1fr]">
-							<div class="flex flex-col gap-6">
+						{/* Body */}
+						<div
+							class="ds-grid"
+							style={{ "grid-template-columns": "2fr 1fr", gap: "24px" }}
+						>
+							{/* Left */}
+							<div class="ds-col" style={{ gap: "24px" }}>
 								{/* Coachplan */}
-								<Card>
-									<CardHeader>
-										<CardTitle>Coachplan</CardTitle>
+								<div class="card">
+									<div class="card-head">
+										<h3>Coachplan</h3>
 										<PlanStatusBadge status={data().plan.status} />
-									</CardHeader>
-									<dl class="grid grid-cols-2 gap-4 text-small">
-										<div>
-											<dt class="text-muted">Laatst bijgewerkt</dt>
-											<dd class="text-ink">
-												{relativeTime(data().plan.updatedAt)}
-											</dd>
-										</div>
-										<div>
-											<dt class="text-muted">Te bespreken</dt>
-											<dd class="text-ink">
-												{data().plan.discussCount} vraag/vragen
-											</dd>
-										</div>
-									</dl>
-								</Card>
+									</div>
+									<div class="ds-col" style={{ gap: "14px" }}>
+										<Field
+											label="Laatst bijgewerkt"
+											val={relativeTime(data().plan.updatedAt)}
+										/>
+										<Show when={data().plan.submittedAt}>
+											<Field
+												label="Ingeleverd"
+												val={relativeTime(data().plan.submittedAt)}
+											/>
+										</Show>
+										<Field
+											label="Te bespreken met coach"
+											val={`${data().plan.discussCount} vraag/vragen`}
+											flag={data().plan.discussCount > 0}
+										/>
+										<Show when={data().leervoorkeuren.length > 0}>
+											<Field
+												label="Leervoorkeuren"
+												chips={data().leervoorkeuren}
+											/>
+										</Show>
+									</div>
+									<div
+										class="ds-row"
+										style={{ "margin-top": "16px", gap: "8px" }}
+									>
+										<button type="button" class="btn ghost sm">
+											<FileText class="size-3.5" aria-hidden="true" /> PDF
+										</button>
+										<button type="button" class="btn ghost sm">
+											<Sparkles class="size-3.5" aria-hidden="true" /> AI-advies
+										</button>
+										<div class="ds-grow" />
+										<Show when={submissionId()}>
+											<label
+												class="ds-row"
+												style={{ gap: "8px", "font-size": "13px" }}
+											>
+												<span class="toggle">
+													<input
+														type="checkbox"
+														checked={
+															submissionQuery.data?.submission
+																.approvedWithParents ?? false
+														}
+														onChange={(e) =>
+															setApprovedWithParents(e.currentTarget.checked)
+														}
+														aria-label="Afgestemd met ouders"
+													/>
+													<span class="slider" />
+												</span>
+												Afgestemd met ouders
+											</label>
+										</Show>
+									</div>
+								</div>
+
+								{/* Activiteit — derived from live signals */}
+								<div class="card">
+									<div class="card-head">
+										<h3>Activiteit</h3>
+										<span class="chip">Laatste 7 dagen</span>
+									</div>
+									<Show
+										when={
+											data().plan.submittedAt ||
+											data().recentSubmissions.length > 0 ||
+											data().tasks.done > 0
+										}
+										fallback={
+											<p
+												style={{
+													"font-size": "13px",
+													color: "rgb(var(--muted))",
+												}}
+											>
+												Nog geen recente activiteit.
+											</p>
+										}
+									>
+										<Show when={data().tasks.done > 0}>
+											<ActivityRow
+												icon={Check}
+												text={`${data().tasks.done} ${data().tasks.done === 1 ? "taak" : "taken"} afgerond`}
+												when={relativeTime(data().lastActivityAt)}
+												tone="success"
+											/>
+										</Show>
+										<Show when={data().plan.submittedAt}>
+											<ActivityRow
+												icon={NotebookPen}
+												text="Coachplan ingeleverd"
+												when={relativeTime(data().plan.submittedAt)}
+												tone="primary"
+											/>
+										</Show>
+										<For each={data().recentSubmissions.slice(0, 3)}>
+											{(s) => (
+												<ActivityRow
+													icon={ListChecks}
+													text={`Coachplan · ${STATUS_LABEL[s.status] ?? s.status}`}
+													when={relativeTime(s.submittedAt ?? s.updatedAt)}
+													tone={s.discussCount > 0 ? "warning" : undefined}
+												/>
+											)}
+										</For>
+										<Show when={data().tasks.overdue > 0}>
+											<ActivityRow
+												icon={Clock}
+												text={`${data().tasks.overdue} ${data().tasks.overdue === 1 ? "taak" : "taken"} over tijd`}
+												when="Nu"
+												tone="warning"
+											/>
+										</Show>
+									</Show>
+								</div>
 
 								{/* Recente inzendingen */}
-								<Card>
-									<CardHeader>
-										<CardTitle>Recente inzendingen</CardTitle>
-									</CardHeader>
+								<div class="card">
+									<div class="card-head">
+										<h3>Recente inzendingen</h3>
+									</div>
 									<Show
 										when={data().recentSubmissions.length > 0}
 										fallback={
-											<p class="text-small text-muted">
+											<p
+												style={{
+													"font-size": "13px",
+													color: "rgb(var(--muted))",
+												}}
+											>
 												Nog geen coachplannen ingeleverd.
 											</p>
 										}
 									>
-										<ul class="flex flex-col gap-2">
+										<div class="ds-col" style={{ gap: "8px" }}>
 											<For each={data().recentSubmissions}>
 												{(s) => (
-													<li class="flex items-center justify-between gap-3 rounded-2 bg-bg-2 px-3 py-2">
-														<div class="min-w-0">
-															<p class="text-small text-ink">
+													<div
+														class="ds-row ds-between"
+														style={{
+															padding: "10px 12px",
+															background: "rgb(var(--bg-2))",
+															"border-radius": "8px",
+															gap: "12px",
+														}}
+													>
+														<div style={{ "min-width": "0" }}>
+															<div
+																style={{
+																	"font-size": "13px",
+																	"font-weight": "500",
+																}}
+															>
 																{STATUS_LABEL[s.status] ?? s.status}
-															</p>
-															<p class="text-micro text-muted">
+															</div>
+															<div
+																style={{
+																	"font-size": "11px",
+																	color: "rgb(var(--muted))",
+																}}
+															>
 																{relativeTime(s.submittedAt ?? s.updatedAt)}
-															</p>
+															</div>
 														</div>
-														<div class="flex items-center gap-2">
+														<div class="ds-row" style={{ gap: "8px" }}>
 															<Show when={s.discussCount > 0}>
-																<Badge variant="accent">
+																<span class="chip accent">
 																	{s.discussCount} bespreken
-																</Badge>
+																</span>
 															</Show>
 															<Link
 																to="/plan/$submissionId"
 																params={{ submissionId: s.id }}
-																class={cn(
-																	buttonVariants({
-																		variant: "ghost",
-																		size: "sm",
-																	}),
-																)}
+																class="btn ghost sm"
 															>
 																Open
 															</Link>
 														</div>
-													</li>
+													</div>
 												)}
 											</For>
-										</ul>
+										</div>
 									</Show>
-								</Card>
+								</div>
 
-								{/* Cursussen */}
-								<Card>
-									<CardHeader>
-										<CardTitle>Actieve cursussen</CardTitle>
-									</CardHeader>
+								{/* Actieve cursussen */}
+								<div class="card">
+									<div class="card-head">
+										<h3>Actieve cursussen</h3>
+									</div>
 									<Show
 										when={data().courses.length > 0}
 										fallback={
-											<p class="text-small text-muted">
+											<p
+												style={{
+													"font-size": "13px",
+													color: "rgb(var(--muted))",
+												}}
+											>
 												Geen actieve cursussen.
 											</p>
 										}
 									>
-										<ul class="flex flex-col gap-3">
+										<div class="ds-col" style={{ gap: "6px" }}>
 											<For each={data().courses}>
 												{(c) => (
-													<li class="flex items-center gap-3">
-														<span class="min-w-0 flex-1 truncate text-small font-medium text-ink">
-															{c.title}
-														</span>
+													<div
+														class="ds-row ds-between"
+														style={{
+															padding: "8px 12px",
+															background: "rgb(var(--bg-2))",
+															"border-radius": "8px",
+															gap: "12px",
+														}}
+													>
 														<div
-															class="h-2 w-32 overflow-hidden rounded-pill bg-line-2"
+															style={{
+																"font-size": "13px",
+																"font-weight": "500",
+																flex: "1",
+																"min-width": "0",
+																overflow: "hidden",
+																"text-overflow": "ellipsis",
+																"white-space": "nowrap",
+															}}
+														>
+															{c.title}
+														</div>
+														<div
+															style={{ width: "80px" }}
 															role="progressbar"
 															aria-valuenow={c.progress}
 															aria-valuemin={0}
 															aria-valuemax={100}
 															aria-label={`Voortgang ${c.title}`}
 														>
-															<div
-																class="h-full rounded-pill bg-primary"
-																style={{ width: `${c.progress}%` }}
-															/>
+															<div class="progress">
+																<span style={{ width: `${c.progress}%` }} />
+															</div>
 														</div>
-														<span class="w-9 text-right text-micro text-muted">
+														<div
+															style={{
+																"font-size": "12px",
+																color: "rgb(var(--muted))",
+																width: "32px",
+																"text-align": "right",
+															}}
+														>
 															{c.progress}%
-														</span>
-													</li>
+														</div>
+													</div>
 												)}
 											</For>
-										</ul>
+										</div>
 									</Show>
-								</Card>
+								</div>
 							</div>
 
-							<div class="flex flex-col gap-6">
+							{/* Right */}
+							<div class="ds-col" style={{ gap: "24px" }}>
 								{/* Leervoorkeuren */}
-								<Card>
-									<CardHeader>
-										<CardTitle>Leervoorkeuren</CardTitle>
-									</CardHeader>
+								<div class="card">
+									<div class="card-head">
+										<h3>Leervoorkeuren</h3>
+									</div>
 									<Show
 										when={data().leervoorkeuren.length > 0}
 										fallback={
-											<p class="text-small text-muted">
+											<p
+												style={{
+													"font-size": "13px",
+													color: "rgb(var(--muted))",
+												}}
+											>
 												Nog niet vastgelegd.
 											</p>
 										}
 									>
-										<div class="flex flex-wrap gap-1.5">
+										<div
+											class="ds-row"
+											style={{ "flex-wrap": "wrap", gap: "6px" }}
+										>
 											<For each={data().leervoorkeuren}>
-												{(v) => <Badge variant="primary">{v}</Badge>}
+												{(v) => <span class="chip primary">{v}</span>}
 											</For>
 										</div>
 									</Show>
-								</Card>
+								</div>
+
+								{/* Mood deze week — static demo (no backend) */}
+								<div class="card">
+									<div class="card-head">
+										<h3>Mood deze week</h3>
+										<span class="chip" title="Voorbeeldweergave">
+											Voorbeeld
+										</span>
+									</div>
+									<div
+										class="ds-row"
+										style={{ "justify-content": "space-between" }}
+									>
+										<For each={MOOD_WEEK}>
+											{(m) => (
+												<div style={{ "text-align": "center" }}>
+													<div
+														style={{
+															"font-size": "22px",
+															"margin-bottom": "6px",
+															opacity: m.mood === null ? "0.35" : "1",
+														}}
+													>
+														{m.mood === null ? "–" : MOOD_EMOJI[m.mood]}
+													</div>
+													<div
+														style={{
+															"font-size": "11px",
+															color: "rgb(var(--muted))",
+														}}
+													>
+														{m.day}
+													</div>
+												</div>
+											)}
+										</For>
+									</div>
+								</div>
 
 								{/* Taken */}
-								<Card>
-									<CardHeader>
-										<CardTitle>Taken</CardTitle>
-									</CardHeader>
-									<div class="flex gap-4 text-small">
+								<div class="card">
+									<div class="card-head">
+										<h3>Taken</h3>
+									</div>
+									<div class="ds-row" style={{ gap: "24px" }}>
 										<Stat label="Open" value={data().tasks.open} />
 										<Stat label="Klaar" value={data().tasks.done} />
 										<Stat
@@ -280,85 +588,269 @@ function ProfilePage() {
 										/>
 									</div>
 									<Show when={data().tasksToday.length > 0}>
-										<div class="mt-4">
-											<p class="mb-2 text-micro text-muted uppercase tracking-wide">
+										<div style={{ "margin-top": "16px" }}>
+											<div
+												style={{
+													"font-size": "11px",
+													color: "rgb(var(--muted))",
+													"text-transform": "uppercase",
+													"letter-spacing": "0.04em",
+													"margin-bottom": "8px",
+												}}
+											>
 												Vandaag
-											</p>
-											<ul class="flex flex-col gap-1.5">
+											</div>
+											<div class="ds-col" style={{ gap: "6px" }}>
 												<For each={data().tasksToday}>
 													{(t) => (
-														<li class="flex items-center justify-between gap-2 rounded-2 bg-bg-2 px-3 py-2 text-small">
-															<span class="min-w-0 truncate text-ink">
+														<div
+															class="ds-row ds-between"
+															style={{
+																padding: "10px 12px",
+																background: "rgb(var(--bg-2))",
+																"border-radius": "8px",
+																gap: "8px",
+																"font-size": "13px",
+															}}
+														>
+															<span
+																style={{
+																	"min-width": "0",
+																	overflow: "hidden",
+																	"text-overflow": "ellipsis",
+																	"white-space": "nowrap",
+																}}
+															>
 																{t.title}
 															</span>
 															<Show when={t.overdue}>
-																<Badge variant="danger">over tijd</Badge>
+																<span class="chip danger">over tijd</span>
 															</Show>
-														</li>
+														</div>
 													)}
 												</For>
-											</ul>
+											</div>
 										</div>
 									</Show>
-								</Card>
+								</div>
 
 								{/* Begeleiding */}
-								<Card>
-									<CardHeader>
-										<CardTitle>Begeleiding</CardTitle>
-									</CardHeader>
+								<div class="card">
+									<div class="card-head">
+										<h3>Begeleiding</h3>
+									</div>
 									<Show
 										when={data().assignments.length > 0}
 										fallback={
-											<p class="text-small text-muted">
+											<p
+												style={{
+													"font-size": "13px",
+													color: "rgb(var(--muted))",
+												}}
+											>
 												Geen coach gekoppeld.
 											</p>
 										}
 									>
-										<ul class="flex flex-col gap-2">
+										<div class="ds-col" style={{ gap: "10px" }}>
 											<For each={data().assignments}>
 												{(a) => (
-													<li class="flex items-center gap-3">
-														<Avatar name={a.coachName} tone="coach" size="sm" />
-														<div class="min-w-0">
-															<p class="truncate text-small text-ink">
-																{a.coachName}
-															</p>
-															<p class="text-micro text-muted">
-																Coach · sinds {relativeTime(a.createdAt)}
-															</p>
+													<div class="ds-row" style={{ gap: "10px" }}>
+														<div
+															class="avatar coach"
+															style={{
+																width: "34px",
+																height: "34px",
+																"font-size": "12px",
+															}}
+															aria-hidden="true"
+														>
+															{initials(a.coachName)}
 														</div>
-													</li>
+														<div style={{ "min-width": "0" }}>
+															<div
+																style={{
+																	"font-weight": "500",
+																	"font-size": "13px",
+																}}
+															>
+																{a.coachName}
+															</div>
+															<div
+																style={{
+																	"font-size": "12px",
+																	color: "rgb(var(--muted))",
+																}}
+															>
+																Coach · sinds {relativeTime(a.createdAt)}
+															</div>
+														</div>
+													</div>
 												)}
 											</For>
-										</ul>
+										</div>
 									</Show>
-								</Card>
+								</div>
+
+								{/* Ouders — static demo (no backend) */}
+								<div class="card">
+									<div class="card-head">
+										<h3>Ouders</h3>
+										<span class="chip" title="Voorbeeldweergave">
+											Voorbeeld
+										</span>
+									</div>
+									<div class="ds-row" style={{ gap: "10px" }}>
+										<div
+											class="avatar"
+											style={{
+												width: "34px",
+												height: "34px",
+												"font-size": "12px",
+											}}
+											aria-hidden="true"
+										>
+											?
+										</div>
+										<div style={{ "min-width": "0" }}>
+											<div
+												style={{ "font-weight": "500", "font-size": "13px" }}
+											>
+												Ouder / verzorger
+											</div>
+											<div
+												style={{
+													"font-size": "12px",
+													color: "rgb(var(--muted))",
+												}}
+											>
+												Nog niet gekoppeld in demo
+											</div>
+										</div>
+									</div>
+								</div>
 							</div>
 						</div>
 					</>
 				)}
 			</Show>
-		</section>
+		</>
 	);
 }
 
-function Stat(props: {
+function Field(props: {
 	label: string;
-	value: number;
-	tone?: "danger";
+	val?: string;
+	chips?: string[];
+	flag?: boolean;
 }) {
 	return (
 		<div>
-			<p
-				class={cn(
-					"font-head text-h2",
-					props.tone === "danger" ? "text-danger" : "text-ink",
-				)}
+			<div
+				class="ds-row"
+				style={{
+					"font-size": "12px",
+					color: "rgb(var(--muted))",
+					"margin-bottom": "4px",
+					"font-weight": "500",
+					gap: "8px",
+				}}
+			>
+				{props.label}
+				<Show when={props.flag}>
+					<span class="chip accent" style={{ "font-size": "10px" }}>
+						<Flag class="size-3" aria-hidden="true" /> Bespreken
+					</span>
+				</Show>
+			</div>
+			<Show
+				when={props.chips}
+				fallback={<div style={{ "font-size": "14px" }}>{props.val}</div>}
+			>
+				<div class="ds-row" style={{ "flex-wrap": "wrap", gap: "6px" }}>
+					<For each={props.chips}>
+						{(v) => <span class="chip primary">{v}</span>}
+					</For>
+				</div>
+			</Show>
+		</div>
+	);
+}
+
+function ActivityRow(props: {
+	icon: (p: LucideProps) => JSX.Element;
+	text: string;
+	when: string;
+	tone?: "success" | "primary" | "warning";
+}) {
+	const bg = () =>
+		props.tone === "success"
+			? "rgb(var(--success-100))"
+			: props.tone === "primary"
+				? "rgb(var(--primary-100))"
+				: props.tone === "warning"
+					? "rgb(var(--warning-100))"
+					: "rgb(var(--bg-2))";
+	const fg = () =>
+		props.tone === "success"
+			? "rgb(var(--success))"
+			: props.tone === "primary"
+				? "rgb(var(--primary-700))"
+				: props.tone === "warning"
+					? "rgb(var(--warning))"
+					: "rgb(var(--ink-2))";
+	return (
+		<div
+			class="ds-row"
+			style={{
+				padding: "10px 0",
+				"border-bottom": "1px solid rgb(var(--line-2))",
+				gap: "12px",
+			}}
+		>
+			<div
+				style={{
+					width: "32px",
+					height: "32px",
+					"border-radius": "9px",
+					background: bg(),
+					color: fg(),
+					display: "grid",
+					"place-items": "center",
+					"flex-shrink": "0",
+				}}
+			>
+				<props.icon class="size-4" aria-hidden="true" />
+			</div>
+			<div class="ds-grow" style={{ "min-width": "0" }}>
+				<div style={{ "font-size": "13.5px" }}>{props.text}</div>
+				<div style={{ "font-size": "11px", color: "rgb(var(--muted))" }}>
+					{props.when}
+				</div>
+			</div>
+		</div>
+	);
+}
+
+function Stat(props: { label: string; value: number; tone?: "danger" }) {
+	return (
+		<div>
+			<div
+				style={{
+					"font-family": "var(--font-head)",
+					"font-size": "24px",
+					"font-weight": "600",
+					color:
+						props.tone === "danger"
+							? "rgb(var(--danger))"
+							: "rgb(var(--ink))",
+				}}
 			>
 				{props.value}
-			</p>
-			<p class="text-micro text-muted">{props.label}</p>
+			</div>
+			<div style={{ "font-size": "11px", color: "rgb(var(--muted))" }}>
+				{props.label}
+			</div>
 		</div>
 	);
 }

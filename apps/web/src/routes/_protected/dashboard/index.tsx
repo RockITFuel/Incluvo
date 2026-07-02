@@ -1,27 +1,39 @@
 import { createFileRoute, Link } from "@tanstack/solid-router";
 import { useQuery } from "@tanstack/solid-query";
-import { ArrowRight, Flag, MessageSquare, NotebookPen } from "lucide-solid";
-import { createMemo, createSignal, For, Show } from "solid-js";
-import { Avatar } from "../../../components/ui/avatar";
-import { Badge } from "../../../components/ui/badge";
-import { buttonVariants } from "../../../components/ui/button";
-import { Card } from "../../../components/ui/card";
-import { SegmentedControl } from "../../../components/ui/segmented-control";
+import {
+	ClipboardCheck,
+	Flag,
+	MessageSquare,
+	NotebookPen,
+	Plus,
+	Search,
+	Sparkles,
+	TrendingUp,
+	User,
+	type LucideProps,
+} from "lucide-solid";
+import { createMemo, createSignal, For, type JSX, Show } from "solid-js";
 import {
 	PlanStatusBadge,
 	relativeTime,
 } from "../../../components/dashboard/plan-status";
 import { Quickpanel } from "../../../components/dashboard/quickpanel";
-import { cn } from "../../../lib/cn";
 import { requireRole } from "../../../lib/auth/require-role";
 import { RequireRole } from "../../../lib/auth/role-guard";
 import { orpc } from "../../../lib/orpc";
 
 /**
- * Coach dashboard (#42). Calm overview of the coach's assigned leerlingen with
- * coachplan status, last activity, task progress, an aandacht-badge and
- * snelacties (Chat, Naar plan). A row click opens the Quickpanel slide-over
- * (#43); the profile-icon links to the full profile route (#44).
+ * Coach dashboard (#42) — a 1:1 port of the approved "Coach" prototype page.
+ * A dense, calm overview of the coach's assigned leerlingen: a KPI row, a
+ * filter + zoek segmented control and a table with coachplan status, task
+ * voortgang, last activity and an aandacht-badge. A row click opens the
+ * Quickpanel slide-over (#43); the profiel-icon links to the full profile
+ * route (#44); the chat-icon deep-links into /chat.
+ *
+ * All numbers are derived from the live `dashboard.overview` payload where the
+ * data exists (plannen klaar, aandacht, gem. voortgang from task-completion).
+ * Fields the backend does not yet carry (per-leerling mood, class name) are
+ * shown as clearly-static demo placeholders, never fabricated per leerling.
  *
  * Gated to coach+ in the UI (`requireRole("coach")`); the server re-enforces
  * coach+ and the coach↔leerling assignment on every procedure.
@@ -37,29 +49,102 @@ export const Route = createFileRoute("/_protected/dashboard/")({
 
 type Filter = "all" | "attention" | "plan";
 
+const initials = (name: string): string =>
+	name
+		.trim()
+		.split(/\s+/)
+		.map((w) => w[0] ?? "")
+		.slice(0, 2)
+		.join("")
+		.toUpperCase();
+
+/** Short "Voornaam L." label for the aandacht KPI subline. */
+const shortName = (name: string): string => {
+	const parts = name.trim().split(/\s+/);
+	if (parts.length < 2) return parts[0] ?? "";
+	return `${parts[0]} ${(parts[parts.length - 1] ?? "")[0] ?? ""}.`;
+};
+
+const todayLabel = (): string =>
+	new Date().toLocaleDateString("nl-NL", {
+		weekday: "long",
+		day: "numeric",
+		month: "long",
+	});
+
 function DashboardPage() {
 	const overview = useQuery(() => orpc.dashboard.overview.queryOptions());
 	const [filter, setFilter] = createSignal<Filter>("all");
+	const [search, setSearch] = createSignal("");
 	const [openLeerling, setOpenLeerling] = createSignal<string | null>(null);
 	const [openPlan, setOpenPlan] = createSignal<string | null>(null);
 	const [openConvo, setOpenConvo] = createSignal<string | null>(null);
 
 	const rows = createMemo(() => overview.data ?? []);
+	type Row = NonNullable<typeof overview.data>[number];
+
+	/** Per-leerling task-completion voortgang (real). */
+	const voortgang = (row: Row) => {
+		const total = row.tasks.open + row.tasks.done;
+		return total > 0 ? Math.round((row.tasks.done / total) * 100) : 0;
+	};
 
 	const filtered = createMemo(() => {
+		let list = rows();
 		const f = filter();
-		if (f === "attention") return rows().filter((r) => r.aandacht);
-		if (f === "plan")
-			return rows().filter(
+		if (f === "attention") list = list.filter((r) => r.aandacht);
+		else if (f === "plan")
+			list = list.filter(
 				(r) =>
 					r.plan.status === "submitted" || r.plan.status === "coach_review",
 			);
-		return rows();
+		const q = search().trim().toLowerCase();
+		if (q) list = list.filter((r) => r.leerling.name.toLowerCase().includes(q));
+		return list;
 	});
 
 	const attentionCount = createMemo(
 		() => rows().filter((r) => r.aandacht).length,
 	);
+
+	// --- KPI derivations (real data) -----------------------------------------
+	const kpis = createMemo(() => {
+		const list = rows();
+		const total = list.length;
+		const klaar = list.filter(
+			(r) =>
+				r.plan.status === "completed" ||
+				r.plan.status === "shared_with_leerling",
+		).length;
+		const inBehandeling = list.filter(
+			(r) =>
+				r.plan.status === "submitted" || r.plan.status === "coach_review",
+		).length;
+		const attentionNames = list
+			.filter((r) => r.aandacht)
+			.slice(0, 2)
+			.map((r) => shortName(r.leerling.name));
+		const totalOpen = list.reduce((s, r) => s + r.tasks.open, 0);
+		const totalOverdue = list.reduce((s, r) => s + r.tasks.overdue, 0);
+		const gemVoortgang =
+			total > 0
+				? Math.round(
+						list.reduce((s, r) => {
+							const t = r.tasks.open + r.tasks.done;
+							return s + (t > 0 ? (r.tasks.done / t) * 100 : 0);
+						}, 0) / total,
+					)
+				: 0;
+		return {
+			total,
+			klaar,
+			inBehandeling,
+			attentionNames,
+			totalOpen,
+			totalOverdue,
+			gemVoortgang,
+		};
+	});
 
 	const openQuickpanel = (
 		leerlingId: string,
@@ -71,185 +156,362 @@ function DashboardPage() {
 		setOpenLeerling(leerlingId);
 	};
 
+	const colTemplate = "2fr 1fr 1.5fr 1.5fr 1fr 100px";
+
 	return (
-		<section class="mx-auto flex w-full max-w-5xl flex-col gap-6">
-			<div>
-				<h1 class="font-head text-h1 text-ink">Dashboard</h1>
-				<p class="mt-1 text-body text-muted">
-					Een rustig overzicht van je leerlingen. Klik op een leerling voor
-					details.
-				</p>
+		<>
+			<div class="page-head">
+				<div>
+					<h1>Dashboard</h1>
+					<div class="sub">
+						<span style={{ "text-transform": "capitalize" }}>
+							{todayLabel()}
+						</span>{" "}
+						· {rows().length} leerlingen
+					</div>
+				</div>
+				<div class="ds-row">
+					<button type="button" class="btn ghost">
+						<Plus class="size-3.5" aria-hidden="true" /> Taak voor klas
+					</button>
+					<button type="button" class="btn primary">
+						<Sparkles class="size-3.5" aria-hidden="true" /> AI-overzicht week
+					</button>
+				</div>
 			</div>
 
 			<Show when={overview.isLoading}>
-				<p class="text-muted">Laden…</p>
+				<div class="card text-muted">Laden…</div>
 			</Show>
 
 			<Show when={!overview.isLoading && rows().length === 0}>
-				<Card class="text-muted">
+				<div class="card" style={{ color: "rgb(var(--muted))" }}>
 					Er zijn nog geen leerlingen aan jou gekoppeld.
-				</Card>
+				</div>
 			</Show>
 
 			<Show when={rows().length > 0}>
-				<div class="flex flex-wrap items-center gap-3">
-					<SegmentedControl
-						value={filter()}
-						onChange={(v) => setFilter(v as Filter)}
-						options={[
-							{ value: "all", label: `Alle (${rows().length})` },
-							{
-								value: "attention",
-								label: `Aandacht (${attentionCount()})`,
-							},
-							{ value: "plan", label: "Plan in behandeling" },
-						]}
+				{/* KPI row */}
+				<div
+					class="ds-grid"
+					style={{
+						"grid-template-columns": "repeat(4, 1fr)",
+						gap: "16px",
+						"margin-bottom": "24px",
+					}}
+				>
+					<KPI
+						label="Plannen klaar"
+						value={`${kpis().klaar}/${kpis().total}`}
+						sub={`${kpis().inBehandeling} in behandeling`}
+						tone="primary"
+						icon={NotebookPen}
+					/>
+					<KPI
+						label="Aandacht nodig"
+						value={String(attentionCount())}
+						sub={
+							kpis().attentionNames.length
+								? kpis().attentionNames.join(" · ")
+								: "Alles rustig"
+						}
+						tone="accent"
+						icon={Flag}
+					/>
+					<KPI
+						label="Inzendingen vandaag"
+						value={String(kpis().totalOpen)}
+						sub={
+							kpis().totalOverdue > 0
+								? `${kpis().totalOverdue} over tijd`
+								: "niets over tijd"
+						}
+						tone="warning"
+						icon={ClipboardCheck}
+					/>
+					<KPI
+						label="Gem. voortgang"
+						value={`${kpis().gemVoortgang}%`}
+						sub="op basis van taken"
+						tone="success"
+						icon={TrendingUp}
 					/>
 				</div>
 
-				<ul class="flex flex-col gap-2">
-					<For each={filtered()}>
-						{(row) => (
-							<li>
-								<Card
-									padding="sm"
-									class={cn(
-										"transition-colors hover:border-primary",
-										openLeerling() === row.leerling.id &&
-											"border-primary bg-primary-50",
-									)}
-								>
-									<div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+				{/* Filter + zoek */}
+				<div
+					class="ds-row"
+					style={{
+						"margin-bottom": "14px",
+						gap: "8px",
+						"flex-wrap": "wrap",
+					}}
+				>
+					<div class="seg" role="tablist" aria-label="Filter leerlingen">
+						<button
+							type="button"
+							class={filter() === "all" ? "on" : ""}
+							aria-pressed={filter() === "all"}
+							onClick={() => setFilter("all")}
+						>
+							Alle leerlingen
+						</button>
+						<button
+							type="button"
+							class={filter() === "attention" ? "on" : ""}
+							aria-pressed={filter() === "attention"}
+							onClick={() => setFilter("attention")}
+						>
+							Aandacht ({attentionCount()})
+						</button>
+						<button
+							type="button"
+							class={filter() === "plan" ? "on" : ""}
+							aria-pressed={filter() === "plan"}
+							onClick={() => setFilter("plan")}
+						>
+							Plan in behandeling
+						</button>
+					</div>
+					<div class="ds-grow" />
+					<div
+						class="ds-row"
+						style={{
+							gap: "8px",
+							padding: "7px 12px",
+							background: "rgb(var(--surface))",
+							"border-radius": "10px",
+							border: "1px solid rgb(var(--line))",
+						}}
+					>
+						<Search
+							class="size-3.5"
+							aria-hidden="true"
+							style={{ color: "rgb(var(--muted))" }}
+						/>
+						<input
+							value={search()}
+							onInput={(e) => setSearch(e.currentTarget.value)}
+							style={{
+								border: "0",
+								background: "transparent",
+								outline: "none",
+								"font-size": "13px",
+								color: "rgb(var(--ink))",
+							}}
+							placeholder="Zoek leerling…"
+							aria-label="Zoek leerling"
+						/>
+					</div>
+				</div>
+
+				{/* Table */}
+				<div class="card" style={{ padding: "0", overflow: "hidden" }}>
+					<div style={{ "overflow-x": "auto" }}>
+						<div style={{ "min-width": "720px" }}>
+							{/* Header */}
+							<div
+								style={{
+									display: "grid",
+									"grid-template-columns": colTemplate,
+									padding: "12px 20px",
+									background: "rgb(var(--bg-2))",
+									"border-bottom": "1px solid rgb(var(--line))",
+									"font-size": "12px",
+									"font-weight": "600",
+									color: "rgb(var(--muted))",
+									"text-transform": "uppercase",
+									"letter-spacing": "0.04em",
+								}}
+							>
+								<div>Leerling</div>
+								<div>Mood</div>
+								<div>Coachplan</div>
+								<div>Voortgang</div>
+								<div>Laatst actief</div>
+								<div />
+							</div>
+
+							<For each={filtered()}>
+								{(row) => (
+									<div
+										role="button"
+										tabindex="0"
+										style={{
+											display: "grid",
+											"grid-template-columns": colTemplate,
+											padding: "14px 20px",
+											"border-bottom": "1px solid rgb(var(--line-2))",
+											"align-items": "center",
+											cursor: "pointer",
+											background:
+												openLeerling() === row.leerling.id
+													? "rgb(var(--primary-50))"
+													: "transparent",
+										}}
+										onClick={() =>
+											openQuickpanel(
+												row.leerling.id,
+												row.snelacties.planSubmissionId,
+												row.snelacties.conversationId,
+											)
+										}
+										onKeyDown={(e) => {
+											if (e.key === "Enter" || e.key === " ") {
+												e.preventDefault();
+												openQuickpanel(
+													row.leerling.id,
+													row.snelacties.planSubmissionId,
+													row.snelacties.conversationId,
+												);
+											}
+										}}
+									>
 										{/* Leerling */}
-										<div class="flex min-w-0 flex-1 items-center gap-3">
-											<Avatar name={row.leerling.name} tone="leerling" />
-											<div class="min-w-0">
-												<p class="flex items-center gap-2 truncate font-medium text-ink">
-													{row.leerling.name}
-													<Show when={row.aandacht}>
-														<Badge variant="danger">
-															<Flag class="size-3" /> Aandacht
-														</Badge>
-													</Show>
-												</p>
-												<Show when={row.aandacht && row.aandachtRedenen.length}>
-													<p class="truncate text-micro text-muted">
-														{row.aandachtRedenen.join(" · ")}
-													</p>
-												</Show>
+										<div class="ds-row" style={{ "min-width": "0" }}>
+											<div
+												class="avatar"
+												style={{
+													width: "34px",
+													height: "34px",
+													"font-size": "12px",
+												}}
+												aria-hidden="true"
+											>
+												{initials(row.leerling.name)}
 											</div>
+											<div style={{ "min-width": "0" }}>
+												<div
+													style={{
+														"font-weight": "500",
+														"font-size": "14px",
+													}}
+												>
+													{row.leerling.name}
+												</div>
+												<div
+													style={{
+														"font-size": "12px",
+														color: "rgb(var(--muted))",
+														overflow: "hidden",
+														"text-overflow": "ellipsis",
+														"white-space": "nowrap",
+													}}
+												>
+													{row.leerling.email}
+												</div>
+											</div>
+											<Show when={row.aandacht}>
+												<span
+													class="chip danger"
+													style={{ "font-size": "11px" }}
+												>
+													<Flag class="size-3" aria-hidden="true" /> Aandacht
+												</span>
+											</Show>
+										</div>
+
+										{/* Mood — static placeholder (no per-leerling mood backend) */}
+										<div
+											style={{ "font-size": "22px", opacity: "0.45" }}
+											title="Nog geen mood gedeeld"
+											aria-label="Mood: onbekend"
+										>
+											😐
 										</div>
 
 										{/* Coachplan */}
-										<div class="w-36 shrink-0">
-											<span class="inline-flex whitespace-nowrap">
+										<div>
+											<span style={{ display: "inline-flex" }}>
 												<PlanStatusBadge status={row.plan.status} />
 											</span>
-											<Show when={row.plan.discussCount > 0}>
-												<span class="mt-1 block text-micro text-accent-700">
-													{row.plan.discussCount} bespreken
-												</span>
-											</Show>
+											<div
+												style={{
+													"font-size": "11px",
+													color: "rgb(var(--muted))",
+													"margin-top": "3px",
+												}}
+											>
+												{relativeTime(row.plan.updatedAt)}
+											</div>
 										</div>
 
-										{/* Taken */}
-										<div class="w-24 shrink-0 text-small">
-											<span class="text-ink">{row.tasks.open} open</span>
-											<Show when={row.tasks.overdue > 0}>
-												<span class="block text-micro text-danger">
-													{row.tasks.overdue} over tijd
-												</span>
-											</Show>
+										{/* Voortgang */}
+										<div>
+											<div class="progress" style={{ "margin-bottom": "4px" }}>
+												<span style={{ width: `${voortgang(row)}%` }} />
+											</div>
+											<div
+												style={{
+													"font-size": "11px",
+													color: "rgb(var(--muted))",
+												}}
+											>
+												{voortgang(row)}%
+											</div>
 										</div>
 
 										{/* Laatst actief */}
-										<div class="w-28 shrink-0 text-small text-muted">
+										<div
+											style={{
+												"font-size": "13px",
+												color: "rgb(var(--muted))",
+											}}
+										>
 											{relativeTime(row.lastActivityAt)}
 										</div>
 
 										{/* Snelacties */}
-										<div class="flex shrink-0 items-center gap-1">
-											<button
-												type="button"
-												aria-label={`Open ${row.leerling.name}`}
-												class={cn(
-													buttonVariants({ variant: "subtle", size: "sm" }),
-												)}
-												onClick={() =>
-													openQuickpanel(
-														row.leerling.id,
-														row.snelacties.planSubmissionId,
-														row.snelacties.conversationId,
-													)
-												}
-											>
-												Open
-											</button>
+										<div
+											class="ds-row"
+											style={{ gap: "4px", "justify-content": "flex-end" }}
+										>
 											<Link
 												to="/chat"
 												search={
 													row.snelacties.conversationId
-														? { conversationId: row.snelacties.conversationId }
+														? {
+																conversationId:
+																	row.snelacties.conversationId,
+															}
 														: { otherUserId: row.leerling.id }
 												}
 												aria-label={`Chat met ${row.leerling.name}`}
-												class={cn(
-													buttonVariants({ variant: "ghost", size: "icon" }),
-												)}
+												class="icon-btn"
+												style={{ width: "30px", height: "30px" }}
+												onClick={(e) => e.stopPropagation()}
 											>
-												<MessageSquare class="size-4" />
+												<MessageSquare class="size-3.5" aria-hidden="true" />
 											</Link>
-											<Show
-												when={row.snelacties.planSubmissionId}
-												fallback={
-													<span
-														aria-hidden="true"
-														class={cn(
-															buttonVariants({
-																variant: "ghost",
-																size: "icon",
-															}),
-															"pointer-events-none opacity-40",
-														)}
-													>
-														<NotebookPen class="size-4" />
-													</span>
-												}
-											>
-												<Link
-													to="/plan/$submissionId"
-													params={{
-														submissionId:
-															row.snelacties.planSubmissionId ?? "",
-													}}
-													aria-label={`Coachplan van ${row.leerling.name}`}
-													class={cn(
-														buttonVariants({
-															variant: "ghost",
-															size: "icon",
-														}),
-													)}
-												>
-													<NotebookPen class="size-4" />
-												</Link>
-											</Show>
 											<Link
 												to="/dashboard/$leerlingId"
 												params={{ leerlingId: row.leerling.id }}
 												aria-label={`Profiel van ${row.leerling.name}`}
-												class={cn(
-													buttonVariants({ variant: "ghost", size: "icon" }),
-												)}
+												class="icon-btn"
+												style={{ width: "30px", height: "30px" }}
+												onClick={(e) => e.stopPropagation()}
 											>
-												<ArrowRight class="size-4" />
+												<User class="size-3.5" aria-hidden="true" />
 											</Link>
 										</div>
 									</div>
-								</Card>
-							</li>
-						)}
-					</For>
-				</ul>
+								)}
+							</For>
+
+							<Show when={filtered().length === 0}>
+								<div
+									style={{
+										padding: "24px 20px",
+										"font-size": "13px",
+										color: "rgb(var(--muted))",
+									}}
+								>
+									Geen leerlingen gevonden.
+								</div>
+							</Show>
+						</div>
+					</div>
+				</div>
 			</Show>
 
 			<Quickpanel
@@ -258,6 +520,81 @@ function DashboardPage() {
 				conversationId={openConvo()}
 				onClose={() => setOpenLeerling(null)}
 			/>
-		</section>
+		</>
+	);
+}
+
+function KPI(props: {
+	label: string;
+	value: string;
+	sub: string;
+	tone: "primary" | "accent" | "warning" | "success";
+	icon: (p: LucideProps) => JSX.Element;
+}) {
+	const bg = () =>
+		props.tone === "primary"
+			? "rgb(var(--primary-100))"
+			: props.tone === "accent"
+				? "rgb(var(--accent-100))"
+				: props.tone === "warning"
+					? "rgb(var(--warning-100))"
+					: "rgb(var(--success-100))";
+	const fg = () =>
+		props.tone === "primary"
+			? "rgb(var(--primary-700))"
+			: props.tone === "accent"
+				? "rgb(var(--accent-700))"
+				: props.tone === "warning"
+					? "rgb(var(--warning))"
+					: "rgb(var(--success))";
+	return (
+		<div class="card" style={{ padding: "18px" }}>
+			<div class="ds-row ds-between" style={{ "margin-bottom": "8px" }}>
+				<div
+					style={{
+						"font-size": "12px",
+						color: "rgb(var(--muted))",
+						"font-weight": "600",
+						"text-transform": "uppercase",
+						"letter-spacing": "0.06em",
+					}}
+				>
+					{props.label}
+				</div>
+				<div
+					style={{
+						width: "30px",
+						height: "30px",
+						"border-radius": "9px",
+						background: bg(),
+						color: fg(),
+						display: "grid",
+						"place-items": "center",
+						"flex-shrink": "0",
+					}}
+				>
+					<props.icon class="size-4" aria-hidden="true" />
+				</div>
+			</div>
+			<div
+				style={{
+					"font-family": "var(--font-head)",
+					"font-size": "28px",
+					"font-weight": "600",
+					"line-height": "1",
+				}}
+			>
+				{props.value}
+			</div>
+			<div
+				style={{
+					"font-size": "12px",
+					color: "rgb(var(--muted))",
+					"margin-top": "6px",
+				}}
+			>
+				{props.sub}
+			</div>
+		</div>
 	);
 }

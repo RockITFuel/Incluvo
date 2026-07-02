@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/solid-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/solid-router";
 import { useQuery, useQueryClient } from "@tanstack/solid-query";
 import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 import { createStore } from "solid-js/store";
@@ -93,6 +93,7 @@ type Flags = { discussWithCoach: boolean; deliberatelySkipped: boolean };
 
 function PlanWizard() {
 	const queryClient = useQueryClient();
+	const navigate = useNavigate();
 	const [step, setStep] = createSignal(0);
 	const [reviewing, setReviewing] = createSignal(false);
 	const [submitted, setSubmitted] = createSignal(false);
@@ -252,7 +253,18 @@ function PlanWizard() {
 											Stap {step() + 1} van {total()}
 										</Badge>
 									</div>
-									<span class="text-small text-muted">{templateName()}</span>
+									<div class="flex items-center gap-3">
+										<span class="hidden text-small text-muted sm:inline">
+											{templateName()}
+										</span>
+										<Button
+											variant="ghost"
+											size="sm"
+											onClick={() => navigate({ to: "/welkom" })}
+										>
+											Opslaan & afsluiten
+										</Button>
+									</div>
 								</div>
 
 								<div

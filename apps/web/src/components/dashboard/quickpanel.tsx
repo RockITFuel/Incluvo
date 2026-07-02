@@ -1,20 +1,27 @@
 import { Dialog as KDialog } from "@kobalte/core/dialog";
 import { Link } from "@tanstack/solid-router";
 import { useQuery } from "@tanstack/solid-query";
-import { ArrowRight, MessageSquare, NotebookPen, X } from "lucide-solid";
-import { For, Show } from "solid-js";
-import { buttonVariants } from "../ui/button";
-import { Avatar } from "../ui/avatar";
-import { Badge } from "../ui/badge";
+import {
+	ArrowRight,
+	ListChecks,
+	MessageSquare,
+	NotebookPen,
+	X,
+} from "lucide-solid";
+import { For, type JSX, Show } from "solid-js";
 import { cn } from "../../lib/cn";
 import { orpc } from "../../lib/orpc";
 import { PlanStatusBadge } from "./plan-status";
 
 /**
- * Quickpanel slide-over (#43). Opens on a leerling row click and shows their
- * leervoorkeuren, today's tasks and active courses with progress, plus snelacties
- * (bericht / naar plan / volledig profiel). Built on Kobalte's Dialog for a
- * focus-trap, Esc-to-close and scroll-lock; positioned as a right-edge drawer.
+ * Quickpanel slide-over (#43) — a 1:1 port of the approved prototype's panel.
+ * Opens on a leerling row click and shows their coachplan status,
+ * leervoorkeuren, today's tasks and active courses with progress, plus
+ * snelacties (bericht / naar plan / volledig profiel).
+ *
+ * Built on Kobalte's Dialog for a focus-trap, Esc-to-close and scroll-lock,
+ * positioned as a right-edge drawer; the inner markup uses the shared
+ * design-system component classes (.chip, .progress, .btn) to match the design.
  */
 export function Quickpanel(props: {
 	leerlingId: string | null;
@@ -32,6 +39,15 @@ export function Quickpanel(props: {
 		enabled: isOpen(),
 	}));
 
+	const initials = (name: string): string =>
+		name
+			.trim()
+			.split(/\s+/)
+			.map((w) => w[0] ?? "")
+			.slice(0, 2)
+			.join("")
+			.toUpperCase();
+
 	return (
 		<KDialog
 			open={isOpen()}
@@ -48,46 +64,80 @@ export function Quickpanel(props: {
 							"motion-safe:animate-slide-in-right",
 						)}
 					>
-						<div class="flex items-center gap-3 border-line border-b p-5">
-							<Avatar
-								name={query.data?.leerling.name ?? "…"}
-								tone="leerling"
-								size="lg"
-							/>
-							<div class="min-w-0 flex-1">
-								<KDialog.Title class="truncate font-head text-h3 text-ink">
+						{/* Header */}
+						<div
+							style={{
+								padding: "20px",
+								"border-bottom": "1px solid rgb(var(--line))",
+								display: "flex",
+								"align-items": "center",
+								gap: "12px",
+							}}
+						>
+							<div
+								class="avatar"
+								style={{ width: "48px", height: "48px", "font-size": "16px" }}
+								aria-hidden="true"
+							>
+								{initials(query.data?.leerling.name ?? "…")}
+							</div>
+							<div class="ds-grow" style={{ "min-width": "0" }}>
+								<KDialog.Title
+									style={{
+										"font-family": "var(--font-head)",
+										"font-weight": "600",
+										"font-size": "18px",
+										overflow: "hidden",
+										"text-overflow": "ellipsis",
+										"white-space": "nowrap",
+									}}
+								>
 									{query.data?.leerling.name ?? "Leerling"}
 								</KDialog.Title>
-								<KDialog.Description class="truncate text-small text-muted">
+								<KDialog.Description
+									style={{
+										"font-size": "13px",
+										color: "rgb(var(--muted))",
+										overflow: "hidden",
+										"text-overflow": "ellipsis",
+										"white-space": "nowrap",
+									}}
+								>
 									{query.data?.leerling.email ?? ""}
 								</KDialog.Description>
 							</div>
-							<KDialog.CloseButton
-								aria-label="Sluiten"
-								class="grid size-8 shrink-0 place-items-center rounded-2 text-muted hover:bg-line-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-							>
-								<X class="size-4" />
+							<KDialog.CloseButton class="icon-btn" aria-label="Sluiten">
+								<X class="size-4" aria-hidden="true" />
 							</KDialog.CloseButton>
 						</div>
 
-						<div class="flex flex-1 flex-col gap-6 p-5">
+						{/* Body */}
+						<div
+							style={{
+								padding: "20px",
+								display: "flex",
+								"flex-direction": "column",
+								gap: "18px",
+								flex: "1",
+							}}
+						>
 							<Show
 								when={!query.isLoading}
-								fallback={<p class="text-muted">Laden…</p>}
+								fallback={
+									<p style={{ color: "rgb(var(--muted))" }}>Laden…</p>
+								}
 							>
 								{/* Coachplan status */}
 								<section>
 									<SectionLabel>Coachplan</SectionLabel>
-									<div class="flex items-center gap-2">
+									<div class="ds-row" style={{ gap: "8px" }}>
 										<PlanStatusBadge
 											status={query.data?.plan.status ?? "niet_ingevuld"}
 										/>
-										<Show
-											when={(query.data?.plan.discussCount ?? 0) > 0}
-										>
-											<Badge variant="accent">
+										<Show when={(query.data?.plan.discussCount ?? 0) > 0}>
+											<span class="chip accent">
 												{query.data?.plan.discussCount} bespreken
-											</Badge>
+											</span>
 										</Show>
 									</div>
 								</section>
@@ -98,44 +148,98 @@ export function Quickpanel(props: {
 									<Show
 										when={(query.data?.leervoorkeuren.length ?? 0) > 0}
 										fallback={
-											<p class="text-small text-muted">
+											<p
+												style={{
+													"font-size": "13px",
+													color: "rgb(var(--muted))",
+												}}
+											>
 												Nog geen leervoorkeuren vastgelegd.
 											</p>
 										}
 									>
-										<div class="flex flex-wrap gap-1.5">
+										<div
+											class="ds-row"
+											style={{ "flex-wrap": "wrap", gap: "6px" }}
+										>
 											<For each={query.data?.leervoorkeuren}>
-												{(v) => <Badge variant="primary">{v}</Badge>}
+												{(v) => <span class="chip primary">{v}</span>}
 											</For>
 										</div>
 									</Show>
 								</section>
 
-								{/* Taken vandaag */}
+								{/* Open taken */}
 								<section>
-									<SectionLabel>Taken voor vandaag</SectionLabel>
+									<div
+										class="ds-row ds-between"
+										style={{ "margin-bottom": "8px" }}
+									>
+										<SectionLabel noMargin>Open taken</SectionLabel>
+										<span
+											style={{
+												"font-size": "12px",
+												color: "rgb(var(--muted))",
+											}}
+										>
+											{query.data?.tasksToday.length ?? 0} vandaag
+										</span>
+									</div>
 									<Show
 										when={(query.data?.tasksToday.length ?? 0) > 0}
 										fallback={
-											<p class="text-small text-muted">
+											<p
+												style={{
+													"font-size": "13px",
+													color: "rgb(var(--muted))",
+												}}
+											>
 												Geen open taken voor vandaag.
 											</p>
 										}
 									>
-										<ul class="flex flex-col gap-1.5">
+										<div class="ds-col" style={{ gap: "6px" }}>
 											<For each={query.data?.tasksToday}>
 												{(t) => (
-													<li class="flex items-center justify-between gap-2 rounded-2 bg-bg-2 px-3 py-2 text-small">
-														<span class="min-w-0 truncate text-ink">
-															{t.title}
+													<div
+														class="ds-row ds-between"
+														style={{
+															padding: "10px 12px",
+															background: "rgb(var(--bg-2))",
+															"border-radius": "8px",
+															"font-size": "13px",
+															gap: "8px",
+														}}
+													>
+														<span
+															class="ds-row"
+															style={{ gap: "8px", "min-width": "0" }}
+														>
+															<ListChecks
+																class="size-3.5"
+																aria-hidden="true"
+																style={{
+																	color: "rgb(var(--muted))",
+																	"flex-shrink": "0",
+																}}
+															/>
+															<span
+																style={{
+																	overflow: "hidden",
+																	"text-overflow": "ellipsis",
+																	"white-space": "nowrap",
+																}}
+															>
+																{t.title}
+															</span>
 														</span>
 														<Show when={t.overdue}>
-															<Badge variant="danger">over tijd</Badge>
+															<span class="chip danger">over tijd</span>
 														</Show>
-													</li>
+													</div>
 												)}
 											</For>
-										</ul>
+										</div>
 									</Show>
 								</section>
 
@@ -145,44 +249,86 @@ export function Quickpanel(props: {
 									<Show
 										when={(query.data?.courses.length ?? 0) > 0}
 										fallback={
-											<p class="text-small text-muted">
+											<p
+												style={{
+													"font-size": "13px",
+													color: "rgb(var(--muted))",
+												}}
+											>
 												Geen actieve cursussen.
 											</p>
 										}
 									>
-										<ul class="flex flex-col gap-2">
+										<div class="ds-col" style={{ gap: "6px" }}>
 											<For each={query.data?.courses}>
 												{(c) => (
-													<li class="flex items-center gap-3 rounded-2 bg-bg-2 px-3 py-2">
-														<span class="min-w-0 flex-1 truncate text-small font-medium text-ink">
-															{c.title}
-														</span>
+													<div
+														class="ds-row ds-between"
+														style={{
+															padding: "8px 12px",
+															background: "rgb(var(--bg-2))",
+															"border-radius": "8px",
+															gap: "12px",
+														}}
+													>
 														<div
-															class="h-2 w-20 overflow-hidden rounded-pill bg-line-2"
+															style={{
+																"font-size": "13px",
+																"font-weight": "500",
+																flex: "1",
+																"min-width": "0",
+																overflow: "hidden",
+																"text-overflow": "ellipsis",
+																"white-space": "nowrap",
+															}}
+														>
+															{c.title}
+														</div>
+														<div
+															style={{ width: "80px" }}
 															role="progressbar"
 															aria-valuenow={c.progress}
 															aria-valuemin={0}
 															aria-valuemax={100}
 															aria-label={`Voortgang ${c.title}`}
 														>
-															<div
-																class="h-full rounded-pill bg-primary"
-																style={{ width: `${c.progress}%` }}
-															/>
+															<div class="progress">
+																<span style={{ width: `${c.progress}%` }} />
+															</div>
 														</div>
-														<span class="w-9 text-right text-micro text-muted">
+														<div
+															style={{
+																"font-size": "12px",
+																color: "rgb(var(--muted))",
+																width: "32px",
+																"text-align": "right",
+															}}
+														>
 															{c.progress}%
-														</span>
-													</li>
+														</div>
+													</div>
 												)}
 											</For>
-										</ul>
+										</div>
 									</Show>
 								</section>
 							</Show>
 
-							<div class="mt-auto flex flex-col gap-2 border-line border-t pt-4">
-								<div class="grid grid-cols-2 gap-2">
+							{/* Snelacties */}
+							<div
+								style={{
+									"margin-top": "auto",
+									display: "flex",
+									"flex-direction": "column",
+									gap: "8px",
+									"border-top": "1px solid rgb(var(--line))",
+									"padding-top": "16px",
+								}}
+							>
+								<div
+									class="ds-grid"
+									style={{ "grid-template-columns": "1fr 1fr", gap: "8px" }}
+								>
 									<Link
 										to="/chat"
 										search={
@@ -190,33 +336,35 @@ export function Quickpanel(props: {
 												? { conversationId: props.conversationId }
 												: { otherUserId: props.leerlingId ?? "" }
 										}
-										class={cn(buttonVariants({ variant: "primary", size: "sm" }))}
+										class="btn primary"
+										style={{ "justify-content": "center" }}
 									>
-										<MessageSquare class="size-4" /> Bericht
+										<MessageSquare class="size-3.5" aria-hidden="true" /> Bericht
 									</Link>
 									<Show
 										when={props.planSubmissionId}
 										fallback={
 											<span
-												class={cn(
-													buttonVariants({ variant: "ghost", size: "sm" }),
-													"pointer-events-none opacity-50",
-												)}
+												class="btn ghost"
+												style={{
+													"justify-content": "center",
+													opacity: "0.5",
+													"pointer-events": "none",
+												}}
 											>
-												<NotebookPen class="size-4" /> Naar plan
+												<NotebookPen class="size-3.5" aria-hidden="true" /> Naar
+												plan
 											</span>
 										}
 									>
 										<Link
 											to="/plan/$submissionId"
-											params={{
-												submissionId: props.planSubmissionId ?? "",
-											}}
-											class={cn(
-												buttonVariants({ variant: "ghost", size: "sm" }),
-											)}
+											params={{ submissionId: props.planSubmissionId ?? "" }}
+											class="btn ghost"
+											style={{ "justify-content": "center" }}
 										>
-											<NotebookPen class="size-4" /> Naar plan
+											<NotebookPen class="size-3.5" aria-hidden="true" /> Naar
+											plan
 										</Link>
 									</Show>
 								</div>
@@ -224,12 +372,11 @@ export function Quickpanel(props: {
 									<Link
 										to="/dashboard/$leerlingId"
 										params={{ leerlingId: props.leerlingId ?? "" }}
-										class={cn(
-											buttonVariants({ variant: "ghost", size: "sm" }),
-											"justify-center",
-										)}
+										class="btn ghost"
+										style={{ "justify-content": "center" }}
 									>
-										Volledig profiel <ArrowRight class="size-4" />
+										Volledig profiel{" "}
+										<ArrowRight class="size-3.5" aria-hidden="true" />
 									</Link>
 								</Show>
 							</div>
@@ -241,9 +388,18 @@ export function Quickpanel(props: {
 	);
 }
 
-function SectionLabel(props: { children: string }) {
+function SectionLabel(props: { children: JSX.Element; noMargin?: boolean }) {
 	return (
-		<h3 class="mb-2 font-medium text-micro text-muted uppercase tracking-wide">
+		<h3
+			style={{
+				"font-size": "12px",
+				"font-weight": "600",
+				color: "rgb(var(--muted))",
+				"text-transform": "uppercase",
+				"letter-spacing": "0.06em",
+				"margin-bottom": props.noMargin ? "0" : "8px",
+			}}
+		>
 			{props.children}
 		</h3>
 	);
