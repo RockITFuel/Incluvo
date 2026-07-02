@@ -28,6 +28,9 @@ export function useRecorder() {
 
 	async function start() {
 		setError(null);
+		// Re-entrance guard: a second start() would orphan the running recorder /
+		// stream and leave the mic live.
+		if (recording()) return;
 		if (!supported()) {
 			setError("Opnemen wordt niet ondersteund in deze browser.");
 			return;
@@ -41,6 +44,9 @@ export function useRecorder() {
 			};
 			recorder.onstop = async () => {
 				const blob = new Blob(chunks, { type: recorder?.mimeType || "audio/webm" });
+				// Revoke the previous object URL before replacing it (re-record leak).
+				const prev = audioUrl();
+				if (prev) URL.revokeObjectURL(prev);
 				setAudioUrl(URL.createObjectURL(blob));
 				const buffer = await blob.arrayBuffer();
 				setAudioBase64(arrayBufferToBase64(buffer));
@@ -60,6 +66,17 @@ export function useRecorder() {
 	}
 
 	function reset() {
+		// Tear down an active recording first, otherwise the recorder keeps
+		// running (and the mic stays live) after a reset.
+		if (recorder && recorder.state !== "inactive") {
+			recorder.onstop = null;
+			recorder.stop();
+		}
+		stream?.getTracks().forEach((t) => t.stop());
+		stream = undefined;
+		recorder = undefined;
+		setRecording(false);
+
 		const url = audioUrl();
 		if (url) URL.revokeObjectURL(url);
 		setAudioUrl(null);

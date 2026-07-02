@@ -43,6 +43,9 @@ export const kennisdocument = pgTable("kennisdocument", {
 	/** "pdf" | "docx" | "text" — informational. */
 	sourceType: text("source_type").notNull().default("text"),
 	description: text("description"),
+	// Which embedder produced this document's chunk vectors (e.g. "mock" or
+	// "openai:<model>"). NULL = legacy/unknown.
+	embedSignature: text("embed_signature"),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 	updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

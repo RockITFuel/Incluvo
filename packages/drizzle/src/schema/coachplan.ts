@@ -155,7 +155,7 @@ export const formAnswer = pgTable("form_answer", {
 		.references(() => formSubmission.id, { onDelete: "cascade" }),
 	questionId: uuid("question_id")
 		.notNull()
-		.references(() => formQuestion.id, { onDelete: "cascade" }),
+		.references(() => formQuestion.id, { onDelete: "restrict" }),
 	// Free-form / serialized choice value.
 	value: text("value"),
 	valueJson: jsonb("value_json"),
@@ -180,7 +180,7 @@ export const answerCoachMapping = pgTable("answer_coach_mapping", {
 	}),
 	coachQuestionId: uuid("coach_question_id")
 		.notNull()
-		.references(() => formQuestion.id, { onDelete: "cascade" }),
+		.references(() => formQuestion.id, { onDelete: "restrict" }),
 	overrideValue: text("override_value"),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 	updatedAt: timestamp("updated_at").notNull().defaultNow(),

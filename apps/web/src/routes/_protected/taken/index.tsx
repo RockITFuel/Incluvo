@@ -48,17 +48,17 @@ function TakenPage() {
 				<Show when={tasksQuery.error}>
 					<p class="text-danger">Kon taken niet laden.</p>
 				</Show>
-				<Show when={tasksQuery.data} keyed>
+				<Show when={tasksQuery.data}>
 					{(data) => (
 						<Show
-							when={!data.listHidden}
+							when={!data().listHidden}
 							fallback={
 								<p class="text-muted">
 									Je coach heeft je takenlijst tijdelijk uitgezet.
 								</p>
 							}
 						>
-							<TaskBoard data={data} canManage={true} />
+							<TaskBoard data={data()} canManage={true} />
 						</Show>
 					)}
 				</Show>

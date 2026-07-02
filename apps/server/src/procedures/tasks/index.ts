@@ -1,7 +1,7 @@
 import { coachAssignment, task, user } from "@incluvo/drizzle/schema";
-import { atLeast, checkPermission, policies } from "@incluvo/permissions";
+import { atLeast, checkPermission, isSuperadmin, policies } from "@incluvo/permissions";
 import { ORPCError } from "@orpc/server";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { notify } from "../../notifications/notify";
 import { publishTo } from "../../sse";
@@ -67,8 +67,9 @@ function isDueToday(dueAt: Date | null): boolean {
 /**
  * Resolve the target leerling for a request and authorize access against the
  * given policy. A leerling may only act on their own list; a coach+ may act on a
- * leerling within their own tenant. Returns the leerling row (id + tenant) so
- * callers can scope writes.
+ * leerling within their own tenant. Coaches act only on leerlingen assigned to
+ * them via `coach_assignment` (#37–#41). Returns the leerling row (id + tenant)
+ * so callers can scope writes.
  */
 async function resolveLeerling(
 	context: AuthedContext,
@@ -92,6 +93,16 @@ async function resolveLeerling(
 		throw new ORPCError("FORBIDDEN", {
 			message: `Policy "${policy.name}" denied access`,
 		});
+	}
+
+	// A coach acts only on leerlingen assigned to them (#37–#41). The policy
+	// above only checks tenant+role, so gate on an actual coach_assignment.
+	if (leerling.id !== actor.userId && !isSuperadmin(actor.role)) {
+		const [link] = await context.db
+			.select({ id: coachAssignment.id })
+			.from(coachAssignment)
+			.where(and(eq(coachAssignment.coachId, actor.userId), eq(coachAssignment.leerlingId, leerling.id)));
+		if (!link) throw new ORPCError("FORBIDDEN", { message: "Leerling is niet aan jou gekoppeld" });
 	}
 	return leerling;
 }
@@ -263,6 +274,17 @@ async function loadManageable(context: AuthedContext, id: string) {
 	if (!checkPermission(policies.manageTask, context.actor, row)) {
 		throw new ORPCError("FORBIDDEN");
 	}
+
+	// A coach acts only on leerlingen assigned to them (#37–#41). The policy
+	// above only checks tenant+role, so gate on an actual coach_assignment.
+	const { actor } = context;
+	if (row.leerlingId !== actor.userId && !isSuperadmin(actor.role)) {
+		const [link] = await context.db
+			.select({ id: coachAssignment.id })
+			.from(coachAssignment)
+			.where(and(eq(coachAssignment.coachId, actor.userId), eq(coachAssignment.leerlingId, row.leerlingId)));
+		if (!link) throw new ORPCError("FORBIDDEN", { message: "Leerling is niet aan jou gekoppeld" });
+	}
 	return row;
 }
 
@@ -368,13 +390,8 @@ const setListHidden = protectedProcedure
 				.set({ taskListHidden: input.hidden, updatedAt: new Date() })
 				.where(eq(coachAssignment.id, existing.id));
 		} else {
-			// No assignment row yet: create one binding this coach to the leerling.
-			await context.db.insert(coachAssignment).values({
-				organizationId: leerling.organizationId,
-				coachId: actor.userId,
-				leerlingId: leerling.id,
-				taskListHidden: input.hidden,
-			});
+			// Never create a coach_assignment from this toggle — only flip an existing one.
+			throw new ORPCError("NOT_FOUND", { message: "Geen coach-koppeling gevonden voor deze leerling" });
 		}
 
 		publishTo(

@@ -41,8 +41,11 @@ export const NotificationsBell: Component = () => {
 	// Live-update when a notification arrives for me.
 	useServerEvent("notification.new", (payload) => {
 		const userId = (payload as { userId?: string } | null)?.userId;
-		// Only react to events addressed to the current user.
-		if (!userId || userId === me.user()?.id) {
+		// React to events that aren't user-scoped, that arrive before `me` has
+		// loaded (an undefined id would otherwise silently drop them), or that are
+		// addressed to the current user.
+		const myId = me.user()?.id;
+		if (!userId || !myId || userId === myId) {
 			invalidate();
 		}
 	});

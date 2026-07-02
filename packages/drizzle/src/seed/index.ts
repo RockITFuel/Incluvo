@@ -12,14 +12,21 @@ const { item } = await import("../schema/items");
 async function main() {
 	console.log("Seeding sample items…");
 
+	// Random-uuid PK means onConflictDoNothing can never match; guard on presence
+	// instead so reseeding is idempotent.
+	const existing = await db.select({ id: item.id }).from(item).limit(1);
+	if (existing.length > 0) {
+		console.log("· items already seeded, skipping.");
+		process.exit(0);
+	}
+
 	await db
 		.insert(item)
 		.values([
 			{ title: "Welkom bij Incluvo", description: "Eerste voorbeelditem.", status: "open" },
 			{ title: "Toegankelijkheid (WCAG AA)", description: "Controleer contrast en focus.", status: "in_progress" },
 			{ title: "Coachplan opzetten", description: "Skeleton vertical slice.", status: "done" },
-		])
-		.onConflictDoNothing();
+		]);
 
 	console.log("Done.");
 	process.exit(0);

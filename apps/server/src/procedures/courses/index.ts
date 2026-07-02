@@ -154,6 +154,14 @@ async function loadReadable(context: AuthedContext, id: string) {
 	) {
 		throw new ORPCError("FORBIDDEN", { message: "Geen toegang tot deze cursus" });
 	}
+	// A leerling may only read their OWN student_execution (mirrors `list`'s visibility rule).
+	if (
+		context.actor.role === "leerling" &&
+		row.kind === "student_execution" &&
+		row.leerlingId !== context.actor.userId
+	) {
+		throw new ORPCError("FORBIDDEN", { message: "Geen toegang tot deze cursus" });
+	}
 	return row;
 }
 
@@ -957,6 +965,20 @@ async function createForumConversation(
 			userId: crs.leerlingId,
 			role: "member",
 		});
+		// Add the leerling's assigned coach(es) as supervisor (#32). Skip the
+		// leerling if they somehow appear in their own assignments.
+		const coaches = await tx
+			.select({ coachId: coachAssignment.coachId })
+			.from(coachAssignment)
+			.where(eq(coachAssignment.leerlingId, crs.leerlingId));
+		for (const coachId of new Set(coaches.map((c) => c.coachId))) {
+			if (coachId === crs.leerlingId) continue;
+			members.push({
+				conversationId: conv.id,
+				userId: coachId,
+				role: "supervisor",
+			});
+		}
 	}
 	if (members.length > 0) {
 		await tx.insert(conversationMember).values(members);
@@ -1576,32 +1598,24 @@ const setProgress = protectedProcedure
 			throw new ORPCError("BAD_REQUEST", { message: "Geen leerling bekend" });
 		}
 
-		const [existing] = await context.db
-			.select({ id: contentProgress.id })
-			.from(contentProgress)
-			.where(
-				and(
-					eq(contentProgress.contentBlockId, input.id),
-					eq(contentProgress.leerlingId, leerlingId),
-				),
-			);
-		if (existing) {
-			await context.db
-				.update(contentProgress)
-				.set({
-					completed: input.completed,
-					completedAt: input.completed ? new Date() : null,
-					updatedAt: new Date(),
-				})
-				.where(eq(contentProgress.id, existing.id));
-		} else {
-			await context.db.insert(contentProgress).values({
+		// Single upsert on the (leerlingId, contentBlockId) unique index — avoids a
+		// select-then-insert race that double-clicks used to turn into duplicate rows.
+		await context.db
+			.insert(contentProgress)
+			.values({
 				contentBlockId: input.id,
 				leerlingId,
 				completed: input.completed,
 				completedAt: input.completed ? new Date() : null,
+			})
+			.onConflictDoUpdate({
+				target: [contentProgress.leerlingId, contentProgress.contentBlockId],
+				set: {
+					completed: input.completed,
+					completedAt: input.completed ? new Date() : null,
+					updatedAt: new Date(),
+				},
 			});
-		}
 		publishTo(
 			{ type: "course.changed", payload: { courseId: crs.id } },
 			await courseChangedRecipients(context, { leerlingId }),

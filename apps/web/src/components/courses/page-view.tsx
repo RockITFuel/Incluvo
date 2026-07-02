@@ -1,4 +1,5 @@
 import { For, Show } from "solid-js";
+import { Dynamic } from "solid-js/web";
 
 /**
  * Read-only renderer for a pagina CbS (#29). Rather than mount a second Tiptap
@@ -35,12 +36,12 @@ function Block(props: { node: PMNode }) {
 	const n = props.node;
 	switch (n.type) {
 		case "heading": {
-			const level = n.attrs?.level ?? 2;
+			const level = Math.min(Math.max(n.attrs?.level ?? 2, 2), 4);
 			const cls = level <= 2 ? "text-h3 font-head text-ink mt-4 mb-2" : "text-body font-medium text-ink mt-3 mb-1";
 			return (
-				<p class={cls}>
+				<Dynamic component={`h${level}`} class={cls}>
 					<Inline nodes={n.content} />
-				</p>
+				</Dynamic>
 			);
 		}
 		case "paragraph":

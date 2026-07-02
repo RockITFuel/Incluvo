@@ -33,7 +33,11 @@ function NotificationsPage() {
 	// Live-update on a new notification addressed to me.
 	useServerEvent("notification.new", (payload) => {
 		const userId = (payload as { userId?: string } | null)?.userId;
-		if (!userId || userId === me.user()?.id) invalidate();
+		// Invalidate when the event isn't user-scoped, when `me` isn't loaded yet
+		// (undefined id would otherwise silently drop events for us), or when it's
+		// addressed to us.
+		const myId = me.user()?.id;
+		if (!userId || !myId || userId === myId) invalidate();
 	});
 
 	const markRead = useMutation(() =>

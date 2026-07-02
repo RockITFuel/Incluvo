@@ -127,11 +127,13 @@ function CreateCourseDialog() {
 			open={open()}
 			onOpenChange={setOpen}
 			title="Nieuwe cursus"
-			trigger={
-				<Button>
-					<Plus class="size-4" /> Nieuwe cursus
-				</Button>
-			}
+			trigger={{
+				children: (
+					<>
+						<Plus class="size-4" aria-hidden="true" /> Nieuwe cursus
+					</>
+				),
+			}}
 			footer={
 				<>
 					<Button variant="ghost" onClick={() => setOpen(false)}>

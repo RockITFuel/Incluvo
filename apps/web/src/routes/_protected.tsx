@@ -1,3 +1,4 @@
+import { ORPCError } from "@orpc/client";
 import type { UserRole } from "@incluvo/permissions";
 import {
 	createFileRoute,
@@ -19,6 +20,10 @@ import { useMe } from "../lib/auth/use-me";
  * The shell is **role-aware**: navigation + the user area are driven by
  * `account.me` (`useMe()`), so each role sees the right menu and their tenant.
  */
+/** An unauthenticated error (no/expired session) — the only case worth a redirect. */
+const isAuthError = (err: unknown) =>
+	err instanceof ORPCError && (err.status === 401 || err.code === "UNAUTHORIZED");
+
 export const Route = createFileRoute("/_protected")({
 	beforeLoad: async () => {
 		// The SPA shell is prerendered with Bun at build time, where there is no
@@ -75,9 +80,10 @@ function AuthedShell() {
 
 	// `account.me` 401s when there is no valid session → bounce to /login. This
 	// is the client-side gate for full page loads (where beforeLoad was baked at
-	// prerender and could not run).
+	// prerender and could not run). Only redirect on a genuine auth error —
+	// transient 5xx/429s must NOT log the user out mid-work.
 	createEffect(() => {
-		if (!me.query.isLoading && me.query.isError) {
+		if (me.query.isError && isAuthError(me.query.error)) {
 			navigate({ to: "/login" });
 		}
 	});

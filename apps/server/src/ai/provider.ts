@@ -39,6 +39,12 @@ export interface AiProvider {
 	readonly mock: boolean;
 	/** Model id in use (informational; surfaced in the UI). */
 	readonly model: string;
+	/**
+	 * Identifies the embedding space `embed()` produces (e.g. "mock" or
+	 * "openai:<model>"), so stored vectors are never compared against a
+	 * different embedder's — cosine distance across spaces is garbage.
+	 */
+	readonly embedSignature: string;
 
 	/** #1 — translate text to a target language code (nl/en/ar/uk/…). */
 	translate(
@@ -86,6 +92,7 @@ export interface AiProvider {
 class OpenAiCompatibleProvider implements AiProvider {
 	readonly mock = false;
 	readonly model: string;
+	readonly embedSignature: string;
 	private readonly client: OpenAI;
 	private readonly config: AiConfig;
 	/**
@@ -120,6 +127,11 @@ class OpenAiCompatibleProvider implements AiProvider {
 						maxRetries: config.maxRetries,
 					})
 				: undefined;
+		// A live chat provider WITHOUT a dedicated embed endpoint falls back to
+		// `mockEmbed` (see `embed()`), so its embedding space is "mock" too.
+		this.embedSignature = this.embedClient
+			? `openai:${config.embedModel}`
+			: "mock";
 	}
 
 	async translate(
@@ -314,6 +326,7 @@ function mockAnswerFor(label: string): string {
 class MockProvider implements AiProvider {
 	readonly mock = true;
 	readonly model = "mock";
+	readonly embedSignature = "mock";
 
 	async translate(text: string, targetLanguageCode: string): Promise<string> {
 		const name = languageName(targetLanguageCode);

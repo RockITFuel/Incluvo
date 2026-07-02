@@ -73,22 +73,22 @@ function CourseDetail() {
 				<p class="text-danger">Kon de cursus niet laden.</p>
 			</Show>
 
-			<Show when={treeQuery.data} keyed>
+			<Show when={treeQuery.data}>
 				{(data) => (
 					<>
 						<div class="flex flex-col gap-3">
 							<div class="flex items-start justify-between gap-4">
 								<div>
-									<h1 class="font-head text-h1 text-ink">{data.course.title}</h1>
-									<Show when={data.course.description}>
+									<h1 class="font-head text-h1 text-ink">{data().course.title}</h1>
+									<Show when={data().course.description}>
 										<p class="mt-1 text-body text-muted">
-											{data.course.description}
+											{data().course.description}
 										</p>
 									</Show>
 								</div>
 								<div class="flex items-center gap-2">
 									<Show when={me.hasAtLeast("ontwikkelaar")}>
-										<DeriveDialog course={data.course} onDone={refetch} />
+										<DeriveDialog course={data().course} onDone={refetch} />
 									</Show>
 									<Show when={me.hasAtLeast("coach")}>
 										<Button
@@ -97,10 +97,10 @@ function CourseDetail() {
 											onClick={async () => {
 												await client.courses.setProgressBarHidden({
 													id: courseId(),
-													hidden: !data.course.progressBarHidden,
+													hidden: !data().course.progressBarHidden,
 												});
 												toast({
-													title: data.course.progressBarHidden
+													title: data().course.progressBarHidden
 														? "Voortgangsbalk getoond"
 														: "Voortgangsbalk verborgen",
 												});
@@ -108,7 +108,7 @@ function CourseDetail() {
 											}}
 										>
 											<Show
-												when={data.course.progressBarHidden}
+												when={data().course.progressBarHidden}
 												fallback={
 													<>
 														<EyeOff class="size-4" /> Verberg balk
@@ -123,10 +123,10 @@ function CourseDetail() {
 							</div>
 
 							<CourseProgressBar
-								percent={data.progress.percent}
-								done={data.progress.done}
-								total={data.progress.total}
-								hidden={data.course.progressBarHidden}
+								percent={data().progress.percent}
+								done={data().progress.done}
+								total={data().progress.total}
+								hidden={data().course.progressBarHidden}
 							/>
 						</div>
 
@@ -156,7 +156,7 @@ function CourseDetail() {
 								</div>
 							</Show>
 
-							<For each={data.sections}>
+							<For each={data().sections}>
 								{(section) => {
 									const blocks = () =>
 										me.is("leerling") && onlyRecommended()
@@ -193,7 +193,7 @@ function CourseDetail() {
 								}}
 							</For>
 
-							<Show when={data.sections.length === 0}>
+							<Show when={data().sections.length === 0}>
 								<Card class="text-muted">
 									Deze cursus heeft nog geen inhoud.
 								</Card>
@@ -208,11 +208,11 @@ function CourseDetail() {
 						<Show when={view() === "bouwen" && me.hasAtLeast("ontwikkelaar")}>
 							<CourseBuilder
 								courseId={courseId()}
-								sections={data.sections}
-								availableLabels={data.leervoorkeuren}
+								sections={data().sections}
+								availableLabels={data().leervoorkeuren}
 								refetch={refetch}
 							/>
-							<Show when={data.leervoorkeuren.length === 0}>
+							<Show when={data().leervoorkeuren.length === 0}>
 								<p class="text-micro text-muted">
 									Tip: leervoorkeur-labels komen uit het coachplan van de
 									leerling (#19/#36). Voor templates zonder gekoppelde leerling
@@ -223,7 +223,7 @@ function CourseDetail() {
 
 						{/* ── Beoordelen (coach+) ──────────────────────────────────── */}
 						<Show when={view() === "beoordelen" && me.hasAtLeast("coach")}>
-							<GradingView sections={data.sections} />
+							<GradingView sections={data().sections} />
 						</Show>
 					</>
 				)}
@@ -291,11 +291,15 @@ function DeriveDialog(props: {
 						? "Maak een schooltemplate van dit Ondivera-sjabloon."
 						: "Maak een leerlinguitvoering van deze schooltemplate."
 				}
-				trigger={
-					<Button variant="ghost" size="sm">
-						<GitBranch class="size-4" /> Afleiden
-					</Button>
-				}
+				trigger={{
+					variant: "ghost",
+					size: "sm",
+					children: (
+						<>
+							<GitBranch class="size-4" aria-hidden="true" /> Afleiden
+						</>
+					),
+				}}
 				footer={
 					<>
 						<Button variant="ghost" onClick={() => setOpen(false)}>
@@ -368,11 +372,15 @@ function ProposeDialog(props: { courseId: string; onDone: () => void }) {
 			onOpenChange={setOpen}
 			title="Eigen opdracht voorstellen"
 			description="Bedenk zelf hoe je wilt laten zien wat je geleerd hebt (#61)."
-			trigger={
-				<Button variant="subtle" size="sm">
-					<Lightbulb class="size-4" /> Eigen opdracht
-				</Button>
-			}
+			trigger={{
+				variant: "subtle",
+				size: "sm",
+				children: (
+					<>
+						<Lightbulb class="size-4" aria-hidden="true" /> Eigen opdracht
+					</>
+				),
+			}}
 			footer={
 				<>
 					<Button variant="ghost" onClick={() => setOpen(false)}>

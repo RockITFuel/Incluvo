@@ -70,6 +70,17 @@ async function ingest(entry: ManifestEntry): Promise<void> {
 	const text = readFileSync(join(DATA_DIR, entry.file), "utf8");
 	const chunks = chunkText(text);
 
+	// Embed ALL chunks first (in bounded batches, outside any transaction) so a
+	// provider failure mid-ingest can never leave a doc with partial chunks.
+	const provider = getAiProvider();
+	const BATCH = 64;
+	const vectors: (number[] | null)[] = [];
+	for (let start = 0; start < chunks.length; start += BATCH) {
+		const slice = chunks.slice(start, start + BATCH);
+		const embedded = await provider.embed(slice);
+		for (let i = 0; i < slice.length; i++) vectors.push(embedded[i] ?? null);
+	}
+
 	// Idempotent: one global (org IS NULL) doc per sourceName; replace its chunks.
 	const [existing] = await db
 		.select({ id: kennisdocument.id })
@@ -80,40 +91,45 @@ async function ingest(entry: ManifestEntry): Promise<void> {
 				isNull(kennisdocument.organizationId),
 			),
 		);
-	let docId = existing?.id;
-	if (docId) {
-		await db
-			.delete(kennisdocumentChunk)
-			.where(eq(kennisdocumentChunk.documentId, docId));
-	} else {
-		const [inserted] = await db
-			.insert(kennisdocument)
-			.values({
-				organizationId: null,
-				title: entry.title,
-				sourceName: entry.sourceName,
-				sourceType: entry.sourceType,
-			})
-			.returning({ id: kennisdocument.id });
-		if (!inserted) throw new Error(`Failed to insert document ${entry.title}`);
-		docId = inserted.id;
-	}
 
-	// Embed in batches to keep requests bounded.
-	const provider = getAiProvider();
-	const BATCH = 64;
-	for (let start = 0; start < chunks.length; start += BATCH) {
-		const slice = chunks.slice(start, start + BATCH);
-		const vectors = await provider.embed(slice);
-		await db.insert(kennisdocumentChunk).values(
-			slice.map((content, i) => ({
-				documentId: docId!,
-				ordinal: start + i,
-				content,
-				embedding: vectors[i] ?? null,
-			})),
-		);
-	}
+	// One transaction for delete-old-chunks + insert-chunks + doc upsert, so a
+	// crash can't leave a doc whose chunks are half old / half new.
+	await db.transaction(async (tx) => {
+		let docId = existing?.id;
+		if (docId) {
+			await tx
+				.delete(kennisdocumentChunk)
+				.where(eq(kennisdocumentChunk.documentId, docId));
+			await tx
+				.update(kennisdocument)
+				.set({ embedSignature: provider.embedSignature, updatedAt: new Date() })
+				.where(eq(kennisdocument.id, docId));
+		} else {
+			const [inserted] = await tx
+				.insert(kennisdocument)
+				.values({
+					organizationId: null,
+					title: entry.title,
+					sourceName: entry.sourceName,
+					sourceType: entry.sourceType,
+					embedSignature: provider.embedSignature,
+				})
+				.returning({ id: kennisdocument.id });
+			if (!inserted) throw new Error(`Failed to insert document ${entry.title}`);
+			docId = inserted.id;
+		}
+
+		if (chunks.length > 0) {
+			await tx.insert(kennisdocumentChunk).values(
+				chunks.map((content, i) => ({
+					documentId: docId!,
+					ordinal: i,
+					content,
+					embedding: vectors[i] ?? null,
+				})),
+			);
+		}
+	});
 	console.log(`  + ${entry.title}: ${chunks.length} chunks (provider: ${provider.mock ? "mock" : provider.model})`);
 }
 

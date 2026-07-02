@@ -35,6 +35,8 @@ const ConversationSummarySchema = z.object({
   courseContentBlockId: z.string().nullable(),
   /** Display name for the conversation (other party for direct chats). */
   displayName: z.string(),
+  /** The other member's userId for direct chats (stable dedupe key); null otherwise. */
+  otherUserId: z.string().nullable(),
   /** Sub-label (role / group context) shown under the name. */
   subtitle: z.string().nullable(),
   /** This actor's role in the conversation: member, supervisor, or coach-meekijk. */
@@ -206,10 +208,12 @@ const list = protectedProcedure
 
         let displayName: string;
         let subtitle: string | null;
+        let otherUserId: string | null = null;
         if (conv.kind === "direct") {
           const other = members.find((m) => m.userId !== actor.userId);
           displayName = conv.title ?? other?.name ?? "Gesprek";
           subtitle = other ? "1-op-1 gesprek" : null;
+          otherUserId = other?.userId ?? null;
         } else {
           displayName = conv.title ?? "Groepschat";
           subtitle = `Groep · ${members.filter((m) => m.role === "member").length} leden`;
@@ -221,6 +225,7 @@ const list = protectedProcedure
           title: conv.title,
           courseContentBlockId: conv.courseContentBlockId,
           displayName,
+          otherUserId,
           subtitle,
           memberRole,
           supervised,
@@ -306,45 +311,43 @@ const ensureDirect = protectedProcedure
       throw new ORPCError("BAD_REQUEST", { message: "Geen organisatie" });
     }
 
-    // Look for an existing direct conversation containing exactly these two.
-    const myDirect = await context.db
-      .select({ conversationId: conversationMember.conversationId })
-      .from(conversationMember)
-      .innerJoin(conversation, eq(conversation.id, conversationMember.conversationId))
-      .where(and(eq(conversationMember.userId, actor.userId), eq(conversation.kind, "direct")));
-    const myDirectIds = myDirect.map((r) => r.conversationId);
-    if (myDirectIds.length > 0) {
-      const shared = await context.db
-        .select({ conversationId: conversationMember.conversationId })
-        .from(conversationMember)
-        .where(
-          and(
-            eq(conversationMember.userId, input.otherUserId),
-            inArray(conversationMember.conversationId, myDirectIds),
-          ),
-        );
-      if (shared[0]) {
-        return { id: shared[0].conversationId, created: false };
+    // Get-or-create atomically. The deterministic sorted pair key + unique
+    // index guarantees exactly one direct conversation per user pair, so
+    // concurrent calls can't create duplicates or strand a one-member row.
+    const directKey = [actor.userId, input.otherUserId].sort().join(":");
+    const result = await context.db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select({ id: conversation.id })
+        .from(conversation)
+        .where(eq(conversation.directKey, directKey));
+      if (existing) return { id: existing.id, created: false };
+
+      const [conv] = await tx
+        .insert(conversation)
+        .values({ organizationId, kind: "direct", directKey })
+        .onConflictDoNothing({ target: conversation.directKey })
+        .returning({ id: conversation.id });
+      if (!conv) {
+        // Lost the race to a concurrent ensureDirect — the row now exists.
+        const [raced] = await tx
+          .select({ id: conversation.id })
+          .from(conversation)
+          .where(eq(conversation.directKey, directKey));
+        if (!raced) throw new ORPCError("INTERNAL_SERVER_ERROR");
+        return { id: raced.id, created: false };
       }
-    }
 
-    // Create the conversation + both membership rows.
-    const [conv] = await context.db
-      .insert(conversation)
-      .values({ organizationId, kind: "direct" })
-      .returning({ id: conversation.id });
-    if (!conv) throw new ORPCError("INTERNAL_SERVER_ERROR");
+      await tx
+        .insert(conversationMember)
+        .values([
+          { conversationId: conv.id, userId: actor.userId, role: "member" },
+          { conversationId: conv.id, userId: input.otherUserId, role: "member" },
+        ])
+        .onConflictDoNothing();
+      return { id: conv.id, created: true };
+    });
 
-    await context.db.insert(conversationMember).values([
-      { conversationId: conv.id, userId: actor.userId, role: "member" },
-      {
-        conversationId: conv.id,
-        userId: input.otherUserId,
-        role: "member",
-      },
-    ]);
-
-    return { id: conv.id, created: true };
+    return result;
   });
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/solid-query";
 import { Check, Mic, Square, Trash2, Upload } from "lucide-solid";
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, Index, Show } from "solid-js";
 import { useRecorder } from "../../lib/ai/use-recorder";
 import { client, orpc } from "../../lib/orpc";
 import { Button } from "../ui/button";
@@ -285,46 +285,46 @@ export function TranscriptionPanel() {
 						overneemt in de coach-vragenlijst.
 					</p>
 					<ul class="flex flex-col gap-4">
-						<For each={proposals()}>
+						<Index each={proposals()}>
 							{(p) => (
 								<li>
 									<label
 										class="mb-1 block text-small font-medium text-ink-2"
-										for={`proposal-${p.questionId}`}
+										for={`proposal-${p().questionId}`}
 									>
-										{p.label}
+										{p().label}
 									</label>
-									<Show when={p.helpText}>
-										<p class="mb-1 text-micro text-muted">{p.helpText}</p>
+									<Show when={p().helpText}>
+										<p class="mb-1 text-micro text-muted">{p().helpText}</p>
 									</Show>
 									<textarea
-										id={`proposal-${p.questionId}`}
+										id={`proposal-${p().questionId}`}
 										rows={2}
 										class="w-full resize-y rounded-2 border border-line bg-surface px-ctl-x py-ctl-y text-body text-ink focus-visible:border-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-										value={p.value}
-										onInput={(e) => updateProposal(p.questionId, e.currentTarget.value)}
+										value={p().value}
+										onInput={(e) => updateProposal(p().questionId, e.currentTarget.value)}
 									/>
 									<div class="mt-1 flex items-center gap-2">
 										<Button
 											variant="ghost"
 											size="sm"
-											onClick={() => acceptProposal(p)}
-											disabled={savingId() === p.questionId}
+											onClick={() => acceptProposal(p())}
+											disabled={savingId() === p().questionId}
 										>
 											<Check class="size-4" aria-hidden="true" />
-											{savingId() === p.questionId
+											{savingId() === p().questionId
 												? "Bezig…"
-												: acceptedIds().has(p.questionId)
+												: acceptedIds().has(p().questionId)
 													? "Opnieuw overnemen"
 													: "Overnemen"}
 										</Button>
-										<Show when={acceptedIds().has(p.questionId)}>
+										<Show when={acceptedIds().has(p().questionId)}>
 											<span class="text-micro text-success">Overgenomen ✓</span>
 										</Show>
 									</div>
 								</li>
 							)}
-						</For>
+						</Index>
 					</ul>
 					<p class="mt-4 text-micro text-muted">
 						Overgenomen antwoorden verschijnen in de coach-vragenlijst van dit

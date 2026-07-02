@@ -4,6 +4,7 @@ import { ChevronDown, LogOut, User as UserIcon } from "lucide-solid";
 import { Show } from "solid-js";
 import { authClient } from "../../lib/auth/auth-client";
 import { clearCachedSession } from "../../lib/auth/session";
+import { queryClient } from "../../lib/orpc/query-provider";
 import { Avatar } from "../ui/avatar";
 
 export type ShellUser = {
@@ -26,6 +27,9 @@ export function UserMenu(props: { user: ShellUser }) {
 	async function signOut() {
 		await authClient.signOut();
 		clearCachedSession();
+		// Flush the previous user's cached PII (name/role/dashboard) so the next
+		// account on a shared device never sees stale data.
+		queryClient.clear();
 		router.navigate({ to: "/login" });
 	}
 

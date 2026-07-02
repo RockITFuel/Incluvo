@@ -1,4 +1,4 @@
-import { createSignal } from "solid-js";
+import { createSignal, onCleanup } from "solid-js";
 import { client } from "../orpc";
 
 /**
@@ -37,6 +37,10 @@ export function useAssistant(options: UseAssistantOptions = {}) {
 	const [error, setError] = createSignal<string | null>(null);
 	const [mock, setMock] = createSignal<boolean | null>(null);
 
+	// Aborts the in-flight stream so navigating away or reset() stops consuming
+	// the (paid) LLM stream and writing into a cleared conversation.
+	let controller: AbortController | undefined;
+
 	async function send(text: string) {
 		const content = text.trim();
 		if (!content || streaming()) return;
@@ -48,14 +52,23 @@ export function useAssistant(options: UseAssistantOptions = {}) {
 		setMessages([...next, { role: "assistant", content: "" }]);
 		setStreaming(true);
 
+		// Cancel any previous stream and open a fresh abort scope for this turn.
+		controller?.abort();
+		controller = new AbortController();
+		const { signal } = controller;
+
 		try {
-			const iterator = await client.ai.assistant({
-				submissionId: options.submissionId,
-				coachplanContext: options.coachplanContext?.(),
-				messages: next,
-			});
+			const iterator = await client.ai.assistant(
+				{
+					submissionId: options.submissionId,
+					coachplanContext: options.coachplanContext?.(),
+					messages: next,
+				},
+				{ signal },
+			);
 
 			for await (const frame of iterator) {
+				if (signal.aborted) break;
 				if ("meta" in frame) {
 					setMock(frame.meta.mock);
 					continue;
@@ -76,6 +89,9 @@ export function useAssistant(options: UseAssistantOptions = {}) {
 				// { done: true } ends the loop naturally.
 			}
 		} catch (err) {
+			// Aborted streams are intentional — don't surface them as errors or
+			// touch the (already-cleared) conversation.
+			if (signal.aborted) return;
 			setError(
 				err instanceof Error
 					? err.message
@@ -94,9 +110,14 @@ export function useAssistant(options: UseAssistantOptions = {}) {
 	}
 
 	function reset() {
+		controller?.abort();
+		controller = undefined;
 		setMessages([]);
 		setError(null);
 	}
+
+	// Stop consuming the stream when the hosting component unmounts.
+	onCleanup(() => controller?.abort());
 
 	return {
 		messages,

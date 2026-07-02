@@ -14,6 +14,7 @@ import {
 import { Quickpanel } from "../../../components/dashboard/quickpanel";
 import { cn } from "../../../lib/cn";
 import { requireRole } from "../../../lib/auth/require-role";
+import { RequireRole } from "../../../lib/auth/role-guard";
 import { orpc } from "../../../lib/orpc";
 
 /**
@@ -27,7 +28,11 @@ import { orpc } from "../../../lib/orpc";
  */
 export const Route = createFileRoute("/_protected/dashboard/")({
 	beforeLoad: () => requireRole("coach"),
-	component: DashboardPage,
+	component: () => (
+		<RequireRole min="coach">
+			<DashboardPage />
+		</RequireRole>
+	),
 });
 
 type Filter = "all" | "attention" | "plan";

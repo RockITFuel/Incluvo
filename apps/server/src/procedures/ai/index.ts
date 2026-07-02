@@ -1,5 +1,5 @@
-import { formQuestion, formSubmission, transcription } from "@incluvo/drizzle/schema";
-import { atLeast, can, policies } from "@incluvo/permissions";
+import { coachAssignment, formQuestion, formSubmission, transcription } from "@incluvo/drizzle/schema";
+import { atLeast, can, isSuperadmin, policies } from "@incluvo/permissions";
 import { ORPCError } from "@orpc/server";
 import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -7,7 +7,7 @@ import { isMockProvider } from "../../ai/config";
 import { adviceSystemPrompt } from "../../ai/prompts";
 import { getAiProvider } from "../../ai/provider";
 import { formatKennisContext, retrieveKennisHits } from "../../ai/retrieval";
-import { deleteObject } from "../../courses/storage";
+import { assertValidStorageKey, deleteObject } from "../../courses/storage";
 import { rateLimit } from "../../rate-limit";
 import { type AuthedContext, base, protectedProcedure } from "../base";
 
@@ -37,6 +37,8 @@ import { type AuthedContext, base, protectedProcedure } from "../base";
 // ---------------------------------------------------------------------------
 // Coach-only gate (#18/#22 are in het coachgedeelte)
 // ---------------------------------------------------------------------------
+
+const MAX_AUDIO_BASE64_CHARS = 34_000_000; // ≈ 25 MB audio (Groq Whisper limit) in base64 (×4/3)
 
 const requireCoach = base
 	.$context<AuthedContext>()
@@ -114,7 +116,19 @@ async function loadReviewableSubmission(
 	if (!can(context.actor, policies.reviewCoachplan, sub)) {
 		throw new ORPCError("FORBIDDEN");
 	}
+	await assertAssignedToLeerling(context, sub.leerlingId);
 	return sub;
+}
+
+/** Non-superadmin actors other than the owning leerling must hold a coach_assignment to the leerling. */
+async function assertAssignedToLeerling(context: AuthedContext, leerlingId: string): Promise<void> {
+	const { actor } = context;
+	if (isSuperadmin(actor.role) || actor.userId === leerlingId) return;
+	const [link] = await context.db
+		.select({ id: coachAssignment.id })
+		.from(coachAssignment)
+		.where(and(eq(coachAssignment.coachId, actor.userId), eq(coachAssignment.leerlingId, leerlingId)));
+	if (!link) throw new ORPCError("FORBIDDEN", { message: "Leerling is niet aan jou gekoppeld" });
 }
 
 const ProposedAnswerSchema = z.object({
@@ -129,8 +143,6 @@ const transcribe = coachProcedure
 	.input(
 		z.object({
 			submissionId: z.string().uuid(),
-			/** Storage key of the recorded/uploaded audio (#18). */
-			audioStorageKey: z.string().optional(),
 			/** Base64 audio for the real provider path (optional in dev). */
 			audioBase64: z.string().optional(),
 			audioFilename: z.string().optional(),
@@ -152,6 +164,11 @@ const transcribe = coachProcedure
 		if (!rateLimit(`ai:transcribe:${context.actor.userId}`, { max: 10, windowMs: 60_000 })) {
 			throw new ORPCError("TOO_MANY_REQUESTS", {
 				message: "Te veel transcriptieverzoeken. Wacht even en probeer opnieuw.",
+			});
+		}
+		if (input.audioBase64 && input.audioBase64.length > MAX_AUDIO_BASE64_CHARS) {
+			throw new ORPCError("BAD_REQUEST", {
+				message: "Audiobestand is te groot (maximaal 25 MB).",
 			});
 		}
 		const sub = await loadReviewableSubmission(context, input.submissionId);
@@ -178,15 +195,17 @@ const transcribe = coachProcedure
 			.orderBy(asc(formQuestion.position));
 		const questions = coachQuestions; // template questions, coach proposes per veld
 
-		// Insert a pending transcription row first (privacy §4.3: audio key is
-		// nullable so the source audio can be cleared after transcription).
+		// Insert a pending transcription row first (privacy §4.3). Audio never goes
+		// through the presign flow, so the key is always null — accepting a
+		// client-supplied key here would hand deleteAudio an arbitrary-object-
+		// deletion vector.
 		const [pending] = await context.db
 			.insert(transcription)
 			.values({
 				submissionId: sub.id,
 				coachId: context.actor.userId,
 				status: "processing",
-				audioStorageKey: input.audioStorageKey ?? null,
+				audioStorageKey: null,
 			})
 			.returning();
 		if (!pending) throw new ORPCError("INTERNAL_SERVER_ERROR");
@@ -273,13 +292,27 @@ const deleteAudio = coachProcedure
 		// `deleteObject` tolerates a missing object (ENOENT); a real failure surfaces
 		// so we don't null the key while the object still exists.
 		if (previousKey) {
+			// A malformed stored key would make `deleteObject` throw on every call,
+			// permanently wedging the erasure flow — validate first and, if invalid,
+			// skip the (impossible) deletion and just clear the column.
+			let keyIsValid = true;
 			try {
-				await deleteObject(previousKey);
-			} catch (err) {
-				console.error("deleteAudio: object deletion failed", err);
-				throw new ORPCError("INTERNAL_SERVER_ERROR", {
-					message: "Verwijderen van de opname is mislukt. Probeer het later opnieuw.",
+				assertValidStorageKey(previousKey);
+			} catch {
+				keyIsValid = false;
+				console.warn("deleteAudio: malformed stored audio key, clearing column", {
+					transcriptionId: row.id,
 				});
+			}
+			if (keyIsValid) {
+				try {
+					await deleteObject(previousKey);
+				} catch (err) {
+					console.error("deleteAudio: object deletion failed", err);
+					throw new ORPCError("INTERNAL_SERVER_ERROR", {
+						message: "Verwijderen van de opname is mislukt. Probeer het later opnieuw.",
+					});
+				}
 			}
 		}
 		await context.db

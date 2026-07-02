@@ -54,16 +54,23 @@ export function CourseBuilder(props: {
 	// Polite live-region text announced after a keyboard reorder so screen-reader
 	// users hear where the section/block landed (the visual order changes silently).
 	const [reorderStatus, setReorderStatus] = createSignal("");
+	// Guards the move buttons in flight so a double-click can't reorder against a
+	// stale order (the server response drives the next render).
+	const [reordering, setReordering] = createSignal(false);
 
 	const addSection = async () => {
 		if (!newSection().trim()) return;
-		await client.courses.addSection({
-			courseId: props.courseId,
-			title: newSection(),
-		});
-		setNewSection("");
-		toast({ title: "Sectie toegevoegd", tone: "success" });
-		await invalidate();
+		try {
+			await client.courses.addSection({
+				courseId: props.courseId,
+				title: newSection(),
+			});
+			setNewSection("");
+			toast({ title: "Sectie toegevoegd", tone: "success" });
+			await invalidate();
+		} catch {
+			toast({ title: "Sectie toevoegen mislukt. Probeer het opnieuw.", tone: "danger" });
+		}
 	};
 
 	/** Move element at `index` by `dir`, returning the reordered id list. */
@@ -86,12 +93,19 @@ export function CourseBuilder(props: {
 			dir,
 		);
 		if (!next) return;
-		await client.courses.reorderSections({
-			courseId: props.courseId,
-			orderedIds: next,
-		});
-		setReorderStatus(`Sectie naar positie ${index + dir + 1} verplaatst`);
-		await invalidate();
+		setReordering(true);
+		try {
+			await client.courses.reorderSections({
+				courseId: props.courseId,
+				orderedIds: next,
+			});
+			setReorderStatus(`Sectie naar positie ${index + dir + 1} verplaatst`);
+			await invalidate();
+		} catch {
+			toast({ title: "Verplaatsen mislukt. Probeer het opnieuw.", tone: "danger" });
+		} finally {
+			setReordering(false);
+		}
 	};
 
 	const moveBlock = async (
@@ -106,18 +120,33 @@ export function CourseBuilder(props: {
 			dir,
 		);
 		if (!next) return;
-		await client.courses.reorderBlocks({ sectionId, orderedIds: next });
-		setReorderStatus(`Blok naar positie ${index + dir + 1} verplaatst`);
-		await invalidate();
+		setReordering(true);
+		try {
+			await client.courses.reorderBlocks({ sectionId, orderedIds: next });
+			setReorderStatus(`Blok naar positie ${index + dir + 1} verplaatst`);
+			await invalidate();
+		} catch {
+			toast({ title: "Verplaatsen mislukt. Probeer het opnieuw.", tone: "danger" });
+		} finally {
+			setReordering(false);
+		}
 	};
 
 	const deleteSection = async (id: string) => {
-		await client.courses.deleteSection({ id });
-		await invalidate();
+		try {
+			await client.courses.deleteSection({ id });
+			await invalidate();
+		} catch {
+			toast({ title: "Verwijderen mislukt. Probeer het opnieuw.", tone: "danger" });
+		}
 	};
 	const deleteBlock = async (id: string) => {
-		await client.courses.deleteBlock({ id });
-		await invalidate();
+		try {
+			await client.courses.deleteBlock({ id });
+			await invalidate();
+		} catch {
+			toast({ title: "Verwijderen mislukt. Probeer het opnieuw.", tone: "danger" });
+		}
 	};
 
 	return (
@@ -138,6 +167,7 @@ export function CourseBuilder(props: {
 									variant="ghost"
 									size="icon"
 									aria-label="Sectie omhoog"
+									disabled={reordering()}
 									onClick={() => moveSection(i(), -1)}
 								>
 									<ChevronUp class="size-4" />
@@ -146,6 +176,7 @@ export function CourseBuilder(props: {
 									variant="ghost"
 									size="icon"
 									aria-label="Sectie omlaag"
+									disabled={reordering()}
 									onClick={() => moveSection(i(), 1)}
 								>
 									<ChevronDown class="size-4" />
@@ -178,6 +209,7 @@ export function CourseBuilder(props: {
 											variant="ghost"
 											size="icon"
 											aria-label="Blok omhoog"
+											disabled={reordering()}
 											onClick={() =>
 												moveBlock(section.id, section.blocks, bi(), -1)
 											}
@@ -188,6 +220,7 @@ export function CourseBuilder(props: {
 											variant="ghost"
 											size="icon"
 											aria-label="Blok omlaag"
+											disabled={reordering()}
 											onClick={() =>
 												moveBlock(section.id, section.blocks, bi(), 1)
 											}
@@ -346,11 +379,15 @@ function AddBlockDialog(props: {
 			onOpenChange={setOpen}
 			title="Content toevoegen"
 			class="max-w-2xl"
-			trigger={
-				<Button variant="subtle" size="sm">
-					<Plus class="size-4" /> Content
-				</Button>
-			}
+			trigger={{
+				variant: "subtle",
+				size: "sm",
+				children: (
+					<>
+						<Plus class="size-4" aria-hidden="true" /> Content
+					</>
+				),
+			}}
 			footer={
 				<>
 					<Button variant="ghost" onClick={() => setOpen(false)}>

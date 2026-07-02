@@ -17,6 +17,7 @@ import {
 } from "../../../components/dashboard/plan-status";
 import { cn } from "../../../lib/cn";
 import { requireRole } from "../../../lib/auth/require-role";
+import { RequireRole } from "../../../lib/auth/role-guard";
 import { orpc } from "../../../lib/orpc";
 
 /**
@@ -27,7 +28,11 @@ import { orpc } from "../../../lib/orpc";
  */
 export const Route = createFileRoute("/_protected/dashboard/$leerlingId")({
 	beforeLoad: () => requireRole("coach"),
-	component: ProfilePage,
+	component: () => (
+		<RequireRole min="coach">
+			<ProfilePage />
+		</RequireRole>
+	),
 });
 
 const STATUS_LABEL: Record<string, string> = {

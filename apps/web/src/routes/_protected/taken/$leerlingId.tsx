@@ -10,6 +10,7 @@ import { Switch } from "../../../components/ui/switch";
 import { toast } from "../../../components/ui/toast";
 import { TaskBoard } from "../../../components/tasks/task-board";
 import { requireRole } from "../../../lib/auth/require-role";
+import { RequireRole } from "../../../lib/auth/role-guard";
 import { orpc } from "../../../lib/orpc";
 import { useServerEvent } from "../../../lib/sse/use-events";
 
@@ -20,7 +21,11 @@ import { useServerEvent } from "../../../lib/sse/use-events";
  */
 export const Route = createFileRoute("/_protected/taken/$leerlingId")({
 	beforeLoad: () => requireRole("coach"),
-	component: CoachTakenPage,
+	component: () => (
+		<RequireRole min="coach">
+			<CoachTakenPage />
+		</RequireRole>
+	),
 });
 
 function CoachTakenPage() {
@@ -76,13 +81,13 @@ function CoachTakenPage() {
 				<p class="text-danger">Kon taken niet laden.</p>
 			</Show>
 
-			<Show when={tasksQuery.data} keyed>
+			<Show when={tasksQuery.data}>
 				{(data) => (
 					<>
 						{/* Hide toggle (#39) */}
 						<Card padding="sm">
 							<Switch
-								checked={data.listHidden}
+								checked={data().listHidden}
 								disabled={hideList.isPending}
 								label="Takenlijst tijdelijk uitzetten"
 								description="De leerling ziet zijn takenlijst dan niet."
@@ -93,7 +98,7 @@ function CoachTakenPage() {
 						</Card>
 
 						<TaskBoard
-							data={data}
+							data={data()}
 							leerlingId={leerlingId()}
 							canManage={true}
 							isCoach={true}

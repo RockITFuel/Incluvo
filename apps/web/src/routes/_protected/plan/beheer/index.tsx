@@ -8,6 +8,7 @@ import { Select } from "../../../../components/ui/select";
 import { Input } from "../../../../components/ui/text-field";
 import { toast } from "../../../../components/ui/toast";
 import { requireRole } from "../../../../lib/auth/require-role";
+import { RequireRole } from "../../../../lib/auth/role-guard";
 import { client, orpc } from "../../../../lib/orpc";
 
 /**
@@ -18,7 +19,11 @@ import { client, orpc } from "../../../../lib/orpc";
  */
 export const Route = createFileRoute("/_protected/plan/beheer/")({
 	beforeLoad: () => requireRole("keyuser"),
-	component: FormManager,
+	component: () => (
+		<RequireRole min="keyuser">
+			<FormManager />
+		</RequireRole>
+	),
 });
 
 const QUESTION_TYPES = [

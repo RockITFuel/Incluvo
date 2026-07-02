@@ -6,6 +6,7 @@ import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { Input } from "../components/ui/text-field";
 import { authClient } from "../lib/auth/auth-client";
+import { clearCachedSession } from "../lib/auth/session";
 
 export const Route = createFileRoute("/login")({
 	component: Login,
@@ -44,6 +45,10 @@ function Login() {
 			setError(err.message ?? "Er ging iets mis");
 			return;
 		}
+		// Drop the 30s session cache: it may hold a pre-login `null`, which the
+		// post-login navigate's guard would read as "not signed in" and bounce
+		// straight back to /login.
+		clearCachedSession();
 		// Land on the role's real home, not the demo `/items` route. coach+ get
 		// the dashboard; everyone else their task list.
 		const role = ((data?.user as { role?: string } | undefined)?.role ??

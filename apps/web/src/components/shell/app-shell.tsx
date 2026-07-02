@@ -1,3 +1,4 @@
+import { Dialog as KDialog } from "@kobalte/core/dialog";
 import { Link } from "@tanstack/solid-router";
 import { Menu, Search, X } from "lucide-solid";
 import { NotificationsBell } from "../notifications";
@@ -148,31 +149,28 @@ export function AppShell(props: AppShellProps) {
 				<Sidebar nav={props.nav} user={props.user} />
 			</aside>
 
-			{/* Mobile drawer */}
-			<Show when={menuOpen()}>
-				<div
-					class="fixed inset-0 z-40 bg-ink/40 md:hidden"
-					onClick={() => setMenuOpen(false)}
-					aria-hidden="true"
-				/>
-				<aside class="fixed inset-y-0 left-0 z-50 w-70 max-w-[80vw] shadow-3 md:hidden">
-					<div class="absolute right-2 top-2 z-10">
-						<button
-							type="button"
-							aria-label="Menu sluiten"
-							onClick={() => setMenuOpen(false)}
-							class="grid size-9 place-items-center rounded-2 text-ink-2 hover:bg-line-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-						>
-							<X class="size-5" />
-						</button>
-					</div>
-					<Sidebar
-						nav={props.nav}
-						user={props.user}
-						onNavigate={() => setMenuOpen(false)}
-					/>
-				</aside>
-			</Show>
+			{/* Mobile drawer — Kobalte Dialog (focus trap, Esc, scroll lock, aria). */}
+			<KDialog open={menuOpen()} onOpenChange={setMenuOpen}>
+				<KDialog.Portal>
+					<KDialog.Overlay class="fixed inset-0 z-40 bg-ink/40 md:hidden" />
+					<KDialog.Content class="fixed inset-y-0 left-0 z-50 w-[248px] max-w-[80vw] bg-surface shadow-3 md:hidden">
+						<KDialog.Title class="sr-only">Navigatiemenu</KDialog.Title>
+						<div class="absolute right-2 top-2 z-10">
+							<KDialog.CloseButton
+								aria-label="Menu sluiten"
+								class="grid size-9 place-items-center rounded-2 text-ink-2 hover:bg-line-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+							>
+								<X class="size-5" aria-hidden="true" />
+							</KDialog.CloseButton>
+						</div>
+						<Sidebar
+							nav={props.nav}
+							user={props.user}
+							onNavigate={() => setMenuOpen(false)}
+						/>
+					</KDialog.Content>
+				</KDialog.Portal>
+			</KDialog>
 
 			<div class="flex min-w-0 flex-col">
 				<header class="sticky top-0 z-20 flex items-center gap-4 border-line border-b bg-bg/85 px-4 py-3 backdrop-blur md:px-7">

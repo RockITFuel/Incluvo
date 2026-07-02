@@ -128,15 +128,30 @@ const MAX_CONCURRENT_RENDERS = 3;
 
 let browserPromise: Promise<Browser> | undefined;
 
-/** Lazily launch (or relaunch, if disconnected) the shared Chromium browser. */
+/**
+ * Lazily launch (or relaunch, if disconnected) the shared Chromium browser.
+ *
+ * Relaunch is race-safe: we capture the current promise and only overwrite the
+ * singleton via compare-and-swap, so two concurrent callers observing a dead
+ * browser don't both launch (which would orphan a Chromium process).
+ */
 async function getBrowser(): Promise<Browser> {
-	if (browserPromise) {
+	const current = browserPromise;
+	if (current) {
 		try {
-			const existing = await browserPromise;
+			const existing = await current;
 			if (existing.isConnected()) return existing;
 		} catch {
-			// Previous launch failed/closed — fall through and relaunch.
+			// Previous launch failed/closed — relaunch below.
 		}
+		if (browserPromise === current) {
+			browserPromise = chromium.launch({
+				args: ["--no-sandbox", "--disable-setuid-sandbox"],
+			});
+			return browserPromise;
+		}
+		// Another caller already relaunched; reuse their promise.
+		return browserPromise ?? current;
 	}
 	browserPromise = chromium.launch({
 		args: ["--no-sandbox", "--disable-setuid-sandbox"],

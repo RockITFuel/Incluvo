@@ -79,6 +79,17 @@ async function coachIdsFor(
 	return [...new Set(rows.map((r) => r.coachId))];
 }
 
+/** Non-superadmin actors other than the owning leerling must hold a coach_assignment to the leerling. */
+async function assertAssignedToLeerling(context: AuthedContext, leerlingId: string): Promise<void> {
+	const { actor } = context;
+	if (isSuperadmin(actor.role) || actor.userId === leerlingId) return;
+	const [link] = await context.db
+		.select({ id: coachAssignment.id })
+		.from(coachAssignment)
+		.where(and(eq(coachAssignment.coachId, actor.userId), eq(coachAssignment.leerlingId, leerlingId)));
+	if (!link) throw new ORPCError("FORBIDDEN", { message: "Leerling is niet aan jou gekoppeld" });
+}
+
 /** Map a template row to the DTO shape (Date columns pass through). */
 function templateDto(row: typeof formTemplate.$inferSelect) {
 	return {
@@ -451,6 +462,15 @@ const questionsRemove = protectedProcedure
 			.where(eq(formQuestion.id, input.id));
 		if (!q) throw new ORPCError("NOT_FOUND");
 		await assertCanManageTemplate(context, q.templateId);
+		// Refuse to delete a question that answers/mappings still reference: the FK now
+		// RESTRICTs, so this guard gives a friendly error instead of a raw FK violation.
+		const [hasAnswer] = await context.db.select({ id: formAnswer.id }).from(formAnswer)
+			.where(eq(formAnswer.questionId, input.id)).limit(1);
+		const [hasMapping] = await context.db.select({ id: answerCoachMapping.id }).from(answerCoachMapping)
+			.where(eq(answerCoachMapping.coachQuestionId, input.id)).limit(1);
+		if (hasAnswer || hasMapping) {
+			throw new ORPCError("CONFLICT", { message: "Deze vraag heeft al antwoorden en kan niet worden verwijderd." });
+		}
 		await context.db.delete(formQuestion).where(eq(formQuestion.id, input.id));
 		publishTo(
 			{ type: "coachplan.template.changed", payload: { id: q.templateId } },
@@ -686,13 +706,16 @@ const saveAnswer = protectedProcedure
 	)
 	.output(AnswerSchema)
 	.handler(async ({ input, context }) => {
-		await loadFillable(context, input.submissionId);
+		const sub = await loadFillable(context, input.submissionId);
 		// Question must belong to the submission's template.
 		const [q] = await context.db
-			.select({ id: formQuestion.id })
+			.select({ id: formQuestion.id, templateId: formQuestion.templateId })
 			.from(formQuestion)
 			.where(eq(formQuestion.id, input.questionId));
 		if (!q) throw new ORPCError("NOT_FOUND");
+		if (q.templateId !== sub.templateId) {
+			throw new ORPCError("BAD_REQUEST", { message: "Vraag hoort niet bij dit formulier" });
+		}
 
 		const [existing] = await context.db
 			.select()
@@ -932,18 +955,15 @@ const getSubmission = protectedProcedure
 	.output(OverviewSchema)
 	.handler(async ({ input, context }) => {
 		const { actor } = context;
-		// Bound headless-Chromium load: a fresh browser launches per PDF (H3).
-		if (!rateLimit(`pdf:${actor.userId}`, { max: 10, windowMs: 60_000 })) {
-			throw new ORPCError("TOO_MANY_REQUESTS", {
-				message: "Te veel PDF-aanvragen. Wacht even en probeer opnieuw.",
-			});
-		}
 		const [sub] = await context.db
 			.select()
 			.from(formSubmission)
 			.where(eq(formSubmission.id, input.id));
 		if (!sub) throw new ORPCError("NOT_FOUND");
 		if (!can(actor, policies.readCoachplan, sub)) throw new ORPCError("FORBIDDEN");
+		// Role+tenant alone isn't enough: a coach must be assigned to this leerling
+		// (the owning leerling passes via the self short-circuit).
+		await assertAssignedToLeerling(context, sub.leerlingId);
 		return buildOverview(context.db, sub);
 	});
 
@@ -980,6 +1000,16 @@ const inbox = protectedProcedure
 		const { actor } = context;
 		const organizationId = actor.organizationId;
 		if (!organizationId && !isSuperadmin(actor.role)) return [];
+		// A coach only sees plans of leerlingen assigned to them; superadmin sees all.
+		let assignedIds: string[] = [];
+		if (!isSuperadmin(actor.role)) {
+			const links = await context.db
+				.select({ leerlingId: coachAssignment.leerlingId })
+				.from(coachAssignment)
+				.where(eq(coachAssignment.coachId, actor.userId));
+			assignedIds = [...new Set(links.map((l) => l.leerlingId))];
+			if (assignedIds.length === 0) return [];
+		}
 		const rows = await context.db
 			.select({
 				submission: formSubmission,
@@ -999,6 +1029,7 @@ const inbox = protectedProcedure
 						])
 					: and(
 							eq(formSubmission.organizationId, organizationId ?? ""),
+							inArray(formSubmission.leerlingId, assignedIds),
 							inArray(formSubmission.status, [
 								"submitted",
 								"coach_review",
@@ -1058,6 +1089,8 @@ async function loadReviewable(context: AuthedContext, submissionId: string) {
 	if (!can(context.actor, policies.reviewCoachplan, sub)) {
 		throw new ORPCError("FORBIDDEN");
 	}
+	// Role+tenant alone isn't enough: the coach must be assigned to this leerling.
+	await assertAssignedToLeerling(context, sub.leerlingId);
 	return sub;
 }
 
@@ -1382,12 +1415,20 @@ const generatePdf = protectedProcedure
 	)
 	.handler(async ({ input, context }) => {
 		const { actor } = context;
+		// Bound headless-Chromium load: a fresh browser launches per PDF (H3).
+		if (!rateLimit(`pdf:${actor.userId}`, { max: 10, windowMs: 60_000 })) {
+			throw new ORPCError("TOO_MANY_REQUESTS", {
+				message: "Te veel PDF-aanvragen. Wacht even en probeer opnieuw.",
+			});
+		}
 		const [sub] = await context.db
 			.select()
 			.from(formSubmission)
 			.where(eq(formSubmission.id, input.id));
 		if (!sub) throw new ORPCError("NOT_FOUND");
 		if (!can(actor, policies.readCoachplan, sub)) throw new ORPCError("FORBIDDEN");
+		// Role+tenant alone isn't enough: a coach must be assigned to this leerling.
+		await assertAssignedToLeerling(context, sub.leerlingId);
 
 		const [tpl] = await context.db
 			.select()

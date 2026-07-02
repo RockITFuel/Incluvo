@@ -4,6 +4,7 @@ import { TranscriptionPanel } from "../../../components/ai/transcription-panel";
 import { TranslatePanel } from "../../../components/ai/translate-panel";
 import { Tabs } from "../../../components/ui/tabs";
 import { requireRole } from "../../../lib/auth/require-role";
+import { RequireRole } from "../../../lib/auth/role-guard";
 
 /**
  * `/assistent` — the coach AI-werkbank (Epic 7).
@@ -18,7 +19,11 @@ import { requireRole } from "../../../lib/auth/require-role";
  */
 export const Route = createFileRoute("/_protected/assistent/")({
 	beforeLoad: () => requireRole("coach"),
-	component: AssistentPage,
+	component: () => (
+		<RequireRole min="coach">
+			<AssistentPage />
+		</RequireRole>
+	),
 });
 
 function AssistentPage() {

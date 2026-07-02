@@ -52,9 +52,13 @@ export interface AiConfig {
  * live provider we validate its host against an allow-list of approved
  * EU-resident endpoints and FAIL CLOSED if it isn't on the list.
  *
- * The default set covers Azure OpenAI (Sweden Central / EU data zones — all
- * `*.openai.azure.com`) and Mistral's EU API. Override via the
- * `AI_ALLOWED_HOSTS` env var (comma-separated). An entry may be:
+ * HONESTY NOTE on the default set: `*.openai.azure.com` matches ANY Azure
+ * OpenAI resource WORLDWIDE — Azure hostnames are resource-bound, not
+ * region-bound, so a US-deployed resource has the exact same hostname shape.
+ * The default list is therefore a guardrail against obviously-wrong endpoints,
+ * NOT an EU-residency guarantee. Production MUST pin the exact resource
+ * hostname via the `AI_ALLOWED_HOSTS` env var (comma-separated). An entry may
+ * be:
  *   - an exact host  → "api.mistral.ai"
  *   - a wildcard     → "*.openai.azure.com"  (matches any sub-domain + apex)
  */
@@ -113,10 +117,34 @@ function assertHostAllowed(url: string, envName: string): void {
 	);
 }
 
+/** One-shot flag so the wildcard-default warning logs once per process. */
+let warnedDefaultAllowList = false;
+
 export function assertEuResidency(config: AiConfig): void {
+	if (config.live && !process.env.AI_ALLOWED_HOSTS?.trim() && !warnedDefaultAllowList) {
+		warnedDefaultAllowList = true;
+		console.warn(
+			"AI residency: AI_ALLOWED_HOSTS is niet gezet — de standaard wildcard " +
+				"(*.openai.azure.com) matcht élke Azure OpenAI-resource wereldwijd en " +
+				"kan EU-residency dus NIET garanderen. Pin de exacte resource-hostnaam " +
+				"via AI_ALLOWED_HOSTS voor productie.",
+		);
+	}
 	if (config.live && config.baseURL) assertHostAllowed(config.baseURL, "AI_BASE_URL");
 	// The dedicated embeddings endpoint carries minors' data too — gate it.
 	if (config.embedBaseURL) assertHostAllowed(config.embedBaseURL, "AI_EMBED_BASE_URL");
+}
+
+/** Parse a non-negative integer env var; warn + fall back on anything else. */
+function parsePositiveInt(name: string, raw: string | undefined, fallback: number): number {
+	const t = raw?.trim();
+	if (!t) return fallback;
+	const n = Number(t);
+	if (!Number.isInteger(n) || n < 0) {
+		console.warn(`Ongeldige ${name}="${raw}" — standaardwaarde ${fallback} gebruikt.`);
+		return fallback;
+	}
+	return n;
 }
 
 export function readAiConfig(): AiConfig {
@@ -130,10 +158,11 @@ export function readAiConfig(): AiConfig {
 	const embedBaseURL = process.env.AI_EMBED_BASE_URL?.trim() || undefined;
 	const embedApiKey = process.env.AI_EMBED_API_KEY?.trim() || undefined;
 
-	const timeoutMs = Number(process.env.AI_REQUEST_TIMEOUT_MS) || 60_000;
-	const maxRetries = Number.isFinite(Number(process.env.AI_MAX_RETRIES))
-		? Number(process.env.AI_MAX_RETRIES)
-		: 2;
+	// `Number("")` is 0 and `Number("abc")` is NaN — both must fall back loudly
+	// instead of silently disabling retries or the timeout.
+	const rawTimeout = parsePositiveInt("AI_REQUEST_TIMEOUT_MS", process.env.AI_REQUEST_TIMEOUT_MS, 60_000);
+	const timeoutMs = rawTimeout > 0 ? rawTimeout : 60_000;
+	const maxRetries = parsePositiveInt("AI_MAX_RETRIES", process.env.AI_MAX_RETRIES, 2);
 
 	// Both a base URL and a key are required to go live; otherwise mock.
 	const live = Boolean(baseURL && apiKey);

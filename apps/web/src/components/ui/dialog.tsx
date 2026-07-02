@@ -2,12 +2,21 @@ import { Dialog as KDialog } from "@kobalte/core/dialog";
 import { X } from "lucide-solid";
 import { type JSX, Show, splitProps } from "solid-js";
 import { cn } from "../../lib/cn";
+import { type ButtonProps, buttonVariants } from "./button";
 
 export type DialogProps = {
 	open?: boolean;
 	onOpenChange?: (open: boolean) => void;
-	/** Optional trigger element; omit to control `open` yourself. */
-	trigger?: JSX.Element;
+	/**
+	 * Optional trigger; renders as a real button styled like our `Button`.
+	 * Omit to control `open` yourself.
+	 */
+	trigger?: {
+		children: JSX.Element;
+		variant?: ButtonProps["variant"];
+		size?: ButtonProps["size"];
+		class?: string;
+	};
 	title?: string;
 	description?: string;
 	children?: JSX.Element;
@@ -37,7 +46,16 @@ export function Dialog(props: DialogProps) {
 	return (
 		<KDialog open={local.open} onOpenChange={local.onOpenChange}>
 			<Show when={local.trigger}>
-				<KDialog.Trigger as="div">{local.trigger}</KDialog.Trigger>
+				{(t) => (
+					<KDialog.Trigger
+						class={cn(
+							buttonVariants({ variant: t().variant, size: t().size }),
+							t().class,
+						)}
+					>
+						{t().children}
+					</KDialog.Trigger>
+				)}
 			</Show>
 			<KDialog.Portal>
 				<KDialog.Overlay class="fixed inset-0 z-50 bg-ink/40 animate-fade-in" />

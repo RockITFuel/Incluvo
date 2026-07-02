@@ -1,6 +1,5 @@
 import { policies } from "@incluvo/permissions";
 import { can } from "@incluvo/permissions";
-import type { UserRole } from "@incluvo/permissions";
 import { createFileRoute } from "@tanstack/solid-router";
 import {
 	useMutation,
@@ -12,6 +11,7 @@ import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
 import { toast } from "../../components/ui/toast";
+import { useMe } from "../../lib/auth/use-me";
 import { orpc } from "../../lib/orpc";
 import { useServerEvent } from "../../lib/sse/use-events";
 
@@ -29,15 +29,16 @@ export const Route = createFileRoute("/_protected/items")({
 });
 
 function ItemsPage() {
-	const ctx = Route.useRouteContext();
+	const me = useMe();
 	const queryClient = useQueryClient();
 	const [title, setTitle] = createSignal("");
 
+	// `Route.useRouteContext().user` is baked at SPA-prerender time and is
+	// `undefined` on a hard load, which would hide the create form from an
+	// authorized user. Resolve the actor from `account.me` instead.
 	const actor = () => {
-		const user = ctx().user as { id: string; role?: string } | undefined;
-		return user
-			? { userId: user.id, role: (user.role ?? "member") as UserRole }
-			: null;
+		const u = me.user();
+		return u ? { userId: u.id, role: me.role() } : null;
 	};
 
 	const itemsQuery = useQuery(() => orpc.items.list.queryOptions());

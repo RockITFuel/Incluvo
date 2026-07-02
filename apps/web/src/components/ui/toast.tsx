@@ -36,7 +36,8 @@ export function toast(opts: ToastOptions) {
 	return toaster.show((p) => (
 		<KToast
 			toastId={p.toastId}
-			duration={opts.duration ?? 5000}
+			duration={opts.duration || 5000}
+			persistent={opts.duration === 0}
 			class={cn(
 				"flex items-start gap-3 rounded-3 border bg-surface p-4 shadow-3 animate-slide-in-right data-[closed]:animate-fade-in",
 				toneStyles[tone].ring,

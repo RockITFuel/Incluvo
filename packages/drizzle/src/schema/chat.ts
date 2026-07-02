@@ -5,6 +5,7 @@ import {
 	pgTable,
 	text,
 	timestamp,
+	uniqueIndex,
 	uuid,
 } from "drizzle-orm/pg-core";
 import { user } from "./better-auth";
@@ -40,9 +41,15 @@ export const conversation = pgTable("conversation", {
 		{ onDelete: "cascade" },
 	),
 	title: text("title"),
+	// Deterministic `<userIdA>:<userIdB>` sorted pair for a direct conversation;
+	// NULL for forums. Enforces one direct conversation per user pair (#5).
+	directKey: text("direct_key"),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 	updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (t) => [
+	// One direct conversation per user pair; multiple NULLs (forums) allowed.
+	uniqueIndex("conversation_direct_key_uq").on(t.directKey),
+]);
 
 /** Role of a member within a conversation. `supervisor` = coach-meekijk (#6). */
 export const conversationRole = pgEnum("conversation_role", [
@@ -65,6 +72,8 @@ export const conversationMember = pgTable("conversation_member", {
 	// Hot path: a user's conversations, and a conversation's members.
 	index("conversation_member_user_idx").on(t.userId),
 	index("conversation_member_conversation_idx").on(t.conversationId),
+	// A user joins a conversation at most once.
+	uniqueIndex("conversation_member_conv_user_uq").on(t.conversationId, t.userId),
 ]);
 
 export const message = pgTable("message", {

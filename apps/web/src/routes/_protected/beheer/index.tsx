@@ -10,6 +10,7 @@ import {
 import { UsersPanel } from "../../../components/admin/users-panel";
 import { type TabItem, Tabs } from "../../../components/ui/tabs";
 import { requireRole } from "../../../lib/auth/require-role";
+import { RequireRole } from "../../../lib/auth/role-guard";
 import { useMe } from "../../../lib/auth/use-me";
 
 /**
@@ -21,7 +22,11 @@ import { useMe } from "../../../lib/auth/use-me";
  */
 export const Route = createFileRoute("/_protected/beheer/")({
 	beforeLoad: () => requireRole("keyuser"),
-	component: BeheerPage,
+	component: () => (
+		<RequireRole min="keyuser">
+			<BeheerPage />
+		</RequireRole>
+	),
 });
 
 function BeheerPage() {

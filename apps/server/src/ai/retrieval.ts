@@ -9,7 +9,7 @@
  */
 
 import { kennisdocument, kennisdocumentChunk } from "@incluvo/drizzle/schema";
-import { cosineDistance, eq, isNull, or, sql } from "drizzle-orm";
+import { and, cosineDistance, eq, isNull, or, sql } from "drizzle-orm";
 import type { AiProvider } from "./provider";
 
 type Db = typeof import("@incluvo/drizzle").db;
@@ -56,9 +56,24 @@ export async function retrieveKennisHits(
 			kennisdocument,
 			eq(kennisdocumentChunk.documentId, kennisdocument.id),
 		)
-		.where(scope)
+		// Only compare vectors from the SAME embedding space — cosine distance
+		// between e.g. mock-seeded and real query embeddings is silent garbage.
+		.where(and(scope, eq(kennisdocument.embedSignature, provider.embedSignature)))
 		.orderBy(distance)
 		.limit(opts.limit ?? 4);
+
+	if (rows.length === 0) {
+		const [anyDoc] = await db
+			.select({ id: kennisdocument.id })
+			.from(kennisdocument)
+			.limit(1);
+		if (anyDoc) {
+			console.warn(
+				`kennis retrieval: embed-signature mismatch (verwacht ${provider.embedSignature}) — her-seed kennisdocumenten (seed:kennis)`,
+			);
+		}
+		return [];
+	}
 
 	return rows.map((r) => ({
 		title: r.title,

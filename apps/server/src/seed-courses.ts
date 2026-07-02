@@ -21,6 +21,10 @@ loadRootEnv();
 const { db } = await import("@incluvo/drizzle");
 const schema = await import("@incluvo/drizzle/schema");
 const { and, asc, eq } = await import("drizzle-orm");
+const { makeStorageKey, writeLocalUpload } = await import("./courses/storage");
+
+/** Transaction handle type (same query API as `db`). */
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 const {
 	organization,
@@ -36,6 +40,24 @@ const {
 } = schema;
 
 const ONDIVERA_TITLE = "Ondivera Basiscursus Mediawijsheid";
+
+/**
+ * Minimal valid one-page PDF for the demo "bestand" block (#30), so the seeded
+ * `fileStorageKey` points at a real object instead of 500-ing on every access.
+ */
+const PLACEHOLDER_PDF = [
+	"%PDF-1.4",
+	"1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj",
+	"2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj",
+	"3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 595 842]/Contents 4 0 R>>endobj",
+	"4 0 obj<</Length 57>>stream",
+	"BT /F1 24 Tf 72 770 Td (Voorbeeld-werkblad Incluvo) Tj ET",
+	"endstream",
+	"endobj",
+	"trailer<</Size 5/Root 1 0 R>>",
+	"%%EOF",
+	"",
+].join("\n");
 
 async function orgId(name: string): Promise<string> {
 	const [row] = await db
@@ -75,150 +97,160 @@ async function main() {
 		process.exit(0);
 	}
 
-	// 1) Ondivera template (org null).
-	const [tpl] = await db
-		.insert(course)
-		.values({
-			kind: "ondivera_template",
-			organizationId: null,
-			title: ONDIVERA_TITLE,
-			description:
-				"Een voorbeeldcursus van Ondivera. Kopieer naar je school en pas aan.",
-			createdById: ontwikkelaar,
-		})
-		.returning({ id: course.id });
-	if (!tpl) throw new Error("Failed to create template course");
-	console.log("  + Ondivera template course");
+	// Write the placeholder werkblad through the storage layer BEFORE the
+	// transaction (file writes can't roll back), so the seeded key resolves.
+	const werkbladKey = makeStorageKey("bestand", "voorbeeld-werkblad.pdf");
+	await writeLocalUpload(werkbladKey, new TextEncoder().encode(PLACEHOLDER_PDF));
 
-	// Section 1: Introductie
-	const [sec1] = await db
-		.insert(courseSection)
-		.values({ courseId: tpl.id, title: "Thema 1 · Introductie", position: 0 })
-		.returning({ id: courseSection.id });
-	// Section 2: Aan de slag
-	const [sec2] = await db
-		.insert(courseSection)
-		.values({ courseId: tpl.id, title: "Thema 2 · Aan de slag", position: 1 })
-		.returning({ id: courseSection.id });
-	if (!sec1 || !sec2) throw new Error("Failed to create sections");
+	// One transaction for the whole seed, so a mid-seed crash can't leave the
+	// idempotency check above passing while half the data is missing.
+	await db.transaction(async (tx) => {
+		// 1) Ondivera template (org null).
+		const [tpl] = await tx
+			.insert(course)
+			.values({
+				kind: "ondivera_template",
+				organizationId: null,
+				title: ONDIVERA_TITLE,
+				description:
+					"Een voorbeeldcursus van Ondivera. Kopieer naar je school en pas aan.",
+				createdById: ontwikkelaar,
+			})
+			.returning({ id: course.id });
+		if (!tpl) throw new Error("Failed to create template course");
+		console.log("  + Ondivera template course");
 
-	// pagina (#29) — ProseMirror JSON.
-	const pageDoc = {
-		type: "doc",
-		content: [
-			{
-				type: "heading",
-				attrs: { level: 2 },
-				content: [{ type: "text", text: "Welkom bij de cursus" }],
-			},
-			{
-				type: "paragraph",
-				content: [
-					{
-						type: "text",
-						text: "In deze cursus leer je hoe je bewust en veilig omgaat met media. Lees deze pagina rustig door en bekijk daarna de video.",
-					},
-				],
-			},
-		],
-	};
-	const [pageBlock] = await db
-		.insert(contentBlock)
-		.values({
+		// Section 1: Introductie
+		const [sec1] = await tx
+			.insert(courseSection)
+			.values({ courseId: tpl.id, title: "Thema 1 · Introductie", position: 0 })
+			.returning({ id: courseSection.id });
+		// Section 2: Aan de slag
+		const [sec2] = await tx
+			.insert(courseSection)
+			.values({ courseId: tpl.id, title: "Thema 2 · Aan de slag", position: 1 })
+			.returning({ id: courseSection.id });
+		if (!sec1 || !sec2) throw new Error("Failed to create sections");
+
+		// pagina (#29) — ProseMirror JSON.
+		const pageDoc = {
+			type: "doc",
+			content: [
+				{
+					type: "heading",
+					attrs: { level: 2 },
+					content: [{ type: "text", text: "Welkom bij de cursus" }],
+				},
+				{
+					type: "paragraph",
+					content: [
+						{
+							type: "text",
+							text: "In deze cursus leer je hoe je bewust en veilig omgaat met media. Lees deze pagina rustig door en bekijk daarna de video.",
+						},
+					],
+				},
+			],
+		};
+		const [pageBlock] = await tx
+			.insert(contentBlock)
+			.values({
+				sectionId: sec1.id,
+				type: "pagina",
+				title: "Introductiepagina",
+				position: 0,
+				body: JSON.stringify(pageDoc),
+			})
+			.returning({ id: contentBlock.id });
+
+		// youtube (#31) — validated 11-char id.
+		await tx.insert(contentBlock).values({
 			sectionId: sec1.id,
-			type: "pagina",
-			title: "Introductiepagina",
-			position: 0,
-			body: JSON.stringify(pageDoc),
-		})
-		.returning({ id: contentBlock.id });
-
-	// youtube (#31) — validated 11-char id.
-	await db.insert(contentBlock).values({
-		sectionId: sec1.id,
-		type: "youtube",
-		title: "Introductievideo",
-		position: 1,
-		youtubeUrl: "dQw4w9WgXcQ",
-	});
-
-	// bestand (#30) — metadata-only in the seed (no real file in dev).
-	await db.insert(contentBlock).values({
-		sectionId: sec1.id,
-		type: "bestand",
-		title: "Werkblad (PDF)",
-		position: 2,
-		fileStorageKey: "bestand/voorbeeld-werkblad.pdf",
-	});
-
-	// Label the page block (#36) so it shows as recommended for "visueel" leerlingen.
-	if (pageBlock) {
-		await db.insert(contentBlockLabel).values([
-			{ contentBlockId: pageBlock.id, label: "visueel" },
-			{ contentBlockId: pageBlock.id, label: "lezen" },
-		]);
-	}
-
-	// opdracht (#27) — with an assignment definition.
-	const [opdrachtBlock] = await db
-		.insert(contentBlock)
-		.values({
-			sectionId: sec2.id,
-			type: "opdracht",
-			title: "Opdracht: jouw mediadagboek",
-			position: 0,
-		})
-		.returning({ id: contentBlock.id });
-	if (opdrachtBlock) {
-		await db.insert(assignment).values({
-			contentBlockId: opdrachtBlock.id,
-			name: "Jouw mediadagboek",
-			description:
-				"Houd één dag bij welke media je gebruikt en lever een korte reflectie in (tekst of bestand).",
-			isGroup: false,
-			responseType: "text_and_files",
-			maxAttempts: 3,
+			type: "youtube",
+			title: "Introductievideo",
+			position: 1,
+			youtubeUrl: "dQw4w9WgXcQ",
 		});
-		await db
-			.insert(contentBlockLabel)
-			.values({ contentBlockId: opdrachtBlock.id, label: "doen" });
-	}
 
-	// forum (#32) — created on the template; the forum conversation is created
-	// when this is used in a student execution (it needs an org + leerling).
-	await db.insert(contentBlock).values({
-		sectionId: sec2.id,
-		type: "forum",
-		title: "Forum: bespreek je ervaringen",
-		position: 1,
+		// bestand (#30) — points at the placeholder PDF written above, so the
+		// demo file actually opens instead of failing the storage-key check.
+		await tx.insert(contentBlock).values({
+			sectionId: sec1.id,
+			type: "bestand",
+			title: "Werkblad (PDF)",
+			position: 2,
+			fileStorageKey: werkbladKey,
+		});
+
+		// Label the page block (#36) so it shows as recommended for "visueel" leerlingen.
+		if (pageBlock) {
+			await tx.insert(contentBlockLabel).values([
+				{ contentBlockId: pageBlock.id, label: "visueel" },
+				{ contentBlockId: pageBlock.id, label: "lezen" },
+			]);
+		}
+
+		// opdracht (#27) — with an assignment definition.
+		const [opdrachtBlock] = await tx
+			.insert(contentBlock)
+			.values({
+				sectionId: sec2.id,
+				type: "opdracht",
+				title: "Opdracht: jouw mediadagboek",
+				position: 0,
+			})
+			.returning({ id: contentBlock.id });
+		if (opdrachtBlock) {
+			await tx.insert(assignment).values({
+				contentBlockId: opdrachtBlock.id,
+				name: "Jouw mediadagboek",
+				description:
+					"Houd één dag bij welke media je gebruikt en lever een korte reflectie in (tekst of bestand).",
+				isGroup: false,
+				responseType: "text_and_files",
+				maxAttempts: 3,
+			});
+			await tx
+				.insert(contentBlockLabel)
+				.values({ contentBlockId: opdrachtBlock.id, label: "doen" });
+		}
+
+		// forum (#32) — created on the template; the forum conversation is created
+		// when this is used in a student execution (it needs an org + leerling).
+		await tx.insert(contentBlock).values({
+			sectionId: sec2.id,
+			type: "forum",
+			title: "Forum: bespreek je ervaringen",
+			position: 1,
+		});
+
+		console.log("  + sections + content blocks (pagina/youtube/bestand/opdracht/forum)");
+
+		// 2) Copy the template into the Demo School as a school template.
+		const schoolCourseId = await deepCopy(tx, tpl.id, {
+			kind: "school_template",
+			organizationId: schoolOrg,
+			parentCourseId: tpl.id,
+			title: "Mediawijsheid (Demo School)",
+			createdById: ontwikkelaar,
+		});
+		console.log("  + school template (copy of Ondivera template)");
+
+		// 3) Derive a student execution for the demo leerling.
+		const studentCourseId = await deepCopy(tx, schoolCourseId, {
+			kind: "student_execution",
+			organizationId: schoolOrg,
+			parentCourseId: schoolCourseId,
+			leerlingId: leerling,
+			title: "Mediawijsheid",
+			createdById: ontwikkelaar,
+		});
+		console.log("  + student execution for demo leerling");
+
+		// 4) Seed a takenlijst task for each opdracht in the student execution (#27/#37),
+		//    and create the forum conversation for the leerling (#32).
+		await seedExecutionExtras(tx, studentCourseId, schoolOrg, leerling);
 	});
-
-	console.log("  + sections + content blocks (pagina/youtube/bestand/opdracht/forum)");
-
-	// 2) Copy the template into the Demo School as a school template.
-	const schoolCourseId = await deepCopy(tpl.id, {
-		kind: "school_template",
-		organizationId: schoolOrg,
-		parentCourseId: tpl.id,
-		title: "Mediawijsheid (Demo School)",
-		createdById: ontwikkelaar,
-	});
-	console.log("  + school template (copy of Ondivera template)");
-
-	// 3) Derive a student execution for the demo leerling.
-	const studentCourseId = await deepCopy(schoolCourseId, {
-		kind: "student_execution",
-		organizationId: schoolOrg,
-		parentCourseId: schoolCourseId,
-		leerlingId: leerling,
-		title: "Mediawijsheid",
-		createdById: ontwikkelaar,
-	});
-	console.log("  + student execution for demo leerling");
-
-	// 4) Seed a takenlijst task for each opdracht in the student execution (#27/#37),
-	//    and create the forum conversation for the leerling (#32).
-	await seedExecutionExtras(studentCourseId, schoolOrg, leerling);
 
 	console.log("Done.");
 	console.log("  Ondivera template : %s", ONDIVERA_TITLE);
@@ -238,13 +270,13 @@ interface CopyTarget {
 }
 
 /** Create a new course from `target` and deep-copy `srcId`'s structure into it. */
-async function deepCopy(srcId: string, target: CopyTarget): Promise<string> {
-	const [src] = await db
+async function deepCopy(tx: Tx, srcId: string, target: CopyTarget): Promise<string> {
+	const [src] = await tx
 		.select({ description: course.description })
 		.from(course)
 		.where(eq(course.id, srcId));
 
-	const [dest] = await db
+	const [dest] = await tx
 		.insert(course)
 		.values({
 			kind: target.kind,
@@ -258,27 +290,27 @@ async function deepCopy(srcId: string, target: CopyTarget): Promise<string> {
 		.returning({ id: course.id });
 	if (!dest) throw new Error("Failed to create copy course");
 
-	const sections = await db
+	const sections = await tx
 		.select()
 		.from(courseSection)
 		.where(eq(courseSection.courseId, srcId))
 		.orderBy(asc(courseSection.position));
 
 	for (const sec of sections) {
-		const [newSec] = await db
+		const [newSec] = await tx
 			.insert(courseSection)
 			.values({ courseId: dest.id, title: sec.title, position: sec.position })
 			.returning({ id: courseSection.id });
 		if (!newSec) continue;
 
-		const blocks = await db
+		const blocks = await tx
 			.select()
 			.from(contentBlock)
 			.where(eq(contentBlock.sectionId, sec.id))
 			.orderBy(asc(contentBlock.position));
 
 		for (const b of blocks) {
-			const [nb] = await db
+			const [nb] = await tx
 				.insert(contentBlock)
 				.values({
 					sectionId: newSec.id,
@@ -294,23 +326,23 @@ async function deepCopy(srcId: string, target: CopyTarget): Promise<string> {
 				.returning({ id: contentBlock.id });
 			if (!nb) continue;
 
-			const labels = await db
+			const labels = await tx
 				.select({ label: contentBlockLabel.label })
 				.from(contentBlockLabel)
 				.where(eq(contentBlockLabel.contentBlockId, b.id));
 			if (labels.length > 0) {
-				await db
+				await tx
 					.insert(contentBlockLabel)
 					.values(labels.map((l) => ({ contentBlockId: nb.id, label: l.label })));
 			}
 
 			if (b.type === "opdracht") {
-				const [a] = await db
+				const [a] = await tx
 					.select()
 					.from(assignment)
 					.where(eq(assignment.contentBlockId, b.id));
 				if (a) {
-					await db.insert(assignment).values({
+					await tx.insert(assignment).values({
 						contentBlockId: nb.id,
 						name: a.name,
 						description: a.description,
@@ -331,12 +363,13 @@ async function deepCopy(srcId: string, target: CopyTarget): Promise<string> {
 
 /** Seed tasks for opdracht + a forum conversation for a student execution. */
 async function seedExecutionExtras(
+	tx: Tx,
 	courseId: string,
 	orgId: string,
 	leerling: string,
 ): Promise<void> {
 	// Tasks for each opdracht (#27/#37).
-	const asgRows = await db
+	const asgRows = await tx
 		.select({
 			assignmentId: assignment.id,
 			name: assignment.name,
@@ -348,7 +381,7 @@ async function seedExecutionExtras(
 		.innerJoin(courseSection, eq(courseSection.id, contentBlock.sectionId))
 		.where(eq(courseSection.courseId, courseId));
 	for (const a of asgRows) {
-		await db.insert(task).values({
+		await tx.insert(task).values({
 			organizationId: orgId,
 			leerlingId: leerling,
 			source: "assignment",
@@ -361,19 +394,19 @@ async function seedExecutionExtras(
 	console.log("  + takenlijst task(s) voor opdracht (#27/#37)");
 
 	// Forum conversation for each forum block (#32).
-	const forumBlocks = await db
+	const forumBlocks = await tx
 		.select({ id: contentBlock.id, title: contentBlock.title })
 		.from(contentBlock)
 		.innerJoin(courseSection, eq(courseSection.id, contentBlock.sectionId))
 		.where(eq(courseSection.courseId, courseId));
 	for (const b of forumBlocks.filter(() => true)) {
 		// Only forum-typed blocks; re-query type cheaply.
-		const [row] = await db
+		const [row] = await tx
 			.select({ type: contentBlock.type })
 			.from(contentBlock)
 			.where(eq(contentBlock.id, b.id));
 		if (row?.type !== "forum") continue;
-		const [conv] = await db
+		const [conv] = await tx
 			.insert(conversation)
 			.values({
 				organizationId: orgId,
@@ -383,7 +416,7 @@ async function seedExecutionExtras(
 			})
 			.returning({ id: conversation.id });
 		if (conv) {
-			await db
+			await tx
 				.insert(conversationMember)
 				.values({ conversationId: conv.id, userId: leerling, role: "member" });
 		}

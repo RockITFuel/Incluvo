@@ -8,6 +8,7 @@ import {
 	pgTable,
 	text,
 	timestamp,
+	uniqueIndex,
 	uuid,
 } from "drizzle-orm/pg-core";
 import { user } from "./better-auth";
@@ -206,8 +207,8 @@ export const contentProgress = pgTable("content_progress", {
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 	updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => [
-	// Hot path: a leerling's progress, and progress for a given block.
-	index("content_progress_leerling_block_idx").on(
+	// One progress row per (leerling, block); enables upsert on double-click.
+	uniqueIndex("content_progress_leerling_block_uq").on(
 		t.leerlingId,
 		t.contentBlockId,
 	),

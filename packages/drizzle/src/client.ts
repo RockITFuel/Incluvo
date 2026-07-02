@@ -35,10 +35,14 @@ export async function acquireRequestActor(actor: string): Promise<{
 	const requestDb = drizzle(client, { schema }) as unknown as Database;
 
 	const release = async () => {
-		await client
-			.query("select set_config('app.actor_id', '', false)")
-			.catch(() => {});
-		client.release();
+		try {
+			await client.query("select set_config('app.actor_id', '', false)");
+			client.release();
+		} catch {
+			// Reset failed: destroy the connection instead of returning a poisoned
+			// one to the pool, which would mis-attribute later audit rows.
+			client.release(true);
+		}
 	};
 
 	return { db: requestDb, release };

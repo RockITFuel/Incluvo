@@ -147,7 +147,7 @@ export function QuestionInput(props: Props) {
 
 			<Match when={props.question.type === "single_choice"}>
 				<div
-					role="radiogroup"
+					role="group"
 					aria-label={props.question.label}
 					class="grid gap-2 sm:grid-cols-2"
 				>
@@ -183,7 +183,7 @@ export function QuestionInput(props: Props) {
 
 			<Match when={props.question.type === "scale"}>
 				<div
-					role="radiogroup"
+					role="group"
 					aria-label={props.question.label}
 					class="flex flex-col gap-2"
 				>
@@ -222,7 +222,7 @@ export function QuestionInput(props: Props) {
 			</Match>
 
 			<Match when={props.question.type === "smiley"}>
-				<div role="radiogroup" aria-label={props.question.label} class="flex gap-2">
+				<div role="group" aria-label={props.question.label} class="flex gap-2">
 					<For each={SMILEYS}>
 						{(s) => (
 							<button

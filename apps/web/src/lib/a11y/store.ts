@@ -68,7 +68,8 @@ function createA11yStore() {
 		el.dataset.density = settings.density;
 		el.dataset.font = settings.font;
 		el.dataset.reduceMotion = String(settings.reduceMotion);
-		el.lang = settings.language;
+		// TODO(Epic 7 — AI-vertaling): reflect settings.language once the UI is actually translated.
+		el.lang = "nl";
 	});
 
 	return {

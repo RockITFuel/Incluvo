@@ -26,6 +26,7 @@ type Conversation = {
   memberRole: "member" | "supervisor" | "coach";
   supervised: boolean;
   lastMessageBody: string | null;
+  otherUserId: string | null;
 };
 
 function formatTime(d: Date): string {
@@ -93,12 +94,12 @@ export function ChatPanel(props: {
 
   // Conversations the actor doesn't have a thread with yet (start-new list).
   const partnersWithoutChat = createMemo(() => {
-    const existingDirectNames = new Set(
+    const existing = new Set(
       conversations()
-        .filter((c) => c.kind === "direct")
-        .map((c) => c.displayName),
+        .filter((c) => c.kind === "direct" && c.otherUserId)
+        .map((c) => c.otherUserId),
     );
-    return (partnersQuery.data ?? []).filter((p) => !existingDirectNames.has(p.name));
+    return (partnersQuery.data ?? []).filter((p) => !existing.has(p.id));
   });
 
   return (
@@ -229,6 +230,10 @@ function ChatThread(props: { conversation: Conversation }) {
 
   const conversationId = createMemo(() => props.conversation.id);
 
+  // Clear the composer when switching conversations so a half-typed draft can't
+  // be sent to the wrong person (ChatThread isn't remounted across selections).
+  createEffect(on(conversationId, () => setDraft(""), { defer: true }));
+
   const messagesQuery = useQuery(() => ({
     ...orpc.chat.messages.queryOptions({
       input: { conversationId: conversationId() },
@@ -275,7 +280,7 @@ function ChatThread(props: { conversation: Conversation }) {
 
   const submit = () => {
     const body = draft().trim();
-    if (!body) return;
+    if (!body || send.isPending) return;
     send.mutate({ conversationId: conversationId(), body });
   };
 

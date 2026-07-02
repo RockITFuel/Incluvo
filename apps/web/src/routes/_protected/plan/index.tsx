@@ -26,9 +26,14 @@ export const Route = createFileRoute("/_protected/plan/")({
 
 function PlanEntry() {
 	const me = useMe();
+	// Wait for `account.me` before choosing a view: the role defaults to "member"
+	// while it loads, so a coach would briefly mount the leerling wizard and fire
+	// its side-effectful `startMine()` RPC.
 	return (
-		<Show when={me.hasAtLeast("coach")} fallback={<PlanWizard />}>
-			<CoachInbox />
+		<Show when={me.query.data} fallback={<p class="text-muted">Bezig met laden…</p>}>
+			<Show when={me.hasAtLeast("coach")} fallback={<PlanWizard />}>
+				<CoachInbox />
+			</Show>
 		</Show>
 	);
 }
