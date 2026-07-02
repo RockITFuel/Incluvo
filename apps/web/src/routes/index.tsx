@@ -1,43 +1,50 @@
-import { createFileRoute, Link } from "@tanstack/solid-router";
-import { PublicLayout } from "../components/shell/public-layout";
-import { Button } from "../components/ui/button";
-import { Card, CardDescription, CardTitle } from "../components/ui/card";
+import { atLeast, type UserRole } from "@incluvo/permissions";
+import { createFileRoute, useNavigate } from "@tanstack/solid-router";
+import { onMount } from "solid-js";
+import { getCachedSession } from "../lib/auth/session";
 
+/**
+ * Root route: Incluvo has no marketing page — the app starts at the login.
+ * Signed-in visitors go straight to their role's home (coach+ → dashboard,
+ * leerling → welkom); everyone else lands on /login. The brief brand splash
+ * below is what gets prerendered and what flashes during the client check.
+ */
 export const Route = createFileRoute("/")({
-	component: Home,
+	component: RootRedirect,
 });
 
-function Home() {
+function RootRedirect() {
+	const navigate = useNavigate();
+
+	onMount(async () => {
+		try {
+			const data = await getCachedSession();
+			if (data?.session) {
+				const role = ((data.user as { role?: string } | undefined)?.role ??
+					"member") as UserRole;
+				navigate({
+					to: atLeast(role, "coach") ? "/dashboard" : "/welkom",
+					replace: true,
+				});
+				return;
+			}
+		} catch {
+			// fall through to login
+		}
+		navigate({ to: "/login", replace: true });
+	});
+
 	return (
-		<PublicLayout>
-			<section class="flex flex-col gap-6">
-				<div class="flex flex-col gap-2">
-					<h1 class="font-head text-h1 text-ink">Welkom bij Incluvo</h1>
-					<p class="max-w-2xl text-body text-muted">
-						Een rustige, toegankelijke leeromgeving voor afstandsonderwijs. Dit is
-						het skeleton: een oRPC-backend met OpenAPI, better-auth,
-						Drizzle/PostgreSQL, RBAC, audit-logging en realtime updates via SSE —
-						met een SolidStart-frontend.
-					</p>
-				</div>
-				<Card class="max-w-2xl">
-					<CardTitle>Aan de slag</CardTitle>
-					<CardDescription class="mt-1">
-						Bekijk de voorbeeld-vertical-slice of de API-documentatie.
-					</CardDescription>
-					<div class="mt-4 flex flex-wrap gap-2">
-						<Link to="/items">
-							<Button>Voorbeeld (Items)</Button>
-						</Link>
-						<a href="/api/docs">
-							<Button variant="ghost">API-documentatie</Button>
-						</a>
-						<Link to="/login">
-							<Button variant="subtle">Inloggen</Button>
-						</Link>
-					</div>
-				</Card>
-			</section>
-		</PublicLayout>
+		<div class="grid min-h-screen place-items-center bg-bg">
+			<div class="flex items-center gap-3" aria-label="Incluvo laden">
+				<span class="relative grid size-10 place-items-center rounded-[11px] bg-primary font-head text-xl font-semibold text-primary-fg">
+					i
+					<span class="absolute -right-1 -bottom-1 size-3 rounded-full border-2 border-bg bg-accent" />
+				</span>
+				<span class="font-head text-h2 font-semibold tracking-tight text-ink">
+					Incluvo
+				</span>
+			</div>
+		</div>
 	);
 }
