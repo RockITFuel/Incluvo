@@ -96,6 +96,7 @@ export function TaskBoard(props: {
 	const [tab, setTab] = createSignal<TabKey>("vandaag");
 	const [internalAdding, setInternalAdding] = createSignal(false);
 	const [newTitle, setNewTitle] = createSignal("");
+	const [newDue, setNewDue] = createSignal("");
 
 	// Falls back to an internal signal when the parent doesn't control `adding`
 	// (e.g. the coach's per-leerling page, which has no page-head trigger for it).
@@ -112,6 +113,7 @@ export function TaskBoard(props: {
 		orpc.tasks.add.mutationOptions({
 			onSuccess: () => {
 				setNewTitle("");
+				setNewDue("");
 				setAdding(false);
 				invalidate();
 				toast({ title: "Taak toegevoegd", tone: "success" });
@@ -138,12 +140,14 @@ export function TaskBoard(props: {
 	const submitAdd = () => {
 		const title = newTitle().trim();
 		if (!title) return;
-		add.mutate({ title, leerlingId: props.leerlingId });
+		const dueAt = newDue() ? new Date(`${newDue()}T00:00:00`) : undefined;
+		add.mutate({ title, leerlingId: props.leerlingId, dueAt });
 	};
 
 	const cancelAdd = () => {
 		setAdding(false);
 		setNewTitle("");
+		setNewDue("");
 	};
 
 	// `vandaag` never contains done tasks — the server routes those into
@@ -265,7 +269,7 @@ export function TaskBoard(props: {
 						background: "rgb(var(--primary-50))",
 					}}
 				>
-					<div class="ds-row" style={{ gap: "8px" }}>
+					<div class="ds-row" style={{ gap: "8px", "flex-wrap": "wrap" }}>
 						<input
 							class="input"
 							aria-label="Nieuwe taak"
@@ -273,6 +277,15 @@ export function TaskBoard(props: {
 							ref={(el) => queueMicrotask(() => el.focus())}
 							value={newTitle()}
 							onInput={(e) => setNewTitle(e.currentTarget.value)}
+							onKeyDown={(e) => e.key === "Enter" && submitAdd()}
+						/>
+						<input
+							type="date"
+							class="input"
+							aria-label="Deadline (optioneel)"
+							style={{ width: "160px", "flex-grow": "0" }}
+							value={newDue()}
+							onInput={(e) => setNewDue(e.currentTarget.value)}
 							onKeyDown={(e) => e.key === "Enter" && submitAdd()}
 						/>
 						<button

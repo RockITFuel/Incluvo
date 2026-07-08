@@ -6,6 +6,7 @@ export * from "./membership";
 export * from "./coachplan";
 export * from "./course";
 export * from "./task";
+export * from "./mood";
 export * from "./chat";
 export * from "./notification";
 export * from "./kennisdocument";

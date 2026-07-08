@@ -20,6 +20,7 @@ import {
 import { Quickpanel } from "../../../components/dashboard/quickpanel";
 import { requireRole } from "../../../lib/auth/require-role";
 import { RequireRole } from "../../../lib/auth/role-guard";
+import { moodMeta } from "../../../lib/mood";
 import { orpc } from "../../../lib/orpc";
 
 /**
@@ -74,6 +75,13 @@ const todayLabel = (): string =>
 
 function DashboardPage() {
 	const overview = useQuery(() => orpc.dashboard.overview.queryOptions());
+	// Today's SHARED mood per assigned leerling (server only returns opt-in rows).
+	const moods = useQuery(() => orpc.mood.todayForLeerlingen.queryOptions());
+	const moodByLeerling = createMemo(() => {
+		const m = new Map<string, number>();
+		for (const r of moods.data ?? []) m.set(r.leerlingId, r.mood);
+		return m;
+	});
 	const [filter, setFilter] = createSignal<Filter>("all");
 	const [search, setSearch] = createSignal("");
 	const [openLeerling, setOpenLeerling] = createSignal<string | null>(null);
@@ -411,17 +419,30 @@ function DashboardPage() {
 											</Show>
 										</div>
 
-										{/* Mood — geen server-mooddata; toon eerlijk "onbekend". */}
-										<div
-											style={{
-												"font-size": "14px",
-												color: "rgb(var(--muted))",
-											}}
-											title="Nog geen mood gedeeld"
-											aria-label="Mood: onbekend"
+										{/* Mood — alleen getoond als de leerling het vandaag deelde. */}
+										<Show
+											when={moodByLeerling().has(row.leerling.id)}
+											fallback={
+												<div
+													style={{
+														"font-size": "14px",
+														color: "rgb(var(--muted))",
+													}}
+													title="Nog geen mood gedeeld"
+													aria-label="Mood: onbekend"
+												>
+													—
+												</div>
+											}
 										>
-											—
-										</div>
+											<div
+												style={{ "font-size": "22px", "line-height": "1" }}
+												title={moodMeta(moodByLeerling().get(row.leerling.id) as number).label}
+												aria-label={`Mood: ${moodMeta(moodByLeerling().get(row.leerling.id) as number).label}`}
+											>
+												{moodMeta(moodByLeerling().get(row.leerling.id) as number).e}
+											</div>
+										</Show>
 
 										{/* Coachplan */}
 										<div>

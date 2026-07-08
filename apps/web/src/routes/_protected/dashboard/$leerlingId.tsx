@@ -12,7 +12,7 @@ import {
 	Sparkles,
 	type LucideProps,
 } from "lucide-solid";
-import { For, type JSX, Show } from "solid-js";
+import { createMemo, For, type JSX, Show } from "solid-js";
 import {
 	PlanStatusBadge,
 	relativeTime,
@@ -20,6 +20,7 @@ import {
 import { toast } from "../../../components/ui/toast";
 import { requireRole } from "../../../lib/auth/require-role";
 import { RequireRole } from "../../../lib/auth/role-guard";
+import { moodMeta } from "../../../lib/mood";
 import { client, orpc } from "../../../lib/orpc";
 
 /**
@@ -61,6 +62,27 @@ const initials = (name: string): string =>
 		.join("")
 		.toUpperCase();
 
+/** Day letters for the mood-strip: Ma..Zo (M D W D V Z Z). */
+const WEEK_LETTERS = ["M", "D", "W", "D", "V", "Z", "Z"];
+
+/** The 7 dates (Ma..Zo) of the current week as "YYYY-MM-DD" (server-local). */
+function weekDates(): string[] {
+	const now = new Date();
+	const mondayOffset = (now.getDay() + 6) % 7; // 0 = Monday
+	const monday = new Date(now);
+	monday.setDate(now.getDate() - mondayOffset);
+	const out: string[] = [];
+	for (let i = 0; i < 7; i++) {
+		const d = new Date(monday);
+		d.setDate(monday.getDate() + i);
+		const y = d.getFullYear();
+		const mo = String(d.getMonth() + 1).padStart(2, "0");
+		const da = String(d.getDate()).padStart(2, "0");
+		out.push(`${y}-${mo}-${da}`);
+	}
+	return out;
+}
+
 function ProfilePage() {
 	const params = Route.useParams();
 	const profile = useQuery(() =>
@@ -76,6 +98,18 @@ function ProfilePage() {
 		}),
 		enabled: submissionId() != null,
 	}));
+	// Shared moods of the last 7 days (server only returns opt-in rows).
+	const week = useQuery(() => ({
+		...orpc.mood.weekFor.queryOptions({
+			input: { leerlingId: params().leerlingId },
+		}),
+		enabled: profile.data != null,
+	}));
+	const moodByDate = createMemo(() => {
+		const m = new Map<string, number>();
+		for (const r of week.data ?? []) m.set(r.date, r.mood);
+		return m;
+	});
 	const setApprovedWithParents = async (approved: boolean) => {
 		const id = submissionId();
 		if (!id) return;
@@ -523,19 +557,75 @@ function ProfilePage() {
 									</Show>
 								</div>
 
-								{/* Mood deze week — geen server-mooddata; eerlijke lege staat. */}
+								{/* Mood deze week — alleen gedeelde moods; anders eerlijke lege staat. */}
 								<div class="card">
 									<div class="card-head">
 										<h3>Mood deze week</h3>
 									</div>
-									<p
-										style={{
-											"font-size": "13px",
-											color: "rgb(var(--muted))",
-										}}
+									<Show
+										when={(week.data?.length ?? 0) > 0}
+										fallback={
+											<p
+												style={{
+													"font-size": "13px",
+													color: "rgb(var(--muted))",
+												}}
+											>
+												Nog geen mood gedeeld door{" "}
+												{data().leerling.name.split(" ")[0]}.
+											</p>
+										}
 									>
-										Nog geen mood gedeeld door {data().leerling.name.split(" ")[0]}.
-									</p>
+										<div
+											style={{
+												display: "grid",
+												"grid-template-columns": "repeat(7, 1fr)",
+												gap: "8px",
+												"text-align": "center",
+											}}
+										>
+											<For each={weekDates()}>
+												{(iso, i) => (
+													<div>
+														<div
+															style={{
+																"font-size": "11px",
+																color: "rgb(var(--muted))",
+																"margin-bottom": "6px",
+															}}
+														>
+															{WEEK_LETTERS[i()]}
+														</div>
+														<Show
+															when={moodByDate().has(iso)}
+															fallback={
+																<div
+																	style={{
+																		"font-size": "18px",
+																		color: "rgb(var(--muted))",
+																	}}
+																>
+																	–
+																</div>
+															}
+														>
+															<div
+																style={{ "font-size": "22px", "line-height": "1" }}
+																title={
+																	moodMeta(moodByDate().get(iso) as number).label
+																}
+																aria-label={
+																	moodMeta(moodByDate().get(iso) as number).label
+																}
+															>
+																{moodMeta(moodByDate().get(iso) as number).e}
+															</div>
+														</Show>
+													</div>
+												)}
+											</For>
+										</div>
+									</Show>
 								</div>
 
 								{/* Taken */}

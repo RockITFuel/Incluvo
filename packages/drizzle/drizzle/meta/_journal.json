@@ -29,6 +29,13 @@
       "when": 1782983907572,
       "tag": "0003_moaning_the_fury",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1783496383857,
+      "tag": "0004_fair_jackpot",
+      "breakpoints": true
     }
   ]
 }

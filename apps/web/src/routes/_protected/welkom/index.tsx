@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/solid-router";
-import { useQuery } from "@tanstack/solid-query";
+import { useMutation, useQuery } from "@tanstack/solid-query";
 import {
 	ArrowRight,
 	Check,
@@ -9,8 +9,17 @@ import {
 	NotebookPen,
 	Star,
 } from "lucide-solid";
-import { createMemo, createSignal, For, type JSX, onMount, Show } from "solid-js";
+import {
+	createEffect,
+	createMemo,
+	createSignal,
+	For,
+	type JSX,
+	onMount,
+	Show,
+} from "solid-js";
 import { useMe } from "../../../lib/auth/use-me";
+import { MOODS } from "../../../lib/mood";
 import { orpc } from "../../../lib/orpc";
 import { doneStreak } from "../../../lib/streak";
 
@@ -25,14 +34,6 @@ import { doneStreak } from "../../../lib/streak";
 export const Route = createFileRoute("/_protected/welkom/")({
 	component: WelkomPage,
 });
-
-const MOODS = [
-	{ e: "😞", label: "Niet zo" },
-	{ e: "😕", label: "Matig" },
-	{ e: "😐", label: "Oké" },
-	{ e: "🙂", label: "Goed" },
-	{ e: "😄", label: "Top" },
-];
 
 function firstName(name: string | undefined): string {
 	if (!name) return "";
@@ -114,19 +115,55 @@ function WelkomPage() {
 	const navigate = useNavigate();
 	const [showSuccess, setShowSuccess] = createSignal(true);
 
-	// ── Mood: eigen keuze van vandaag, lokaal bewaard (geen server-mood) ─────
+	// ── Mood: dagelijkse check-in. De server is de bron van waarheid voor de
+	// gekozen mood én de deel-voorkeur; localStorage blijft een offline fallback.
+	// Delen met de coach is opt-in per check-in en staat standaard uit.
 	const [mood, setMood] = createSignal<number | null>(null);
+	const [share, setShare] = createSignal(false);
 	const [moodSkipped, setMoodSkipped] = createSignal(false);
+
+	const moodQuery = useQuery(() => ({
+		...orpc.mood.today.queryOptions(),
+		enabled: me.is("leerling"),
+	}));
+	const checkinMutation = useMutation(() =>
+		orpc.mood.checkin.mutationOptions({
+			onSuccess: () => moodQuery.refetch(),
+		}),
+	);
+
 	onMount(() => {
 		const stored = localStorage.getItem(`incluvo-mood:${todayKey()}`);
 		if (stored !== null && !Number.isNaN(Number(stored))) setMood(Number(stored));
 		setMoodSkipped(localStorage.getItem(`incluvo-mood-skip:${todayKey()}`) === "1");
 	});
+
+	// Server wins over localStorage: seed the selected mood + deel-voorkeur from
+	// today's server row once it loads.
+	createEffect(() => {
+		const row = moodQuery.data;
+		if (row) {
+			setMood(row.mood);
+			setShare(row.shareWithCoach);
+		}
+	});
+
 	const pickMood = (i: number) => {
 		setMood(i);
 		setMoodSkipped(false);
+		// Keep the local copy as an offline fallback, and persist to the server.
 		localStorage.setItem(`incluvo-mood:${todayKey()}`, String(i));
 		localStorage.removeItem(`incluvo-mood-skip:${todayKey()}`);
+		checkinMutation.mutate({ mood: i, shareWithCoach: share() });
+	};
+	const toggleShare = (on: boolean) => {
+		setShare(on);
+		// Only re-persist when a mood is already chosen; otherwise just remember
+		// the preference in the signal for the next pick.
+		const current = mood();
+		if (current !== null) {
+			checkinMutation.mutate({ mood: current, shareWithCoach: on });
+		}
 	};
 	const skipMood = () => {
 		setMoodSkipped(true);
@@ -266,7 +303,7 @@ function WelkomPage() {
 						<div class="card-head">
 							<div>
 								<h3>Hoe zit je erbij vandaag?</h3>
-								<div class="card-sub">Alleen voor jou — dit blijft op dit apparaat.</div>
+								<div class="card-sub">Je coach ziet dit alleen als je het deelt.</div>
 							</div>
 							<Show when={!moodSkipped()}>
 								<button type="button" class="btn ghost sm" onClick={skipMood}>
@@ -308,6 +345,31 @@ function WelkomPage() {
 									)}
 								</For>
 							</div>
+							<label
+								class="ds-row"
+								style={{
+									gap: "10px",
+									"margin-top": "16px",
+									"font-size": "13px",
+									"align-items": "center",
+								}}
+							>
+								<span class="toggle">
+									<input
+										type="checkbox"
+										checked={share()}
+										onChange={(e) => toggleShare(e.currentTarget.checked)}
+										aria-label="Delen met mijn coach"
+									/>
+									<span class="slider" />
+								</span>{" "}
+								<span class="ds-grow">
+									<span style={{ "font-weight": "500" }}>Delen met mijn coach</span>
+									<span style={{ display: "block", color: "rgb(var(--muted))" }}>
+										Alleen jouw mood — jij bepaalt dit per dag.
+									</span>
+								</span>
+							</label>
 							<Show when={mood() !== null}>
 								<div
 									style={{

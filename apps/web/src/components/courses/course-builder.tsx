@@ -645,6 +645,7 @@ function AddBlockDialog(props: {
 	const [asgDesc, setAsgDesc] = createSignal("");
 	const [isGroup, setIsGroup] = createSignal(false);
 	const [responseType, setResponseType] = createSignal("text_and_files");
+	const [asgDue, setAsgDue] = createSignal("");
 
 	const reset = () => {
 		setType("pagina");
@@ -657,6 +658,7 @@ function AddBlockDialog(props: {
 		setAsgDesc("");
 		setIsGroup(false);
 		setResponseType("text_and_files");
+		setAsgDue("");
 	};
 
 	const toggleLabel = (l: string) =>
@@ -697,6 +699,9 @@ function AddBlockDialog(props: {
 								description: asgDesc() || undefined,
 								isGroup: isGroup(),
 								responseType: responseType() as never,
+								dueAt: asgDue()
+									? new Date(`${asgDue()}T00:00:00`)
+									: undefined,
 							}
 						: undefined,
 			});
@@ -828,6 +833,12 @@ function AddBlockDialog(props: {
 							]}
 							value={responseType()}
 							onChange={(v) => setResponseType(v ?? "text_and_files")}
+						/>
+						<Input
+							type="date"
+							label="Inleverdeadline"
+							value={asgDue()}
+							onInput={(e) => setAsgDue(e.currentTarget.value)}
 						/>
 					</div>
 				</Show>
