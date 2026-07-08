@@ -52,6 +52,13 @@ function CourseDetail() {
 	const treeQuery = useQuery(() =>
 		orpc.courses.tree.queryOptions({ input: { id: courseId() } }),
 	);
+	// Full standaard-vocabulaire for the bouwer (#36): content is labelled for
+	// ALL leerstijlen, not just this leerling's — each leerling then sees their
+	// own subset recommended. Without this, every labelled block would match by
+	// construction and the "alleen aanbevolen" filter could never hide anything.
+	const defaultLabelsQuery = useQuery(() =>
+		orpc.coachplan.defaultLabels.queryOptions(),
+	);
 
 	useServerEvent("course.changed", () =>
 		queryClient.invalidateQueries({ queryKey: orpc.courses.tree.key() }),
@@ -352,16 +359,14 @@ function CourseDetail() {
 									courseKindLabel={kindLabel[data().course.kind] ?? ""}
 									progressBarHidden={data().course.progressBarHidden}
 									sections={data().sections}
-									availableLabels={data().leervoorkeuren}
+									availableLabels={[
+										...new Set([
+											...(defaultLabelsQuery.data?.map((l) => l.label) ?? []),
+											...data().leervoorkeuren,
+										]),
+									]}
 									refetch={refetch}
 								/>
-								<Show when={data().leervoorkeuren.length === 0}>
-									<p class="text-micro text-muted">
-										Tip: leervoorkeur-labels komen uit het coachplan van de
-										leerling (#19/#36). Voor templates zonder gekoppelde leerling
-										zijn er nog geen labels beschikbaar.
-									</p>
-								</Show>
 							</Show>
 
 							{/* ── Beoordelen (coach+) ──────────────────────────────────── */}
