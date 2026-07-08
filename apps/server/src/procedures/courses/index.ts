@@ -1534,26 +1534,32 @@ const tree = protectedProcedure
 	});
 
 /**
- * Read a leerling's leervoorkeur labels (#35/#36) from their latest coachplan
- * submission. Cross-domain READ of the coachplan tables. Best-effort: returns
- * `[]` if the leerling has no plan yet.
+ * Read a leerling's leervoorkeur labels (#35/#36) from their most recent
+ * coachplan submission THAT HAS labels. Cross-domain READ of the coachplan
+ * tables. Deliberately skips label-less submissions: starting a fresh draft
+ * must not wipe the leeromgeving that the coach configured on the active plan.
+ * Best-effort: returns `[]` if no submission carries labels yet.
  */
 async function readLeervoorkeuren(
 	context: AuthedContext,
 	leerlingId: string,
 ): Promise<string[]> {
-	const [sub] = await context.db
-		.select({ id: formSubmission.id })
-		.from(formSubmission)
-		.where(eq(formSubmission.leerlingId, leerlingId))
-		.orderBy(desc(formSubmission.updatedAt))
-		.limit(1);
-	if (!sub) return [];
 	const rows = await context.db
-		.select({ label: learningPreferenceLabel.label })
+		.select({
+			label: learningPreferenceLabel.label,
+			submissionId: formSubmission.id,
+			updatedAt: formSubmission.updatedAt,
+		})
 		.from(learningPreferenceLabel)
-		.where(eq(learningPreferenceLabel.submissionId, sub.id));
-	return rows.map((r) => r.label);
+		.innerJoin(
+			formSubmission,
+			eq(learningPreferenceLabel.submissionId, formSubmission.id),
+		)
+		.where(eq(formSubmission.leerlingId, leerlingId))
+		.orderBy(desc(formSubmission.updatedAt));
+	const newest = rows[0]?.submissionId;
+	if (!newest) return [];
+	return rows.filter((r) => r.submissionId === newest).map((r) => r.label);
 }
 
 // ---------------------------------------------------------------------------

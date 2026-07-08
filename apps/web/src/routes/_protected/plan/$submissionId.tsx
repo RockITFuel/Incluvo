@@ -604,7 +604,10 @@ function CoachReview() {
 									>
 										<For each={labelsQuery.data}>
 											{(opt) => {
-												const on = () => prefs().includes(opt.value);
+												// Store the human label (not the value): the stored string is
+											// what the banner, profielchips and bouwer-labels render and
+											// what block-labels must match (#35/#36).
+											const on = () => prefs().includes(opt.label);
 												return (
 													<button
 														type="button"
@@ -615,7 +618,7 @@ function CoachReview() {
 															cursor: "pointer",
 														}}
 														aria-pressed={on()}
-														onClick={() => togglePref(opt.value)}
+														onClick={() => togglePref(opt.label)}
 													>
 														<Show when={on()}>
 															<Check class="size-3" aria-hidden="true" />
