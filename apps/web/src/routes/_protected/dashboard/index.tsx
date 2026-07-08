@@ -219,7 +219,7 @@ function DashboardPage() {
 						icon={Flag}
 					/>
 					<KPI
-						label="Inzendingen vandaag"
+						label="Open taken"
 						value={String(kpis().totalOpen)}
 						sub={
 							kpis().totalOverdue > 0
@@ -411,13 +411,16 @@ function DashboardPage() {
 											</Show>
 										</div>
 
-										{/* Mood — static placeholder (no per-leerling mood backend) */}
+										{/* Mood — geen server-mooddata; toon eerlijk "onbekend". */}
 										<div
-											style={{ "font-size": "22px", opacity: "0.45" }}
+											style={{
+												"font-size": "14px",
+												color: "rgb(var(--muted))",
+											}}
 											title="Nog geen mood gedeeld"
 											aria-label="Mood: onbekend"
 										>
-											😐
+											—
 										</div>
 
 										{/* Coachplan */}

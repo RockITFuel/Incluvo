@@ -52,18 +52,6 @@ const STATUS_LABEL: Record<string, string> = {
 	completed: "Afgerond",
 };
 
-const MOOD_EMOJI = ["😞", "😕", "😐", "🙂", "😄"];
-/** Static demo mood pattern for the week strip (no backend). */
-const MOOD_WEEK: { day: string; mood: number | null }[] = [
-	{ day: "M", mood: 3 },
-	{ day: "D", mood: 4 },
-	{ day: "W", mood: 2 },
-	{ day: "D", mood: 3 },
-	{ day: "V", mood: 3 },
-	{ day: "Z", mood: null },
-	{ day: "Z", mood: null },
-];
-
 const initials = (name: string): string =>
 	name
 		.trim()
@@ -535,42 +523,19 @@ function ProfilePage() {
 									</Show>
 								</div>
 
-								{/* Mood deze week — static demo (no backend) */}
+								{/* Mood deze week — geen server-mooddata; eerlijke lege staat. */}
 								<div class="card">
 									<div class="card-head">
 										<h3>Mood deze week</h3>
-										<span class="chip" title="Voorbeeldweergave">
-											Voorbeeld
-										</span>
 									</div>
-									<div
-										class="ds-row"
-										style={{ "justify-content": "space-between" }}
+									<p
+										style={{
+											"font-size": "13px",
+											color: "rgb(var(--muted))",
+										}}
 									>
-										<For each={MOOD_WEEK}>
-											{(m) => (
-												<div style={{ "text-align": "center" }}>
-													<div
-														style={{
-															"font-size": "22px",
-															"margin-bottom": "6px",
-															opacity: m.mood === null ? "0.35" : "1",
-														}}
-													>
-														{m.mood === null ? "–" : MOOD_EMOJI[m.mood]}
-													</div>
-													<div
-														style={{
-															"font-size": "11px",
-															color: "rgb(var(--muted))",
-														}}
-													>
-														{m.day}
-													</div>
-												</div>
-											)}
-										</For>
-									</div>
+										Nog geen mood gedeeld door {data().leerling.name.split(" ")[0]}.
+									</p>
 								</div>
 
 								{/* Taken */}
@@ -692,42 +657,19 @@ function ProfilePage() {
 									</Show>
 								</div>
 
-								{/* Ouders — static demo (no backend) */}
+								{/* Ouders — geen ouder-koppeling in het systeem; eerlijke lege staat. */}
 								<div class="card">
 									<div class="card-head">
 										<h3>Ouders</h3>
-										<span class="chip" title="Voorbeeldweergave">
-											Voorbeeld
-										</span>
 									</div>
-									<div class="ds-row" style={{ gap: "10px" }}>
-										<div
-											class="avatar"
-											style={{
-												width: "34px",
-												height: "34px",
-												"font-size": "12px",
-											}}
-											aria-hidden="true"
-										>
-											?
-										</div>
-										<div style={{ "min-width": "0" }}>
-											<div
-												style={{ "font-weight": "500", "font-size": "13px" }}
-											>
-												Ouder / verzorger
-											</div>
-											<div
-												style={{
-													"font-size": "12px",
-													color: "rgb(var(--muted))",
-												}}
-											>
-												Nog niet gekoppeld in demo
-											</div>
-										</div>
-									</div>
+									<p
+										style={{
+											"font-size": "13px",
+											color: "rgb(var(--muted))",
+										}}
+									>
+										Nog geen ouder of verzorger gekoppeld.
+									</p>
 								</div>
 							</div>
 						</div>

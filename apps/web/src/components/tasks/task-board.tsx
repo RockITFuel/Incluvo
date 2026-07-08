@@ -3,6 +3,7 @@ import { Calendar, Check, Clock, Flame, Plus, X } from "lucide-solid";
 import { createSignal, For, type JSX, Show } from "solid-js";
 import { toast } from "../ui/toast";
 import { orpc } from "../../lib/orpc";
+import { doneStreak } from "../../lib/streak";
 
 /** A single task as returned by `tasks.list`. */
 export type TaskRow = {
@@ -157,6 +158,8 @@ export function TaskBoard(props: {
 	const totalToday = () => openToday() + doneToday();
 	const pct = () =>
 		totalToday() ? Math.round((doneToday() / totalToday()) * 100) : 0;
+	// Real streak: consecutive days with ≥1 afgeronde taak (never a demo number).
+	const streak = () => doneStreak(props.data.klaar.map((t) => t.doneAt));
 
 	const weekEnd = endOfThisWeek();
 	const deWeek = () =>
@@ -195,9 +198,15 @@ export function TaskBoard(props: {
 						</div>
 					</div>
 					<div class="ds-row">
-						<span class="chip success">
-							<Flame class="size-3.5" aria-hidden="true" /> 4 dagen op rij
-						</span>
+						<Show when={streak() > 0}>
+							<span
+								class="chip success"
+								title="Dagen op rij met een afgeronde taak"
+							>
+								<Flame class="size-3.5" aria-hidden="true" /> {streak()}{" "}
+								{streak() === 1 ? "dag" : "dagen"} op rij
+							</span>
+						</Show>
 						<span class="chip">{pct()}%</span>
 					</div>
 				</div>
