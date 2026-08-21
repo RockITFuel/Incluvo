@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/solid-router";
 import { useQuery, useQueryClient } from "@tanstack/solid-query";
-import { createMemo, createSignal, For, onMount, Show } from "solid-js";
+import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { createStore } from "solid-js/store";
 import {
 	type AnswerValue,
@@ -147,6 +147,7 @@ function PlanWizard() {
 	const save = async (
 		questionId: string,
 		patch: Partial<AnswerValue & Flags>,
+		onSaved?: () => void,
 	) => {
 		const sub = submissionId();
 		if (!sub) return;
@@ -159,25 +160,46 @@ function PlanWizard() {
 				discussWithCoach: patch.discussWithCoach,
 				deliberatelySkipped: patch.deliberatelySkipped,
 			});
+			onSaved?.();
 		} catch {
 			toast({ title: "Opslaan lukte even niet", tone: "danger" });
 		}
 	};
+
+	// Debounced "Opgeslagen"-bevestiging: bij typen worden de autosaves per
+	// toetsaanslag samengevat tot één rustige toast in plaats van een stortvloed.
+	let savedTimer: ReturnType<typeof setTimeout> | undefined;
+	const flashSaved = () => {
+		if (savedTimer) clearTimeout(savedTimer);
+		savedTimer = setTimeout(
+			() => toast({ title: "Opgeslagen", tone: "success", duration: 1500 }),
+			700,
+		);
+	};
+	onCleanup(() => {
+		if (savedTimer) clearTimeout(savedTimer);
+	});
 
 	const onAnswer = (q: QuestionDTO, next: AnswerValue) => {
 		setAnswers(q.id, next);
 		// A real answer clears an accidental skip.
 		if (flagFor(q.id).deliberatelySkipped) {
 			setFlags(q.id, "deliberatelySkipped", false);
-			void save(q.id, { ...next, deliberatelySkipped: false });
+			void save(q.id, { ...next, deliberatelySkipped: false }, flashSaved);
 		} else {
-			void save(q.id, next);
+			void save(q.id, next, flashSaved);
 		}
 	};
 
 	const toggleDiscuss = (q: QuestionDTO, on: boolean) => {
 		setFlags(q.id, "discussWithCoach", on);
-		void save(q.id, { discussWithCoach: on });
+		void save(q.id, { discussWithCoach: on }, () =>
+			toast({
+				title: on ? "Gemarkeerd om te bespreken" : "Markering verwijderd",
+				tone: on ? "success" : "neutral",
+				duration: 2000,
+			}),
+		);
 	};
 
 	const next = () => {
@@ -187,7 +209,9 @@ function PlanWizard() {
 	const prev = () => setStep(Math.max(0, step() - 1));
 	const skip = (q: QuestionDTO) => {
 		setFlags(q.id, "deliberatelySkipped", true);
-		void save(q.id, { deliberatelySkipped: true });
+		void save(q.id, { deliberatelySkipped: true }, () =>
+			toast({ title: "Vraag overgeslagen", tone: "success", duration: 2000 }),
+		);
 		next();
 	};
 
@@ -252,6 +276,13 @@ function PlanWizard() {
 										<Badge variant="neutral">
 											Stap {step() + 1} van {total()}
 										</Badge>
+										{/* Bij terugkeren toont de stap zelf de eerdere keuze. */}
+										<Show when={flagFor(q().id).deliberatelySkipped}>
+											<Badge variant="warning">Overgeslagen</Badge>
+										</Show>
+										<Show when={flagFor(q().id).discussWithCoach}>
+											<Badge variant="accent">Bespreken met coach</Badge>
+										</Show>
 									</div>
 									<div class="flex items-center gap-3">
 										<span class="hidden text-small text-muted sm:inline">
