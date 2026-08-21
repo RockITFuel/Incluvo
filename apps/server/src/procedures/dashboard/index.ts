@@ -234,12 +234,36 @@ async function latestPlan(
 	context: AuthedContext,
 	leerlingId: string,
 ): Promise<z.infer<typeof PlanSummarySchema>> {
-	const [sub] = await context.db
+	// Prefer the newest submission the coach can actually review (same status set
+	// as the coachplan inbox); only fall back to the newest draft when none exists.
+	// Without this, a leerling who submits plan A and then revisits the
+	// vragenlijst (startMine spins up a fresh empty draft B) would point the
+	// coach's "Open coachplan" link at that empty draft (regression).
+	const REVIEWABLE_STATUSES = [
+		"submitted",
+		"coach_review",
+		"shared_with_leerling",
+		"completed",
+	] as const;
+	let [sub] = await context.db
 		.select()
 		.from(formSubmission)
-		.where(eq(formSubmission.leerlingId, leerlingId))
+		.where(
+			and(
+				eq(formSubmission.leerlingId, leerlingId),
+				inArray(formSubmission.status, [...REVIEWABLE_STATUSES]),
+			),
+		)
 		.orderBy(desc(formSubmission.updatedAt))
 		.limit(1);
+	if (!sub) {
+		[sub] = await context.db
+			.select()
+			.from(formSubmission)
+			.where(eq(formSubmission.leerlingId, leerlingId))
+			.orderBy(desc(formSubmission.updatedAt))
+			.limit(1);
+	}
 	let discussCount = 0;
 	if (sub) {
 		const flags = await context.db
