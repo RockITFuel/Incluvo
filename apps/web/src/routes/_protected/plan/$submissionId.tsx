@@ -306,18 +306,6 @@ function CoachReview() {
 		}
 	};
 
-	const coachContext = () => {
-		const prefLabels = prefs().map(
-			(v) => labelsQuery.data?.find((l) => l.value === v)?.label ?? v,
-		);
-		const s = cur();
-		const focus =
-			s && s.kind === "question" ? ` Huidige vraag: ${s.q.label}.` : "";
-		return `Coachplan voor ${leerlingName()}. Leervoorkeuren: ${
-			prefLabels.join(", ") || "nog geen"
-		}.${focus}`;
-	};
-
 	return (
 		<>
 			<Show when={!isCoach()}>
@@ -657,11 +645,9 @@ function CoachReview() {
 					{/* RIGHT — AI sidebar + voortgang */}
 					<div class="ds-col" style={{ gap: "16px" }}>
 						<TranscriptionPanel submissionId={id()} />
-						<AssistantPanel
-							submissionId={id()}
-							coachplanContext={coachContext()}
-							title="AI-advies"
-						/>
+						{/* The AI context is composed server-side from the real answers
+						    (see ai.assistant); we only pass the submissionId. */}
+						<AssistantPanel submissionId={id()} title="AI-advies" />
 						<div class="card">
 							<div class="card-head">
 								<h3 style={{ "font-size": "15px" }}>Voortgang plan</h3>

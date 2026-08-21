@@ -1,4 +1,12 @@
-import { coachAssignment, formQuestion, formSubmission, transcription } from "@incluvo/drizzle/schema";
+import {
+	coachAssignment,
+	formAnswer,
+	formQuestion,
+	formSubmission,
+	learningPreferenceLabel,
+	transcription,
+	user,
+} from "@incluvo/drizzle/schema";
 import { atLeast, can, isSuperadmin, policies } from "@incluvo/permissions";
 import { ORPCError } from "@orpc/server";
 import { and, asc, eq } from "drizzle-orm";
@@ -331,14 +339,96 @@ const AdviceMessageSchema = z.object({
 	content: z.string().min(1).max(8000),
 });
 
+/** Max chars of composed coachplan context we fold into the prompt (input cap). */
+const COACHPLAN_CONTEXT_CAP = 20_000;
+
+/** Humanise one answer for the AI context, resolving choice labels (mirrors the PDF renderer). */
+function renderAnswerForContext(
+	answer: typeof formAnswer.$inferSelect | undefined,
+	question: typeof formQuestion.$inferSelect,
+): string {
+	if (!answer) return "(niet ingevuld)";
+	const opts = (question.options ?? null) as {
+		choices?: { value: string; label: string }[];
+	} | null;
+	const choiceLabel = (v: string) =>
+		opts?.choices?.find((c) => c.value === v)?.label ?? v;
+	const json = answer.valueJson as unknown;
+	if (Array.isArray(json) && json.length > 0) {
+		return json.map((v) => choiceLabel(String(v))).join(", ");
+	}
+	if (answer.value?.trim()) {
+		if (question.type === "single_choice" || question.type === "leervoorkeur") {
+			return choiceLabel(answer.value);
+		}
+		return answer.value;
+	}
+	return "(niet ingevuld)";
+}
+
+/**
+ * Compose the coachplan context for the AI-advies prompt (#22) SERVER-SIDE from
+ * the submission's real questions + answers — the client only knows the leerling
+ * name + leervoorkeur labels + current question, never the actual answers.
+ *
+ * Includes the leerling's name, their leervoorkeuren, then every question
+ * (leerling + coach sections, in template order) with its answer, marking
+ * answers the leerling flagged "bespreken met coach" or deliberately skipped.
+ * Whole Q&A entries are dropped once the 20k-char cap is reached, so we never
+ * truncate mid-sentence.
+ */
+async function composeCoachplanContext(
+	context: AuthedContext,
+	sub: typeof formSubmission.$inferSelect,
+): Promise<string> {
+	const [leerling] = await context.db
+		.select({ name: user.name })
+		.from(user)
+		.where(eq(user.id, sub.leerlingId));
+	const questions = await context.db
+		.select()
+		.from(formQuestion)
+		.where(eq(formQuestion.templateId, sub.templateId))
+		.orderBy(asc(formQuestion.position));
+	const answers = await context.db
+		.select()
+		.from(formAnswer)
+		.where(eq(formAnswer.submissionId, sub.id));
+	const prefs = await context.db
+		.select({ label: learningPreferenceLabel.label })
+		.from(learningPreferenceLabel)
+		.where(eq(learningPreferenceLabel.submissionId, sub.id));
+
+	const answerByQuestion = new Map(answers.map((a) => [a.questionId, a]));
+
+	const header = [`Leerling: ${leerling?.name ?? "onbekend"}`];
+	if (prefs.length > 0) {
+		header.push(`Leervoorkeuren: ${prefs.map((p) => p.label).join(", ")}`);
+	}
+
+	let out = header.join("\n");
+	for (const q of questions) {
+		const a = answerByQuestion.get(q.id);
+		let line = `\n\nVraag: ${q.label}\nAntwoord: ${renderAnswerForContext(a, q)}`;
+		if (a?.deliberatelySkipped) line += " (overgeslagen)";
+		if (a?.discussWithCoach) line += " (wil bespreken met coach)";
+		// Cap by dropping whole Q&A entries — never mid-sentence.
+		if (out.length + line.length > COACHPLAN_CONTEXT_CAP) break;
+		out += line;
+	}
+	return out;
+}
+
 /**
  * Streaming advice chat (#22). The handler is an **async generator**, which oRPC
  * serializes as an Event Iterator; the Solid client consumes it as an async
  * iterable and appends each `{ delta }` frame. A final `{ done: true }` frame
  * signals completion.
  *
- * `coachplanContext` is injected into the system prompt (RAG over
- * kennisdocumenten via pgvector is a follow-up — see ORCHESTRATOR TODO).
+ * When a `submissionId` is given the coachplan context is composed server-side
+ * from the real answers (see `composeCoachplanContext`); the client-supplied
+ * `coachplanContext` is only a fallback for callers without a submission. RAG
+ * over kennisdocumenten via pgvector is folded in on top (see below).
  */
 const assistant = coachProcedure
 	.route({ method: "POST", path: "/ai/assistant", tags: ["ai"] })
@@ -358,9 +448,13 @@ const assistant = coachProcedure
 				message: "Te veel AI-verzoeken. Wacht even en probeer opnieuw.",
 			});
 		}
-		// If a submission is referenced, enforce the coach may read it.
+		// If a submission is referenced, enforce the coach may read it and compose
+		// the coachplan context server-side from the real answers (never trust a
+		// client-built context for an answered plan).
+		let serverContext: string | null = null;
 		if (input.submissionId) {
-			await loadReviewableSubmission(context, input.submissionId);
+			const sub = await loadReviewableSubmission(context, input.submissionId);
+			serverContext = await composeCoachplanContext(context, sub);
 		}
 
 		const provider = getAiProvider();
@@ -369,7 +463,7 @@ const assistant = coachProcedure
 		// latest question, retrieve the nearest chunks (global + own tenant) and
 		// fold them into the system-prompt context. Best-effort: a retrieval
 		// failure (e.g. pgvector not enabled) must never break the advice stream.
-		let promptContext = input.coachplanContext?.trim() ?? "";
+		let promptContext = serverContext ?? input.coachplanContext?.trim() ?? "";
 		try {
 			const lastUser = input.messages.findLast((m) => m.role === "user");
 			if (lastUser) {
