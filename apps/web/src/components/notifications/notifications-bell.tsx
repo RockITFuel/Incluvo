@@ -1,6 +1,6 @@
 import { DropdownMenu } from "@kobalte/core/dropdown-menu";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/solid-query";
-import { Link } from "@tanstack/solid-router";
+import { Link, useNavigate } from "@tanstack/solid-router";
 import { Bell, CheckCheck } from "lucide-solid";
 import { type Component, For, Show } from "solid-js";
 import { useMe } from "../../lib/auth/use-me";
@@ -24,6 +24,7 @@ import { metaFor, relativeTime } from "./notification-meta";
 export const NotificationsBell: Component = () => {
 	const me = useMe();
 	const queryClient = useQueryClient();
+	const navigate = useNavigate();
 
 	// Recent notifications (newest first) for the dropdown panel.
 	const recent = useQuery(() =>
@@ -125,11 +126,22 @@ export const NotificationsBell: Component = () => {
 							{(n) => {
 								const meta = metaFor(n.type);
 								const Icon = meta.icon;
+								const isChatLink =
+									n.entityType === "conversation" && Boolean(n.entityId);
 								return (
 									<DropdownMenu.Item
-										closeOnSelect={false}
+										// Close the panel when the click navigates to chat; a
+										// mark-as-read-only click keeps it open.
+										closeOnSelect={isChatLink}
 										onSelect={() => {
 											if (!n.read) markRead.mutate({ id: n.id });
+											// Deep-link a chat notification to the conversation (#3/#5).
+											if (isChatLink && n.entityId) {
+												navigate({
+													to: "/chat",
+													search: { conversationId: n.entityId },
+												});
+											}
 										}}
 										class="flex cursor-pointer items-start gap-3 px-3 py-2.5 outline-none data-[highlighted]:bg-line-2"
 									>

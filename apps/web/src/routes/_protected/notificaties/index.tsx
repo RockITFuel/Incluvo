@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/solid-query";
-import { createFileRoute } from "@tanstack/solid-router";
+import { createFileRoute, useNavigate } from "@tanstack/solid-router";
 import { Bell, CheckCheck } from "lucide-solid";
 import { createSignal, For, Show } from "solid-js";
 import { metaFor, relativeTime } from "../../../components/notifications";
@@ -19,6 +19,7 @@ const PAGE_SIZE = 20;
 function NotificationsPage() {
 	const me = useMe();
 	const queryClient = useQueryClient();
+	const navigate = useNavigate();
 	const [limit, setLimit] = createSignal(PAGE_SIZE);
 
 	const notificationsQuery = useQuery(() =>
@@ -43,6 +44,20 @@ function NotificationsPage() {
 	const markRead = useMutation(() =>
 		orpc.notifications.markRead.mutationOptions({ onSuccess: invalidate }),
 	);
+
+	// A chat notification deep-links to its conversation; opening it also marks
+	// it read (#3/#5).
+	const openNotification = (n: {
+		id: string;
+		read: boolean;
+		entityType: string | null;
+		entityId: string | null;
+	}) => {
+		if (!n.read) markRead.mutate({ id: n.id });
+		if (n.entityType === "conversation" && n.entityId) {
+			navigate({ to: "/chat", search: { conversationId: n.entityId } });
+		}
+	};
 
 	const markAllRead = useMutation(() =>
 		orpc.notifications.markAllRead.mutationOptions({
@@ -137,6 +152,8 @@ function NotificationsPage() {
 					{(n) => {
 						const meta = metaFor(n.type);
 						const Icon = meta.icon;
+						const isChat = () =>
+							n.entityType === "conversation" && Boolean(n.entityId);
 						return (
 							<li>
 								<Card
@@ -144,7 +161,21 @@ function NotificationsPage() {
 									class="flex items-start gap-3"
 									classList={{
 										"border-primary/30 bg-primary-50/40": !n.read,
+										"cursor-pointer hover:border-primary": isChat(),
 									}}
+									{...(isChat()
+										? {
+												role: "button",
+												tabindex: 0,
+												onClick: () => openNotification(n),
+												onKeyDown: (e: KeyboardEvent) => {
+													if (e.key === "Enter" || e.key === " ") {
+														e.preventDefault();
+														openNotification(n);
+													}
+												},
+											}
+										: {})}
 								>
 									<span
 										class={`mt-0.5 grid size-9 shrink-0 place-items-center rounded-2 ${meta.tone}`}
@@ -179,7 +210,11 @@ function NotificationsPage() {
 											variant="ghost"
 											size="sm"
 											disabled={markRead.isPending}
-											onClick={() => markRead.mutate({ id: n.id })}
+											onClick={(e) => {
+												// Don't let the row's deep-link fire; just mark read.
+												e.stopPropagation();
+												markRead.mutate({ id: n.id });
+											}}
 										>
 											Gelezen
 										</Button>

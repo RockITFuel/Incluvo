@@ -9,6 +9,7 @@ import { atLeast, checkPermission, policies, sameTenant } from "@incluvo/permiss
 import { ORPCError } from "@orpc/server";
 import { and, desc, eq, inArray, lt } from "drizzle-orm";
 import { z } from "zod";
+import { notify } from "../../notifications/notify";
 import { publishTo } from "../../sse";
 import { type AuthedContext, base, protectedProcedure } from "../base";
 
@@ -482,11 +483,36 @@ const send = protectedProcedure
       recipientIds,
     );
 
+    // Ring the notification bell for every recipient except the sender. The SSE
+    // push above only live-appends into an already-open thread; the bell needs
+    // its own notification row (#3). Best-effort: a notify failure must never
+    // break sending the message.
+    const senderName = sender?.name ?? "Onbekend";
+    if (conv.organizationId) {
+      const body =
+        input.body.length > 120 ? `${input.body.slice(0, 120)}…` : input.body;
+      for (const userId of recipientIds) {
+        if (userId === actor.userId) continue;
+        try {
+          await notify(context.db, {
+            userId,
+            organizationId: conv.organizationId,
+            type: "chat_message",
+            title: `Nieuw bericht van ${senderName}`,
+            body,
+            entity: { type: "conversation", id: input.conversationId },
+          });
+        } catch (err) {
+          console.error("notify(chat_message) failed", err);
+        }
+      }
+    }
+
     return {
       id: row.id,
       conversationId: row.conversationId,
       senderId: row.senderId,
-      senderName: sender?.name ?? "Onbekend",
+      senderName,
       body: row.body,
       createdAt: row.createdAt,
     };
