@@ -146,19 +146,24 @@ function courseResource(row: { organizationId: string | null }) {
  */
 async function loadReadable(context: AuthedContext, id: string) {
 	const row = await loadCourse(context, id);
+	// A leerling may ONLY read their own student_execution — never a template of
+	// any kind (Ondivera or school), mirroring `list`'s visibility rule.
+	if (context.actor.role === "leerling") {
+		if (
+			row.kind !== "student_execution" ||
+			row.leerlingId !== context.actor.userId
+		) {
+			throw new ORPCError("FORBIDDEN", {
+				message: "Geen toegang tot deze cursus",
+			});
+		}
+		return row;
+	}
 	const sharedTemplate =
 		row.kind === "ondivera_template" && row.organizationId === null;
 	if (
 		!sharedTemplate &&
 		!checkPermission(policies.readCourse, context.actor, courseResource(row))
-	) {
-		throw new ORPCError("FORBIDDEN", { message: "Geen toegang tot deze cursus" });
-	}
-	// A leerling may only read their OWN student_execution (mirrors `list`'s visibility rule).
-	if (
-		context.actor.role === "leerling" &&
-		row.kind === "student_execution" &&
-		row.leerlingId !== context.actor.userId
 	) {
 		throw new ORPCError("FORBIDDEN", { message: "Geen toegang tot deze cursus" });
 	}
@@ -311,7 +316,14 @@ const list = protectedProcedure
 		const visible = rows.filter((row) => {
 			// Superadmin sees everything.
 			if (atLeast(actor.role, "superadmin")) return true;
-			// Ondivera templates are readable by anyone authed in a school.
+			// A leerling ONLY sees their own student_execution courses — never a
+			// template of any kind (Ondivera or school).
+			if (actor.role === "leerling") {
+				return (
+					row.kind === "student_execution" && row.leerlingId === actor.userId
+				);
+			}
+			// Ondivera templates are readable by any (non-leerling) user authed in a school.
 			if (row.kind === "ondivera_template") return true;
 			// Same-tenant courses.
 			if (
@@ -319,10 +331,6 @@ const list = protectedProcedure
 				actor.organizationId &&
 				row.organizationId === actor.organizationId
 			) {
-				// A leerling only sees their own student executions + school templates.
-				if (actor.role === "leerling" && row.kind === "student_execution") {
-					return row.leerlingId === actor.userId;
-				}
 				return true;
 			}
 			return false;
@@ -1202,18 +1210,36 @@ async function authorizeFileAccess(
 	const scope = storageKey.split("/")[0];
 
 	if (scope === "bestand") {
-		const [block] = await context.db
+		// `copyStructure` copies `fileStorageKey` verbatim on derive, so after
+		// ondivera_template → school_template → student_execution up to three
+		// blocks share the SAME key. Authorize against EVERY owning course and
+		// pass when any is readable — otherwise a leerling opening the file in
+		// their own student_execution would be judged against the template's
+		// course and wrongly FORBIDden.
+		const blocks = await context.db
 			.select({ sectionId: contentBlock.sectionId })
 			.from(contentBlock)
 			.where(eq(contentBlock.fileStorageKey, storageKey));
-		if (!block) throw new ORPCError("NOT_FOUND");
-		const [sec] = await context.db
+		if (blocks.length === 0) throw new ORPCError("NOT_FOUND");
+		const sections = await context.db
 			.select({ courseId: courseSection.courseId })
 			.from(courseSection)
-			.where(eq(courseSection.id, block.sectionId));
-		if (!sec) throw new ORPCError("NOT_FOUND");
-		await loadReadable(context, sec.courseId); // throws FORBIDDEN if not allowed
-		return;
+			.where(
+				inArray(
+					courseSection.id,
+					blocks.map((b) => b.sectionId),
+				),
+			);
+		if (sections.length === 0) throw new ORPCError("NOT_FOUND");
+		for (const courseId of new Set(sections.map((s) => s.courseId))) {
+			try {
+				await loadReadable(context, courseId);
+				return; // readable via at least one owning course
+			} catch {
+				// Try the next owning course.
+			}
+		}
+		throw new ORPCError("FORBIDDEN");
 	}
 
 	if (scope === "feedback") {
