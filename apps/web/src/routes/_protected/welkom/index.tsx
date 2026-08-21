@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/solid-router";
-import { useMutation, useQuery } from "@tanstack/solid-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/solid-query";
 import {
 	ArrowRight,
 	Check,
@@ -21,6 +21,7 @@ import {
 import { useMe } from "../../../lib/auth/use-me";
 import { MOODS } from "../../../lib/mood";
 import { orpc } from "../../../lib/orpc";
+import { useServerEvent } from "../../../lib/sse/use-events";
 import { doneStreak } from "../../../lib/streak";
 
 /**
@@ -113,6 +114,7 @@ const todayKey = () => new Date().toISOString().slice(0, 10);
 function WelkomPage() {
 	const me = useMe();
 	const navigate = useNavigate();
+	const queryClient = useQueryClient();
 	const [showSuccess, setShowSuccess] = createSignal(true);
 
 	// ── Mood: dagelijkse check-in. De server is de bron van waarheid voor de
@@ -177,6 +179,10 @@ function WelkomPage() {
 		...orpc.tasks.list.queryOptions({ input: {} }),
 		enabled: me.is("leerling"),
 	}));
+	// Keep the takenlijst (en de "+ Vandaag"-pin) live, mirroring /taken.
+	useServerEvent("task.changed", () =>
+		queryClient.invalidateQueries({ queryKey: orpc.tasks.list.key() }),
+	);
 	const planQuery = useQuery(() => ({
 		...orpc.coachplan.listMine.queryOptions(),
 		enabled: me.is("leerling"),
@@ -226,20 +232,41 @@ function WelkomPage() {
 			(s) => Date.now() - s.when.getTime() < 7 * 86_400_000,
 		).length;
 
-	// Eerstvolgende echte deadline (vandaag of later).
+	// Eerstvolgende echte deadline (vandaag of later). Een taak die met "+ Vandaag"
+	// is vastgepind telt óók mee — ook zonder (of met een oudere) dueAt — en krijgt
+	// begin-vandaag als sorteermoment, zodat hij vóór elke latere taak komt.
 	const nextDeadline = createMemo(() => {
 		const startOfToday = new Date();
 		startOfToday.setHours(0, 0, 0, 0);
+		const effectiveMoment = (t: { dueAt: Date | null; pinnedForToday: boolean }) =>
+			t.pinnedForToday
+				? startOfToday.getTime()
+				: new Date(t.dueAt as Date).getTime();
 		const candidates = [
 			...(tasksQuery.data?.vandaag ?? []),
 			...(tasksQuery.data?.toekomst ?? []),
-		].filter((t) => t.dueAt && new Date(t.dueAt) >= startOfToday);
-		candidates.sort(
-			(a, b) =>
-				new Date(a.dueAt as Date).getTime() - new Date(b.dueAt as Date).getTime(),
+		].filter(
+			(t) => t.pinnedForToday || (t.dueAt && new Date(t.dueAt) >= startOfToday),
 		);
+		candidates.sort((a, b) => effectiveMoment(a) - effectiveMoment(b));
 		return candidates[0] ?? null;
 	});
+
+	// Kaartlabel: een vastgepinde taak zonder toekomstige dueAt (geen datum, of
+	// een datum vóór morgen) is gewoon "Vandaag"; echte toekomstige deadlines
+	// houden hun geformatteerde datum.
+	const nextDeadlineLabel = (t: { dueAt: Date | null; pinnedForToday: boolean }) => {
+		const startOfTomorrow = new Date();
+		startOfTomorrow.setHours(0, 0, 0, 0);
+		startOfTomorrow.setDate(startOfTomorrow.getDate() + 1);
+		if (
+			t.pinnedForToday &&
+			(!t.dueAt || new Date(t.dueAt) < startOfTomorrow)
+		) {
+			return "Vandaag";
+		}
+		return deadlineLabelFor(t.dueAt as Date);
+	};
 
 	// Sociaal: echte gesprekken, nieuwste bovenaan.
 	const gesprekken = createMemo(() =>
@@ -455,7 +482,7 @@ function WelkomPage() {
 											aria-hidden="true"
 											style={{ display: "inline", "vertical-align": "-2px", "margin-right": "6px" }}
 										/>
-										{deadlineLabelFor(t().dueAt as Date)}
+										{nextDeadlineLabel(t())}
 									</div>
 								</>
 							)}
