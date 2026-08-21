@@ -26,7 +26,13 @@ export interface AssistantMessage {
 }
 
 export interface UseAssistantOptions {
-	submissionId?: string;
+	/**
+	 * The coachplan whose real answers the server composes the context from.
+	 * An accessor, not a value: the standalone `/assistent` tab lets the coach
+	 * switch plans while the panel stays mounted, so this must be read at send
+	 * time rather than captured once at setup.
+	 */
+	submissionId?: () => string | undefined;
 	/** Free-text coachplan context injected into the system prompt. */
 	coachplanContext?: () => string | undefined;
 }
@@ -60,7 +66,7 @@ export function useAssistant(options: UseAssistantOptions = {}) {
 		try {
 			const iterator = await client.ai.assistant(
 				{
-					submissionId: options.submissionId,
+					submissionId: options.submissionId?.(),
 					coachplanContext: options.coachplanContext?.(),
 					messages: next,
 				},

@@ -3,15 +3,22 @@ import { Send, Sparkles } from "lucide-solid";
 import { createEffect, createSignal, For, on, Show } from "solid-js";
 import { useAssistant } from "../../lib/ai/use-assistant";
 import { orpc } from "../../lib/orpc";
+import { Select } from "../ui/select";
 import { MockBanner } from "./mock-banner";
 
 /**
  * AI-advies paneel (#22), styled as the sidebar card from the approved
  * "Coachplan invullen" prototype. A calm, WCAG-AA panel that streams
  * interventie-advies token-by-token over the oRPC Event Iterator (via the thin
- * `useAssistant` hook). Embed it in the coach-review by passing `submissionId`
- * + `coachplanContext`; the "Wens" chip and the suggestion cards surface the
+ * `useAssistant` hook). The "Wens" chip and the suggestion cards surface the
  * prompt-starters, and "Meer adviezen" asks the model to continue.
+ *
+ * Embedded in the coach-review by passing `submissionId` + `coachplanContext`
+ * (the plan is then fixed and the picker is hidden); standalone — the
+ * `/assistent` werkbank — it lets the coach pick a plan from their review inbox,
+ * exactly like the TranscriptionPanel. Without a plan the server has no
+ * coachformulier to read, so the composer stays disabled rather than silently
+ * advising about nobody (feedback Mark 15-07-2026, punt 5).
  */
 
 const STARTERS = [
@@ -27,15 +34,33 @@ export function AssistantPanel(props: {
 	title?: string;
 }) {
 	const [draft, setDraft] = createSignal("");
+	const [pickedId, setPickedId] = createSignal<string | undefined>();
 	let scrollEl: HTMLDivElement | undefined;
 
 	// Provider mode for the static banner (the stream also reports it live).
 	const providerQuery = useQuery(() => orpc.ai.provider.queryOptions());
+	// Only needed for the standalone picker; harmless (and cached) when embedded.
+	const inboxQuery = useQuery(() => orpc.coachplan.inbox.queryOptions());
+
+	// The effective plan: the embedding page's submission, else the picked one.
+	const effectiveId = () => props.submissionId ?? pickedId();
+
+	const submissionOptions = () =>
+		(inboxQuery.data ?? []).map((row) => ({
+			value: row.submission.id,
+			label: `${row.leerlingName} · ${row.templateName}`,
+		}));
 
 	const assistant = useAssistant({
-		submissionId: props.submissionId,
+		submissionId: effectiveId,
 		coachplanContext: () => props.coachplanContext,
 	});
+
+	// Switching plans must not carry the previous leerling's turns into the next
+	// conversation — the history is resent verbatim on every send.
+	createEffect(
+		on(effectiveId, () => assistant.reset(), { defer: true }),
+	);
 
 	const isMock = () => assistant.mock() ?? providerQuery.data?.mock ?? null;
 
@@ -74,6 +99,25 @@ export function AssistantPanel(props: {
 
 			<MockBanner mock={isMock()} model={providerQuery.data?.model} />
 
+			{/* Plan picker only when standalone (no submission from the page). */}
+			<Show when={!props.submissionId}>
+				<div style={{ "margin-bottom": "12px", "margin-top": "12px" }}>
+					<Select
+						label="Coachplan"
+						placeholder="Kies een leerling / coachplan…"
+						options={submissionOptions()}
+						value={pickedId()}
+						onChange={(v) => setPickedId(v)}
+						description="Het advies wordt opgesteld op basis van de antwoorden in dit coachformulier."
+					/>
+					<Show when={!inboxQuery.isPending && submissionOptions().length === 0}>
+						<p style={{ "font-size": "12px", color: "rgb(var(--muted))", "margin-top": "6px" }}>
+							Er staan nog geen ingediende coachplannen klaar om te bespreken.
+						</p>
+					</Show>
+				</div>
+			</Show>
+
 			{/* Conversation / suggestions */}
 			<div
 				ref={scrollEl}
@@ -100,6 +144,7 @@ export function AssistantPanel(props: {
 											cursor: "pointer",
 											width: "100%",
 										}}
+										disabled={!effectiveId()}
 										onClick={() => {
 											setDraft("");
 											void assistant.send(s);
@@ -176,7 +221,7 @@ export function AssistantPanel(props: {
 					type="button"
 					class="btn ghost sm"
 					style={{ "margin-top": "10px", width: "100%", "justify-content": "center" }}
-					disabled={assistant.streaming()}
+					disabled={assistant.streaming() || !effectiveId()}
 					onClick={() => void assistant.send("Geef nog een paar concrete adviezen.")}
 				>
 					Meer adviezen
@@ -199,10 +244,14 @@ export function AssistantPanel(props: {
 					id="assistant-composer"
 					class="textarea"
 					style={{ "min-height": "44px", "font-size": "13px", resize: "none", flex: "1" }}
-					placeholder="Stel een vraag over interventies…"
+					placeholder={
+						effectiveId()
+							? "Stel een vraag over interventies…"
+							: "Kies eerst een coachplan…"
+					}
 					rows={1}
 					value={draft()}
-					disabled={assistant.streaming()}
+					disabled={assistant.streaming() || !effectiveId()}
 					onInput={(e) => setDraft(e.currentTarget.value)}
 					onKeyDown={(e) => {
 						if (e.key === "Enter" && !e.shiftKey) {
@@ -214,7 +263,7 @@ export function AssistantPanel(props: {
 				<button
 					type="submit"
 					class="btn primary sm"
-					disabled={assistant.streaming() || !draft().trim()}
+					disabled={assistant.streaming() || !draft().trim() || !effectiveId()}
 					aria-label="Verstuur vraag"
 				>
 					<Send class="size-3.5" aria-hidden="true" />
