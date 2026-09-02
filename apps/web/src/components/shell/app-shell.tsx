@@ -1,8 +1,8 @@
 import { Dialog as KDialog } from "@kobalte/core/dialog";
-import { Link } from "@tanstack/solid-router";
+import { Link, useRouterState } from "@tanstack/solid-router";
 import { Menu, Search, X } from "lucide-solid";
 import { NotificationsBell } from "../notifications";
-import { For, type JSX, Show, createSignal } from "solid-js";
+import { For, type JSX, Show, createMemo, createSignal } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import { cn } from "../../lib/cn";
 import { A11yPanel } from "../a11y-panel";
@@ -46,7 +46,29 @@ function Brand() {
 	);
 }
 
+/** True when `href` is the current path itself or one of its parent segments. */
+function isUnder(pathname: string, href: string): boolean {
+	return pathname === href || pathname.startsWith(`${href}/`);
+}
+
 function SidebarNav(props: { nav: NavSection[]; onNavigate?: () => void }) {
+	const pathname = useRouterState({ select: (s) => s.location.pathname });
+	// Only the *most specific* matching entry is marked current. The router's own
+	// prefix matching would light up every ancestor, so /plan/beheer highlighted
+	// both "Formulieren" and "Coachplannen" (/plan).
+	const currentHref = createMemo(() => {
+		const path = pathname();
+		let best: string | undefined;
+		for (const section of props.nav) {
+			for (const item of section.items) {
+				if (isUnder(path, item.href) && item.href.length > (best?.length ?? -1)) {
+					best = item.href;
+				}
+			}
+		}
+		return best;
+	});
+
 	return (
 		<nav class="flex flex-col gap-5" aria-label="Hoofdnavigatie">
 			<For each={props.nav}>
@@ -63,7 +85,10 @@ function SidebarNav(props: { nav: NavSection[]; onNavigate?: () => void }) {
 									to={item.href}
 									onClick={() => props.onNavigate?.()}
 									class="flex items-center gap-3 rounded-2 px-3 py-2 text-small font-medium text-ink-2 transition-colors duration-fast hover:bg-line-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring aria-[current=page]:bg-primary aria-[current=page]:text-primary-fg"
-									activeProps={{ "aria-current": "page" }}
+									activeOptions={{ exact: true }}
+									aria-current={
+										item.href === currentHref() ? "page" : undefined
+									}
 								>
 									<Dynamic component={item.icon} class="size-[18px] shrink-0" />
 									<span class="flex-1 truncate">{item.label}</span>
@@ -91,7 +116,8 @@ function Sidebar(props: {
 		<div class="flex h-full flex-col gap-5 overflow-y-auto border-line border-r bg-bg-2 p-4">
 			<Brand />
 			<SidebarNav nav={props.nav} onNavigate={props.onNavigate} />
-			<div class="mt-auto flex items-center gap-2.5 rounded-2 border border-line bg-surface p-2.5">
+			{/* No border/bg here: the UserMenu trigger draws its own card. */}
+			<div class="mt-auto">
 				<UserMenu user={props.user} />
 			</div>
 		</div>

@@ -35,7 +35,7 @@ export function UserMenu(props: { user: ShellUser }) {
 
 	return (
 		<DropdownMenu placement="bottom-end" gutter={8}>
-			<DropdownMenu.Trigger class="flex items-center gap-2 rounded-2 border border-line bg-surface px-2 py-1.5 text-left transition-colors duration-fast hover:bg-line-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+			<DropdownMenu.Trigger class="flex w-full min-w-0 items-center gap-2.5 rounded-2 border border-line bg-surface px-2.5 py-2 text-left transition-colors duration-fast hover:bg-line-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
 				<Avatar name={props.user.name} tone={props.user.tone} size="sm" />
 				<span class="hidden min-w-0 flex-col sm:flex">
 					<span class="truncate text-small font-medium text-ink">

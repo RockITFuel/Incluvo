@@ -10,7 +10,6 @@ import {
 	Sparkles,
 	Star,
 	UserRound,
-	Users,
 } from "lucide-solid";
 import type { NavSection } from "./app-shell";
 
@@ -28,16 +27,18 @@ export type NavBadges = {
  * `/beheer`) that later epics replace with the real destinations.
  *
  *   - leerling     → Welkom, Mijn taken, Cursussen, Mijn plan, Chat
- *   - coach        → Dashboard, Leerlingen, Cursussen, Chat
+ *   - coach        → Dashboard, Coachplannen, Cursussen, Chat, Assistent
  *   - keyuser/up   → coach nav + a Beheer/Admin entry
  *   - ontwikkelaar → leerling-style nav (course builder lives under Cursussen)
  */
 export function navForRole(role: UserRole, badges: NavBadges = {}): NavSection[] {
-	// Coach and above get the coach-oriented nav.
+	// Coach and above get the coach-oriented nav. There is deliberately no
+	// separate "Leerlingen" entry: /dashboard *is* the leerlingen-overzicht
+	// (backlog #42), the prototype's coach nav does not have one, and the entry
+	// that used to sit here pointed at the keyuser-only /beheer (CODE-REVIEW.md).
 	if (atLeast(role, "coach")) {
 		const items = [
 			{ label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-			{ label: "Leerlingen", href: "/dashboard", icon: Users },
 			{
 				label: "Coachplannen",
 				href: "/plan",
