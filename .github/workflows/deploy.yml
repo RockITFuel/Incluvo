@@ -3,6 +3,7 @@ name: Deploy
 on:
   push:
     branches: [main]
+  pull_request:
 
 concurrency:
   group: deploy-${{ github.ref }}
@@ -21,9 +22,40 @@ jobs:
       - run: bun run check-types
       - run: bun run lint
 
+  test:
+    name: Server tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        # Same image as docker-compose.yml / production (pgvector on PG 18).
+        image: pgvector/pgvector:pg18
+        env:
+          POSTGRES_USER: incluvo
+          POSTGRES_PASSWORD: incluvo
+          POSTGRES_DB: incluvo
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U incluvo -d incluvo"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # test/preload.ts derives and recreates `incluvo_test` from this.
+      TEST_DATABASE_URL: postgres://incluvo:incluvo@localhost:5432/incluvo
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.21
+      - run: bun install
+      - run: bun run test
+
   build-and-push:
     name: Build & Push (${{ matrix.app.name }})
-    needs: check
+    needs: [check, test]
+    # Pull requests only run the checks; images are built and deployed from main.
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

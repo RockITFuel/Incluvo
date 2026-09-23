@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as WachtwoordInstellenRouteImport } from './routes/wachtwoord-instellen'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ProtectedRouteImport } from './routes/_protected'
 import { Route as IndexRouteImport } from './routes/index'
@@ -29,6 +30,11 @@ import { Route as ProtectedDashboardLeerlingIdRouteImport } from './routes/_prot
 import { Route as ProtectedCursussenCourseIdRouteImport } from './routes/_protected/cursussen/$courseId'
 import { Route as ProtectedPlanBeheerIndexRouteImport } from './routes/_protected/plan/beheer/index'
 
+const WachtwoordInstellenRoute = WachtwoordInstellenRouteImport.update({
+  id: '/wachtwoord-instellen',
+  path: '/wachtwoord-instellen',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
@@ -133,6 +139,7 @@ const ProtectedPlanBeheerIndexRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/wachtwoord-instellen': typeof WachtwoordInstellenRoute
   '/items': typeof ProtectedItemsRoute
   '/cursussen/$courseId': typeof ProtectedCursussenCourseIdRoute
   '/dashboard/$leerlingId': typeof ProtectedDashboardLeerlingIdRoute
@@ -153,6 +160,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/wachtwoord-instellen': typeof WachtwoordInstellenRoute
   '/items': typeof ProtectedItemsRoute
   '/cursussen/$courseId': typeof ProtectedCursussenCourseIdRoute
   '/dashboard/$leerlingId': typeof ProtectedDashboardLeerlingIdRoute
@@ -175,6 +183,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_protected': typeof ProtectedRouteWithChildren
   '/login': typeof LoginRoute
+  '/wachtwoord-instellen': typeof WachtwoordInstellenRoute
   '/_protected/items': typeof ProtectedItemsRoute
   '/_protected/cursussen/$courseId': typeof ProtectedCursussenCourseIdRoute
   '/_protected/dashboard/$leerlingId': typeof ProtectedDashboardLeerlingIdRoute
@@ -197,6 +206,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/login'
+    | '/wachtwoord-instellen'
     | '/items'
     | '/cursussen/$courseId'
     | '/dashboard/$leerlingId'
@@ -217,6 +227,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/login'
+    | '/wachtwoord-instellen'
     | '/items'
     | '/cursussen/$courseId'
     | '/dashboard/$leerlingId'
@@ -238,6 +249,7 @@ export interface FileRouteTypes {
     | '/'
     | '/_protected'
     | '/login'
+    | '/wachtwoord-instellen'
     | '/_protected/items'
     | '/_protected/cursussen/$courseId'
     | '/_protected/dashboard/$leerlingId'
@@ -260,10 +272,18 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ProtectedRoute: typeof ProtectedRouteWithChildren
   LoginRoute: typeof LoginRoute
+  WachtwoordInstellenRoute: typeof WachtwoordInstellenRoute
 }
 
 declare module '@tanstack/solid-router' {
   interface FileRoutesByPath {
+    '/wachtwoord-instellen': {
+      id: '/wachtwoord-instellen'
+      path: '/wachtwoord-instellen'
+      fullPath: '/wachtwoord-instellen'
+      preLoaderRoute: typeof WachtwoordInstellenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/login': {
       id: '/login'
       path: '/login'
@@ -446,6 +466,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ProtectedRoute: ProtectedRouteWithChildren,
   LoginRoute: LoginRoute,
+  WachtwoordInstellenRoute: WachtwoordInstellenRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

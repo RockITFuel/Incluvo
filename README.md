@@ -54,8 +54,8 @@ cp .env.example .env   # then edit if needed
 docker compose up -d
 
 # 4. Create the schema, the audit trigger, and seed data
-bun run db:pgvector   # enable the pgvector extension (once, before db:push — #20 RAG)
-bun run db:push
+bun run db:pgvector   # enable the pgvector extension (once, before migrating — #20 RAG)
+bun run db:migrate    # the same committed migrations production runs at startup
 psql "$DATABASE_URL" -f packages/drizzle/drizzle/audit-trigger.sql
 bun run db:seed
 
@@ -91,14 +91,48 @@ Then open:
 | `bun run dev:web`     | Frontend only                                |
 | `bun run build`       | Build all apps                               |
 | `bun run check-types` | Typecheck every package                      |
+| `bun run test`        | Server tests (needs the Postgres from `docker compose`) |
 | `bun run lint`        | oxlint                                        |
 | `bun run format`      | oxfmt --write                                |
 | `bun run db:pgvector` | Enable the pgvector extension (run before push) |
-| `bun run db:push`     | Push Drizzle schema to the database          |
+| `bun run db:push`     | Push schema directly (throwaway local DBs only) |
 | `bun run db:generate` | Generate a SQL migration                     |
 | `bun run db:migrate`  | Apply migrations                             |
 | `bun run db:studio`   | Drizzle Studio                               |
 | `bun run db:seed`     | Seed sample data                             |
+
+## Schema changes
+
+Production applies the committed migrations in `packages/drizzle/drizzle` at
+startup (`apps/server/startup.ts`), so every schema change needs one:
+
+```sh
+# edit packages/drizzle/src/schema/*, then
+bun run db:generate   # writes packages/drizzle/drizzle/NNNN_*.sql — commit it
+bun run db:migrate
+```
+
+Use `db:push` only on a throwaway local database. A database created with
+`db:push` has no migration history, so `db:migrate` fails on it; recreate it
+(`docker compose down -v`) and start from step 4.
+
+## Tests
+
+`bun run test` runs the server tests in `apps/server/test`. Before the first
+test file loads, `test/preload.ts` drops and recreates an `<name>_test`
+database next to the one in `DATABASE_URL` (or uses `TEST_DATABASE_URL`),
+applies the migrations and audit trigger, and runs `seed-demo.ts`. Tests call
+the app in-process through `test/harness.ts`:
+
+```ts
+const coach = await asUser("coach");            // bearer session, real middleware
+await expectForbidden(() => coach.client.courses.tree({ courseId }));
+```
+
+The seed has two schools so access rules can be tested across tenants and
+across coach assignments: Demo School (`coach` ↔ `leerling`, `coach2` ↔
+`leerling2`, `keyuser`, `ontwikkelaar`) and Andere School (`andere-keyuser`,
+`andere-coach` ↔ `andere-leerling`), all with password `incluvo123`.
 
 ## How the pieces connect
 

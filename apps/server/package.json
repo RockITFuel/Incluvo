@@ -9,7 +9,8 @@
 		"seed:coachplan": "BETTER_AUTH_URL=http://localhost:3200 bun --env-file=../../.env src/seed-coachplan.ts",
 		"seed:courses": "BETTER_AUTH_URL=http://localhost:3200 bun --env-file=../../.env src/seed-courses.ts",
 		"seed:kennis": "BETTER_AUTH_URL=http://localhost:3200 bun --env-file=../../.env src/seed-kennis.ts",
-		"check-types": "tsc --noEmit"
+		"check-types": "tsc --noEmit",
+		"test": "bun test"
 	},
 	"dependencies": {
 		"@incluvo/drizzle": "workspace:*",
@@ -30,6 +31,8 @@
 		"@types/bun": "latest",
 		"@types/node": "^22.15.0",
 		"@types/nodemailer": "^7.0.11",
+		"@types/pg": "^8.11.11",
+		"pg": "^8.13.3",
 		"typescript": "catalog:"
 	}
 }

@@ -3,9 +3,9 @@
  *
  * Run with: `bun run --cwd apps/server seed:demo`
  *
- * Because passwords must be hashed by better-auth, users are created through the
- * better-auth sign-up API (not a raw insert); we then set their app `role` +
- * `organizationId` directly on the row. Re-running is safe: orgs/users/
+ * Users are created through `createAccount` (users.ts), which hashes the
+ * password with better-auth (public sign-up is disabled); we then set their
+ * app `role` + `organizationId` and membership row. Re-running is safe: orgs/users/
  * assignments are looked up before insert.
  *
  * Demo logins (all password `incluvo123`):
@@ -15,13 +15,18 @@
  *   leerling@incluvo.local     leerling     → Demo School
  *   ontwikkelaar@incluvo.local ontwikkelaar → Demo School
  * Plus a coach_assignment linking coach ↔ leerling.
+ *
+ * A second coach/leerling pair in Demo School and a second school ("Andere
+ * School") exist so tests can check unassigned and cross-tenant access:
+ *   coach2@incluvo.local ↔ leerling2@incluvo.local        → Demo School
+ *   andere-keyuser@ / andere-coach@ ↔ andere-leerling@     → Andere School
  */
 import { loadRootEnv } from "@incluvo/drizzle/load-env";
 
 loadRootEnv();
 
 const { db } = await import("@incluvo/drizzle");
-const { auth } = await import("./auth");
+const { createAccount } = await import("./users");
 const schema = await import("@incluvo/drizzle/schema");
 const { and, eq } = await import("drizzle-orm");
 
@@ -34,7 +39,7 @@ interface DemoUser {
 	email: string;
 	name: string;
 	role: IncluvoRole;
-	tenant: "ondivera" | "school";
+	tenant: "ondivera" | "school" | "andere";
 }
 
 const DEMO_USERS: DemoUser[] = [
@@ -43,6 +48,18 @@ const DEMO_USERS: DemoUser[] = [
 	{ email: "coach@incluvo.local", name: "Demo Coach", role: "coach", tenant: "school" },
 	{ email: "leerling@incluvo.local", name: "Demo Leerling", role: "leerling", tenant: "school" },
 	{ email: "ontwikkelaar@incluvo.local", name: "Demo Ontwikkelaar", role: "ontwikkelaar", tenant: "school" },
+	{ email: "coach2@incluvo.local", name: "Tweede Coach", role: "coach", tenant: "school" },
+	{ email: "leerling2@incluvo.local", name: "Tweede Leerling", role: "leerling", tenant: "school" },
+	{ email: "andere-keyuser@incluvo.local", name: "Andere Keyuser", role: "keyuser", tenant: "andere" },
+	{ email: "andere-coach@incluvo.local", name: "Andere Coach", role: "coach", tenant: "andere" },
+	{ email: "andere-leerling@incluvo.local", name: "Andere Leerling", role: "leerling", tenant: "andere" },
+];
+
+/** Coach ↔ leerling links, by email. */
+const DEMO_ASSIGNMENTS: [coach: string, leerling: string][] = [
+	["coach@incluvo.local", "leerling@incluvo.local"],
+	["coach2@incluvo.local", "leerling2@incluvo.local"],
+	["andere-coach@incluvo.local", "andere-leerling@incluvo.local"],
 ];
 
 /** Find-or-create an organization by name (+ kind/parent). */
@@ -74,11 +91,13 @@ async function ensureUser(d: DemoUser): Promise<string> {
 		.where(eq(user.email, d.email));
 	if (existing) return existing.id;
 
-	const res = await auth.api.signUpEmail({
-		body: { email: d.email, password: PASSWORD, name: d.name },
+	const id = await createAccount({
+		email: d.email,
+		name: d.name,
+		role: d.role,
+		organizationId: null, // set by setRoleAndTenant
+		password: PASSWORD,
 	});
-	const id = (res as { user?: { id?: string } }).user?.id;
-	if (!id) throw new Error(`Sign-up did not return a user id for ${d.email}`);
 	console.log(`  + user ${d.email}`);
 	return id;
 }
@@ -131,38 +150,39 @@ async function ensureCoachAssignment(
 	await db
 		.insert(coachAssignment)
 		.values({ organizationId, coachId, leerlingId });
-	console.log("  + coach_assignment coach ↔ leerling");
+	console.log(`  + coach_assignment ${coachId} ↔ ${leerlingId}`);
 }
 
 async function main() {
 	console.log("Seeding Incluvo demo (Epic 1)…");
 
-	// Tenants: one Ondivera root + one school under it.
+	// Tenants: one Ondivera root + two schools under it.
 	const ondiveraId = await ensureOrg({ name: "Ondivera", kind: "ondivera" });
 	const schoolId = await ensureOrg({
 		name: "Demo School",
 		kind: "school",
 		parentId: ondiveraId,
 	});
+	const andereId = await ensureOrg({
+		name: "Andere School",
+		kind: "school",
+		parentId: ondiveraId,
+	});
+	const tenantIds = { ondivera: ondiveraId, school: schoolId, andere: andereId };
 
 	// Users (via better-auth) + role/tenant.
 	const ids: Record<string, string> = {};
 	for (const d of DEMO_USERS) {
 		const id = await ensureUser(d);
 		ids[d.email] = id;
-		await setRoleAndTenant(
-			id,
-			d.role,
-			d.tenant === "ondivera" ? ondiveraId : schoolId,
-		);
+		await setRoleAndTenant(id, d.role, tenantIds[d.tenant]);
 	}
 
-	// Coach ↔ leerling assignment within the school.
-	await ensureCoachAssignment(
-		schoolId,
-		ids["coach@incluvo.local"]!,
-		ids["leerling@incluvo.local"]!,
-	);
+	// Coach ↔ leerling assignments, each within the coach's school.
+	for (const [coach, leerling] of DEMO_ASSIGNMENTS) {
+		const tenant = DEMO_USERS.find((d) => d.email === coach)!.tenant;
+		await ensureCoachAssignment(tenantIds[tenant], ids[coach]!, ids[leerling]!);
+	}
 
 	console.log("Done. Logins (password `incluvo123`):");
 	for (const d of DEMO_USERS) console.log(`  ${d.role.padEnd(12)} ${d.email}`);
