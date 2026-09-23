@@ -3,9 +3,9 @@
  *
  * Run with: `bun run --cwd apps/server seed:demo`
  *
- * Because passwords must be hashed by better-auth, users are created through the
- * better-auth sign-up API (not a raw insert); we then set their app `role` +
- * `organizationId` directly on the row. Re-running is safe: orgs/users/
+ * Users are created through `createAccount` (users.ts), which hashes the
+ * password with better-auth (public sign-up is disabled); we then set their
+ * app `role` + `organizationId` and membership row. Re-running is safe: orgs/users/
  * assignments are looked up before insert.
  *
  * Demo logins (all password `incluvo123`):
@@ -26,7 +26,7 @@ import { loadRootEnv } from "@incluvo/drizzle/load-env";
 loadRootEnv();
 
 const { db } = await import("@incluvo/drizzle");
-const { auth } = await import("./auth");
+const { createAccount } = await import("./users");
 const schema = await import("@incluvo/drizzle/schema");
 const { and, eq } = await import("drizzle-orm");
 
@@ -91,11 +91,13 @@ async function ensureUser(d: DemoUser): Promise<string> {
 		.where(eq(user.email, d.email));
 	if (existing) return existing.id;
 
-	const res = await auth.api.signUpEmail({
-		body: { email: d.email, password: PASSWORD, name: d.name },
+	const id = await createAccount({
+		email: d.email,
+		name: d.name,
+		role: d.role,
+		organizationId: null, // set by setRoleAndTenant
+		password: PASSWORD,
 	});
-	const id = (res as { user?: { id?: string } }).user?.id;
-	if (!id) throw new Error(`Sign-up did not return a user id for ${d.email}`);
 	console.log(`  + user ${d.email}`);
 	return id;
 }

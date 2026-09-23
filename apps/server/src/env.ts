@@ -37,6 +37,17 @@ function createServerEnv() {
 			SMTP_HOST: z.string().default("localhost"),
 			SMTP_PORT: z.coerce.number().default(1025),
 			SMTP_FROM: z.string().default("no-reply@incluvo.local"),
+			SMTP_USER: z.string().optional(),
+			SMTP_PASS: z.string().optional(),
+			SMTP_SECURE: z
+				.enum(["true", "false"])
+				.default("false")
+				.transform((v) => v === "true"),
+			// Header holding the real client IP for auth rate limiting. Must be one
+			// the reverse proxy *overwrites* (e.g. `x-real-ip` behind Traefik);
+			// better-auth's default `x-forwarded-for` takes the first entry, which
+			// a client can spoof to dodge the limiter.
+			AUTH_IP_HEADER: z.string().optional(),
 			// --- AI layer (Epic 7). All optional; unset => deterministic MOCK
 			// provider. For production point these at an EU-resident,
 			// OpenAI-compatible endpoint (Azure OpenAI Data Zone EUR / Mistral EU). ---

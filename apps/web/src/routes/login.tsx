@@ -24,8 +24,15 @@ function Login() {
 	const router = useRouter();
 	const [email, setEmail] = createSignal("");
 	const [password, setPassword] = createSignal("");
-	const [mode, setMode] = createSignal<"sign-in" | "sign-up">("sign-in");
+	// Accounts are created by invite only; "forgot" mails a reset link.
+	const [mode, setMode] = createSignal<"sign-in" | "forgot">("sign-in");
 	const [error, setError] = createSignal<string | null>(null);
+	const [notice, setNotice] = createSignal<string | null>(
+		typeof window !== "undefined" &&
+			new URLSearchParams(window.location.search).has("wachtwoord")
+			? "Je wachtwoord is ingesteld. Je kunt nu inloggen."
+			: null,
+	);
 	const [busy, setBusy] = createSignal(false);
 	// Guards against a native GET form submit before the SPA hydrates (which
 	// would put the e-mail + password in the URL/history). The button stays
@@ -51,20 +58,35 @@ function Login() {
 		e.preventDefault();
 		setBusy(true);
 		setError(null);
-		const { data, error: err } =
-			mode() === "sign-in"
-				? await authClient.signIn.email({
-						email: email(),
-						password: password(),
-					})
-				: await authClient.signUp.email({
-						email: email(),
-						password: password(),
-						name: email(),
-					});
+		setNotice(null);
+		if (mode() === "forgot") {
+			const { error: err } = await authClient.requestPasswordReset({
+				email: email(),
+				redirectTo: `${window.location.origin}/wachtwoord-instellen`,
+			});
+			setBusy(false);
+			if (err) {
+				setError("Dat lukte niet. Probeer het over een paar minuten opnieuw.");
+				return;
+			}
+			// Same message whether or not the address exists.
+			setNotice(
+				"Als dit e-mailadres bij ons bekend is, krijg je binnen een paar minuten een e-mail met een link.",
+			);
+			setMode("sign-in");
+			return;
+		}
+		const { data, error: err } = await authClient.signIn.email({
+			email: email(),
+			password: password(),
+		});
 		setBusy(false);
 		if (err) {
-			setError(err.message ?? "Er ging iets mis");
+			setError(
+				err.status === 429
+					? "Te veel inlogpogingen. Probeer het over een kwartier opnieuw."
+					: "E-mailadres of wachtwoord klopt niet.",
+			);
 			return;
 		}
 		// Drop the 30s session cache: it may hold a pre-login `null`, which the
@@ -225,12 +247,12 @@ function Login() {
 					</div>
 
 					<h1 class="font-head text-h1 text-ink">
-						{mode() === "sign-in" ? "Welkom terug" : "Account aanmaken"}
+						{mode() === "sign-in" ? "Welkom terug" : "Wachtwoord vergeten"}
 					</h1>
 					<p class="mt-1.5 mb-7 text-body text-muted">
 						{mode() === "sign-in"
 							? "Fijn dat je er bent. Log in om verder te gaan."
-							: "Maak een account om te beginnen."}
+							: "Vul je e-mailadres in. We sturen je een link om een nieuw wachtwoord te kiezen."}
 					</p>
 
 					<form onSubmit={submit} class="flex flex-col gap-4">
@@ -241,13 +263,20 @@ function Login() {
 							value={email()}
 							onInput={(e) => setEmail(e.currentTarget.value)}
 						/>
-						<Input
-							type="password"
-							label="Wachtwoord"
-							required
-							value={password()}
-							onInput={(e) => setPassword(e.currentTarget.value)}
-						/>
+						<Show when={mode() === "sign-in"}>
+							<Input
+								type="password"
+								label="Wachtwoord"
+								required
+								value={password()}
+								onInput={(e) => setPassword(e.currentTarget.value)}
+							/>
+						</Show>
+						<Show when={notice()}>
+							<p class="text-small text-ink-2" role="status">
+								{notice()}
+							</p>
+						</Show>
 						<Show when={error()}>
 							<p class="text-small text-danger" role="alert">
 								{error()}
@@ -258,7 +287,7 @@ function Login() {
 								? "Bezig…"
 								: mode() === "sign-in"
 									? "Inloggen"
-									: "Aanmaken"}
+									: "Link versturen"}
 						</Button>
 					</form>
 
@@ -267,11 +296,12 @@ function Login() {
 						variant="ghost"
 						size="sm"
 						class="mt-4 self-start border-0"
-						onClick={() => setMode(mode() === "sign-in" ? "sign-up" : "sign-in")}
+						onClick={() => {
+							setError(null);
+							setMode(mode() === "sign-in" ? "forgot" : "sign-in");
+						}}
 					>
-						{mode() === "sign-in"
-							? "Nog geen account? Aanmaken"
-							: "Al een account? Inloggen"}
+						{mode() === "sign-in" ? "Wachtwoord vergeten?" : "Terug naar inloggen"}
 					</Button>
 
 					<p class="mt-10 text-micro text-muted">

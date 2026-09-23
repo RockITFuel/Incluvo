@@ -12,6 +12,7 @@ import {
 import { ORPCError } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
+import { createAccount, hasPassword, sendInvite } from "../../users";
 import { base, ownTenant, protectedProcedure, withPolicy } from "../base";
 
 /**
@@ -343,12 +344,16 @@ const usersSetRole = protectedProcedure
 	});
 
 /**
- * Invite / create a user inside a tenant (keyuser+ via manageUsers). A keyuser
- * may only create in their own org; superadmin may target any org. This records
- * the intended user + role + tenant via a `membership` row and (for an existing
- * account) flips their tenant/role. Actual credential provisioning (better-auth
- * signup / magic link, QUESTIONS 3.4) is wired by the auth flow / seed; here we
- * keep it idempotent on email.
+ * Invite a user into a tenant (keyuser+ via manageUsers). A keyuser may only
+ * invite into their own org; superadmin may target any org.
+ *
+ * - New e-mail: creates the account (no password) and mails a set-password
+ *   link. This is the only way accounts are created; public sign-up is off.
+ * - Existing account in the same tenant: updates the role, and re-sends the
+ *   link while they haven't set a password yet (so "invite again" = resend).
+ * - Existing account without a tenant, or in another tenant: refused. Such an
+ *   account was not created by an invite, and attaching it would hand the
+ *   invited role to whoever registered that address.
  */
 const usersInvite = protectedProcedure
 	.use(withPolicy(policies.manageUsers, ownTenant))
@@ -356,6 +361,7 @@ const usersInvite = protectedProcedure
 	.input(
 		z.object({
 			email: z.string().email(),
+			name: z.string().trim().min(1).max(200).optional(),
 			role: RoleSchema.default("leerling"),
 			organizationId: z.string().uuid().optional(),
 		}),
@@ -365,11 +371,15 @@ const usersInvite = protectedProcedure
 			email: z.string(),
 			role: RoleSchema,
 			organizationId: z.string(),
-			existingUserId: z.string().nullable(),
+			userId: z.string(),
+			created: z.boolean(),
+			/** False when the set-password mail could not be sent (SMTP down). */
+			mailSent: z.boolean(),
 		}),
 	)
 	.handler(async ({ input, context }) => {
 		const { actor } = context;
+		const email = input.email.toLowerCase();
 
 		// Target tenant: default to the actor's own org.
 		const organizationId = input.organizationId ?? actor.organizationId;
@@ -387,56 +397,80 @@ const usersInvite = protectedProcedure
 			});
 		}
 
-		// If the account already exists, attach it to the tenant + role.
 		const [existing] = await context.db
-			.select({ id: user.id, organizationId: user.organizationId })
+			.select({
+				id: user.id,
+				name: user.name,
+				organizationId: user.organizationId,
+			})
 			.from(user)
-			.where(eq(user.email, input.email));
+			.where(eq(user.email, email));
 
-		if (existing) {
-			// Re-check tenant against the existing row (can't steal another tenant's user).
-			if (
-				existing.organizationId &&
-				!sameTenant(actor, { organizationId: existing.organizationId })
-			) {
-				throw new ORPCError("FORBIDDEN", {
-					message: "User belongs to another tenant",
-				});
-			}
-			await context.db
-				.update(user)
-				.set({ role: input.role, organizationId, updatedAt: new Date() })
-				.where(eq(user.id, existing.id));
+		if (existing && existing.organizationId !== organizationId) {
+			throw new ORPCError(existing.organizationId ? "FORBIDDEN" : "CONFLICT", {
+				message: existing.organizationId
+					? "Deze gebruiker hoort bij een andere organisatie"
+					: "Er bestaat al een account met dit e-mailadres dat niet via een uitnodiging is aangemaakt. Neem contact op met Ondivera.",
+			});
 		}
 
-		// Upsert an explicit membership row (idempotent on user/org).
+		let userId: string;
+		let name: string;
 		if (existing) {
-			const [m] = await context.db
-				.select({ id: membership.id })
-				.from(membership)
-				.where(
-					and(
-						eq(membership.userId, existing.id),
-						eq(membership.organizationId, organizationId),
-					),
-				);
-			if (m) {
-				await context.db
-					.update(membership)
-					.set({ role: input.role, updatedAt: new Date() })
-					.where(eq(membership.id, m.id));
-			} else {
-				await context.db
-					.insert(membership)
-					.values({ userId: existing.id, organizationId, role: input.role });
+			userId = existing.id;
+			name = existing.name;
+			await context.db
+				.update(user)
+				.set({ role: input.role, updatedAt: new Date() })
+				.where(eq(user.id, userId));
+		} else {
+			name = input.name ?? email.split("@")[0]!;
+			userId = await createAccount({
+				email,
+				name,
+				role: input.role,
+				organizationId,
+			});
+		}
+
+		// Upsert the membership row (idempotent on user/org).
+		const [m] = await context.db
+			.select({ id: membership.id })
+			.from(membership)
+			.where(
+				and(
+					eq(membership.userId, userId),
+					eq(membership.organizationId, organizationId),
+				),
+			);
+		if (m) {
+			await context.db
+				.update(membership)
+				.set({ role: input.role, updatedAt: new Date() })
+				.where(eq(membership.id, m.id));
+		} else {
+			await context.db
+				.insert(membership)
+				.values({ userId, organizationId, role: input.role });
+		}
+
+		let mailSent = true;
+		if (!existing || !(await hasPassword(userId))) {
+			try {
+				await sendInvite({ id: userId, email, name });
+			} catch (error) {
+				console.error("[invite] set-password mail failed", error);
+				mailSent = false;
 			}
 		}
 
 		return {
-			email: input.email,
+			email,
 			role: input.role,
 			organizationId,
-			existingUserId: existing?.id ?? null,
+			userId,
+			created: !existing,
+			mailSent,
 		};
 	});
 

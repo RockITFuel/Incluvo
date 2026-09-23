@@ -26,6 +26,7 @@ export function UsersPanel() {
 	const queryClient = useQueryClient();
 	const [inviteOpen, setInviteOpen] = createSignal(false);
 	const [inviteEmail, setInviteEmail] = createSignal("");
+	const [inviteName, setInviteName] = createSignal("");
 	const [inviteRole, setInviteRole] = createSignal<string>("leerling");
 
 	const usersQuery = useQuery(() =>
@@ -57,14 +58,31 @@ export function UsersPanel() {
 
 	const invite = useMutation(() =>
 		orpc.account.users.invite.mutationOptions({
-			onSuccess: () => {
+			onSuccess: (res) => {
 				invalidate();
 				setInviteOpen(false);
 				setInviteEmail("");
-				toast({ title: "Gebruiker uitgenodigd", tone: "success" });
+				setInviteName("");
+				toast(
+					res.mailSent
+						? {
+								title: res.created ? "Gebruiker uitgenodigd" : "Gebruiker bijgewerkt",
+								description: `${res.email} krijgt een e-mail om een wachtwoord te kiezen.`,
+								tone: "success",
+							}
+						: {
+								title: "Account aangemaakt, e-mail niet verstuurd",
+								description: "Probeer het later opnieuw via Uitnodigen.",
+								tone: "warning",
+							},
+				);
 			},
-			onError: () =>
-				toast({ title: "Uitnodigen mislukt", tone: "danger" }),
+			onError: (error) =>
+				toast({
+					title: "Uitnodigen mislukt",
+					description: error.message,
+					tone: "danger",
+				}),
 		}),
 	);
 
@@ -142,7 +160,7 @@ export function UsersPanel() {
 				open={inviteOpen()}
 				onOpenChange={setInviteOpen}
 				title="Gebruiker uitnodigen"
-				description="Voeg een gebruiker toe aan jouw organisatie met een rol."
+				description="De gebruiker krijgt een e-mail met een link om een wachtwoord te kiezen."
 				footer={
 					<>
 						<Button
@@ -156,6 +174,7 @@ export function UsersPanel() {
 							onClick={() =>
 								invite.mutate({
 									email: inviteEmail(),
+									name: inviteName().trim() || undefined,
 									role: inviteRole() as never,
 								})
 							}
@@ -173,6 +192,12 @@ export function UsersPanel() {
 						placeholder="naam@school.nl"
 						value={inviteEmail()}
 						onInput={(e) => setInviteEmail(e.currentTarget.value)}
+					/>
+					<Input
+						label="Naam"
+						placeholder="Voor- en achternaam"
+						value={inviteName()}
+						onInput={(e) => setInviteName(e.currentTarget.value)}
 					/>
 					<div class="flex flex-col gap-1.5">
 						<span class="text-small font-medium text-ink-2">Rol</span>
