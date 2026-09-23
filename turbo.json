@@ -11,7 +11,10 @@
 			"dependsOn": ["^check-types"]
 		},
 		"test": {
-			"cache": false
+			"cache": false,
+			// Strict env mode hides undeclared vars from tasks; CI passes the
+			// test database this way (test/preload.ts).
+			"passThroughEnv": ["TEST_DATABASE_URL", "DATABASE_URL"]
 		},
 		"lint": {
 			"dependsOn": ["^lint"]
