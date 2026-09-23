@@ -98,18 +98,22 @@ check tenant + role only; the coach↔leerling link is checked ad hoc.
 - *open:* gate `ai.translate` and `uploadLocal` behind a tenant + per-user rate
   limit (less urgent now that only invited users can sign in).
 
-### 1.3 Streaming handler DB connection
+### 1.3 Streaming handler DB connection ✅ done 2026-09-24
 - `ai.assistant` (async generator) runs queries after `requireAuth` released its
   pinned connection (`base.ts:53-57`). Either do all DB work before the first
   `yield` and pass plain data into the generator, or acquire/release a
   connection inside the generator (`try/finally`). Add a test that runs two
   assistant streams concurrently with a write in between.
 
-### 1.4 Pool pressure
+### 1.4 Pool pressure ✅ done 2026-09-24
 - Don't hold the pinned connection across slow external work: transcribe, AI
   calls, PDF rendering release it first (same pattern as 1.3).
 - Set a pool acquire timeout (`connectionTimeoutMillis`) so overload returns
   503 instead of hanging.
+- Done as: the request connection is taken on first query (`createRequestDb`),
+  handlers call `context.suspendDb()` before transcribe, the assistant stream
+  and PDF rendering, and the auth middleware releases a stream's connection
+  when the stream ends (`releaseAfterStream`).
 
 **Tests (all in phase 0 harness):** one test per flagged endpoint: unassigned
 coach → 403, other-tenant coach → 403, ontwikkelaar → 403 on pupil data,
