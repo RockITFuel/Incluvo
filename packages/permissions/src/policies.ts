@@ -13,50 +13,9 @@ import { definePolicy } from "./policy";
  * are re-run inside handlers once the row is loaded.
  */
 
-interface OwnedResource {
-	ownerId?: string | null;
-}
-
 interface OwnedByLeerling extends TenantScoped {
 	leerlingId?: string | null;
 }
-
-// ---------------------------------------------------------------------------
-// Legacy sample `item` policies — kept so the existing vertical slice compiles.
-// ---------------------------------------------------------------------------
-
-/** Anyone authenticated may read items. */
-export const readItems = definePolicy({
-	name: "items:read",
-	subject: "item",
-	action: "read",
-	evaluate: () => true,
-});
-
-/** Coaches and admins may create items. */
-export const createItems = definePolicy({
-	name: "items:create",
-	subject: "item",
-	action: "create",
-	evaluate: (actor) => atLeast(actor.role, "coach"),
-});
-
-/** The owner, or any admin, may update an item. */
-export const updateItem = definePolicy<OwnedResource>({
-	name: "items:update",
-	subject: "item",
-	action: "update",
-	evaluate: (actor, resource) =>
-		isSuperadmin(actor.role) || resource?.ownerId === actor.userId,
-});
-
-/** Only admins may delete items. */
-export const deleteItem = definePolicy({
-	name: "items:delete",
-	subject: "item",
-	action: "delete",
-	evaluate: (actor) => isSuperadmin(actor.role),
-});
 
 // ---------------------------------------------------------------------------
 // Tenant & users (admin omgeving #60, multi-tenant)

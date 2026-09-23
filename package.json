@@ -22,8 +22,7 @@
 		"db:push": "bun run --cwd packages/drizzle push",
 		"db:generate": "bun run --cwd packages/drizzle generate",
 		"db:migrate": "bun run --cwd packages/drizzle migrate",
-		"db:studio": "bun run --cwd packages/drizzle studio",
-		"db:seed": "bun run --cwd packages/drizzle seed"
+		"db:studio": "bun run --cwd packages/drizzle studio"
 	},
 	"devDependencies": {
 		"@types/node": "^22.15.0",

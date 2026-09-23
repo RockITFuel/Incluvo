@@ -52,9 +52,7 @@ export type PermissionSubject =
 	| "task"
 	| "chat"
 	| "notification"
-	| "audit"
-	// Legacy demo subject, kept for the sample `item` vertical slice.
-	| "item";
+	| "audit";
 
 /** Actions that can be performed on a subject. */
 export type PermissionAction = "read" | "create" | "update" | "delete";

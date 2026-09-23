@@ -36,10 +36,8 @@ packages/
   permissions/   RBAC roles + policies (shared by server & web)
 ```
 
-The end-to-end **vertical slice** to copy from is the generic `item` entity:
-`packages/drizzle/src/schema/items.ts` → `apps/server/src/procedures/items.ts`
-→ `apps/web/src/routes/_protected/items.tsx`. Rename it to a real Incluvo
-domain (coachplannen, cursussen, taken …).
+A typical vertical slice: `packages/drizzle/src/schema/task.ts` →
+`apps/server/src/procedures/tasks/index.ts` → `apps/web/src/routes/_protected/taken/`.
 
 ## Getting started
 
@@ -53,13 +51,12 @@ cp .env.example .env   # then edit if needed
 # 3. Start infrastructure (Postgres on :5435, Mailpit on :8025)
 docker compose up -d
 
-# 4. Create the schema, the audit trigger, and seed data
+# 4. Create the schema and the audit trigger
 bun run db:pgvector   # enable the pgvector extension (once, before migrating — #20 RAG)
 bun run db:migrate    # the same committed migrations production runs at startup
 psql "$DATABASE_URL" -f packages/drizzle/drizzle/audit-trigger.sql
-bun run db:seed
 
-# 5. (optional) Domain seeds — coachplan questionnaire, courses, kennisdocumenten
+# 5. Seed data — demo schools + users (needed to log in), then optional domain data
 bun run --cwd apps/server seed:demo
 bun run --cwd apps/server seed:coachplan   # Ondivera "Mijn Plan" + POPP (#18)
 bun run --cwd apps/server seed:courses
@@ -99,7 +96,6 @@ Then open:
 | `bun run db:generate` | Generate a SQL migration                     |
 | `bun run db:migrate`  | Apply migrations                             |
 | `bun run db:studio`   | Drizzle Studio                               |
-| `bun run db:seed`     | Seed sample data                             |
 
 ## Schema changes
 
@@ -138,7 +134,7 @@ across coach assignments: Demo School (`coach` ↔ `leerling`, `coach2` ↔
 
 - **Typed client**: `apps/web/src/lib/orpc` imports the `Router` *type* from the
   server and calls procedures with full type-safety over `/rpc` (cookies
-  included). TanStack Query utils: `orpc.items.list.queryOptions()`.
+  included). TanStack Query utils: `orpc.tasks.list.queryOptions()`.
 - **Auth**: better-auth is mounted at `/api/auth`; the Vite dev server proxies
   `/rpc`, `/api`, and `/sse` to the backend so the browser sees one origin.
 - **AuthZ**: procedures compose `protectedProcedure` with `withPolicy(...)`;

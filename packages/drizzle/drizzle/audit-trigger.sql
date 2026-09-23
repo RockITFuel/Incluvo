@@ -6,8 +6,8 @@
 --   psql "$DATABASE_URL" -f drizzle/audit-trigger.sql
 --
 -- Attach to a table with:
---   CREATE TRIGGER item_audit
---     AFTER INSERT OR UPDATE OR DELETE ON item
+--   CREATE TRIGGER <table>_audit
+--     AFTER INSERT OR UPDATE OR DELETE ON <table>
 --     FOR EACH ROW EXECUTE FUNCTION record_audit();
 
 CREATE OR REPLACE FUNCTION record_audit() RETURNS trigger AS $$
@@ -33,12 +33,6 @@ BEGIN
 	END IF;
 END;
 $$ LANGUAGE plpgsql;
-
--- Audit the sample `item` table out of the box.
-DROP TRIGGER IF EXISTS item_audit ON item;
-CREATE TRIGGER item_audit
-	AFTER INSERT OR UPDATE OR DELETE ON item
-	FOR EACH ROW EXECUTE FUNCTION record_audit();
 
 -- Audit the key Incluvo domain tables. These hold tenant/role data, coachplan
 -- content for (deels) minderjarige leerlingen, grading, chat and notifications,
