@@ -14,6 +14,7 @@
 		"dev:server": "turbo -F @incluvo/server dev",
 		"build": "turbo build",
 		"check-types": "turbo check-types",
+		"test": "turbo test",
 		"lint": "oxlint -c .oxlintrc.json apps/*/src packages",
 		"format": "oxfmt --write .",
 		"format:check": "oxfmt --check .",

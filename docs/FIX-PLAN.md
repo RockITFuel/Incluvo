@@ -1,0 +1,292 @@
+# Fix plan (review 2026-09-23)
+
+Follows the critical review of 2026-09-23 (domain, backend security, frontend/a11y).
+Ordered by risk: nothing in phase 1 depends on a product decision; phases 2+ have
+a few questions for Mark, listed up front so they can be asked now.
+
+Rough sizing: S ≈ ½ day, M ≈ 1–2 days, L ≈ 3–5 days.
+
+---
+
+## Product decisions (answered 2026-09-23)
+
+| # | Question | Decision | Affects |
+|---|----------|----------|---------|
+| D1 | What may a **keyuser** do with leerlingen in their own school? | **Read and write** — a keyuser can act as any coach in their school (read everything, grade, share plans, edit tasks). | 1.1 |
+| D2 | How does a coachplan live over time? | **One living plan + versions** — one current plan per leerling; each share keeps a read-only version; the leerling can start a revision. | 2.1 |
+| D3 | Courses per klas or per leerling? | **Per leerling** — keep one private copy per leerling; drop course forums and group assignments inside courses (general chat stays). | 2.4 |
+| D4 | The **ontwikkelaar**'s job? | **Build courses only** — templates + course builder, no access to any leerling's data. | 1.1, 5 |
+| D5 | Template changes vs. school copies? | **"Create a revision"** — exact meaning still to confirm (see 2.2). | 2.2 |
+
+---
+
+## Phase 0 — Safety net (M) — do first ✅ done 2026-09-23
+
+Nothing here changes behaviour; it makes the later phases verifiable.
+
+- **0.1 Test harness.** `bun test` in `apps/server`, against a separate DB
+  `incluvo_test` on the existing Postgres (5435). Helper that pushes schema +
+  audit trigger, seeds the demo users, and returns a signed-in oRPC client per
+  role (`asRole("coach")`). Add `"test"` scripts + a `turbo test` task.
+- **0.2 Second tenant in the seed.** `seed-demo.ts` gets a second school with its
+  own coach + leerling, and a second (unassigned) coach in Demo School. Every
+  cross-tenant/unassigned finding below needs this to be testable.
+- **0.3 CI.** Extend `.github/workflows` with `check-types`, `lint`, `test`
+  (Postgres service container).
+- **0.4 Migrations, not push.** Switch the documented flow from `db:push` to
+  `db:generate` + `db:migrate` (migrations 0000–0004 already exist). Phase 3 adds
+  constraints that need data clean-up steps; `push` can't express those.
+
+**Done when:** `bun run test` runs green in CI with one trivial test per role.
+
+---
+
+## Phase 1 — Security & tenant isolation (L) — blocker for any real data
+
+### 1.1 One central "who may touch this leerling" rule
+Root cause of most findings: policies in `packages/permissions/src/policies.ts`
+check tenant + role only; the coach↔leerling link is checked ad hoc.
+
+- Add `packages/permissions/src/leerling-access.ts`:
+  `canAccessLeerling(actor, leerling, { assignedCoachIds }, mode: "read"|"write")`
+  - self (leerling acting on own data) → yes
+  - superadmin → yes
+  - keyuser, same tenant → read + write (D1)
+  - coach → only with a `coach_assignment`
+  - ontwikkelaar → no (D4)
+- Server: replace `assertLeerlingReachable` (`courses/index.ts:195`) and the
+  hand-written checks in tasks/dashboard/mood/coachplan with one
+  `requireLeerlingAccess(context, leerlingId, mode)` in `procedures/base.ts`.
+  Callers that load a row (submission, course execution, assignment submission,
+  task, conversation) pass the row's `leerlingId`, never the client's.
+- Apply to every endpoint the review flagged:
+  - courses: `create`, `derive`, `tree` (also when `leerlingId` is omitted),
+    `listSubmissions` (filter to reachable leerlingen for non-leerlingen),
+    `gradeSubmission`, `respondProposal`, `setProgressBarHidden`,
+    `submitAssignment`, `setProgress`
+  - `getFile` / `authorizeFileAccess`: resolve the key to its owning row
+    (submission / feedback / block) and check access on *that*; plain
+    `readCourse` is not enough for pupil files
+  - `confirmUpload`: only the uploader may confirm their key
+  - `chat.messages` for forum conversations: require membership (or
+    `requireLeerlingAccess` for the course's leerling), not "coach-or-higher"
+  - coachplan `saveCoachAnswer`: also verify the question belongs to the
+    submission's template and is in the coach section
+  - coachplan `getSubmission` for a leerling: hide coach-section answers until
+    status is `shared`
+- `addBlock` / `updateBlock`: reject a `fileStorageKey` that wasn't uploaded by
+  the actor for this course (record uploads in a small `upload` table, or sign
+  keys server-side).
+- Remove the `items` entity: router entry (`router.ts:36`), procedures, policies,
+  schema, `/items` route, seed. It's readable across tenants today.
+
+### 1.2 Accounts ✅ done 2026-09-23 (except the items marked *open*)
+- `auth.ts`: `emailAndPassword: { enabled: true, disableSignUp: true }`; remove
+  the sign-up toggle in `login.tsx`. Accounts are created only via invite.
+- `users.invite` (`account/index.ts:396`): never attach a pre-existing
+  self-registered account. Invite creates the user (or sends a set-password link
+  through Mailpit/SMTP); existing accounts without an org are refused.
+- *open:* delete any existing tenant-less `member` accounts in production, after
+  checking them: `SELECT id, email, created_at FROM "user" WHERE organization_id IS NULL AND role = 'member';`
+- *open:* set `AUTH_IP_HEADER` in production to a header the proxy overwrites.
+- Rate limit: split — keep strict limits on `sign-in`/`reset`, exempt
+  `get-session` (`auth.ts:42`), key by IP+email so one school NAT isn't locked
+  out.
+- *open:* gate `ai.translate` and `uploadLocal` behind a tenant + per-user rate
+  limit (less urgent now that only invited users can sign in).
+
+### 1.3 Streaming handler DB connection
+- `ai.assistant` (async generator) runs queries after `requireAuth` released its
+  pinned connection (`base.ts:53-57`). Either do all DB work before the first
+  `yield` and pass plain data into the generator, or acquire/release a
+  connection inside the generator (`try/finally`). Add a test that runs two
+  assistant streams concurrently with a write in between.
+
+### 1.4 Pool pressure
+- Don't hold the pinned connection across slow external work: transcribe, AI
+  calls, PDF rendering release it first (same pattern as 1.3).
+- Set a pool acquire timeout (`connectionTimeoutMillis`) so overload returns
+  503 instead of hanging.
+
+**Tests (all in phase 0 harness):** one test per flagged endpoint: unassigned
+coach → 403, other-tenant coach → 403, ontwikkelaar → 403 on pupil data,
+assigned coach → 200, leerling on own data → 200, leerling on other leerling →
+403. Sign-up returns 4xx. Invite of an existing account is refused.
+
+**Done when:** every finding in the backend review's High + "other authz gaps"
+list has a failing-then-passing test.
+
+---
+
+## Phase 2 — Coachplan lifecycle & core domain (L)
+
+### 2.1 A real plan lifecycle
+Today "the plan" = newest submission; a new draft appears after every submit.
+
+- Schema (per D2 default): `coachplan` (one per leerling per tenant, holds
+  `currentVersionId`, `approvedWithParents`, `leervoorkeurLabels`) → versions =
+  existing `form_submission` rows with `coachplanId`.
+- Explicit state machine in one module (`apps/server/src/coachplan/lifecycle.ts`):
+  `draft → submitted → in_review → shared → (revise) → draft(new version)`.
+  Every mutation goes through `transition(from, to)` with a guarded
+  `UPDATE … WHERE status = :from` (0 rows → 409).
+  - `shareWithLeerling`, `saveCoachAnswer`: only from `submitted`/`in_review`.
+  - `startMine`: returns the current plan; only creates a new draft when the
+    leerling explicitly clicks "Plan bijwerken" on a shared plan.
+  - Drop never-set states (`completed`) or give them a transition.
+- One reader `getCurrentPlan(leerlingId)` used by dashboard `latestPlan`,
+  `readLeervoorkeuren`, PDF and AI — delete the per-feature guessing.
+- Data migration: per leerling, pick the current plan with today's
+  `latestPlan` rule, attach older submissions as versions, delete empty drafts.
+
+### 2.2 Answer mapping (#18) — finish it or cut it
+- `templatesCopyToSchool` (`coachplan/index.ts:319`): remap `mapsToQuestionId`
+  inside the copy (reuse the logic from `seed-coachplan.ts:387-429`), in one
+  transaction with the template insert.
+- Coach form really pre-fills: initial value = override ?? mapped leerling
+  answer (`plan/$submissionId.tsx:127`).
+- Single source of truth for coach answers: `form_answer` only;
+  `answer_coach_mapping.overrideValue` goes (migrate existing overrides into
+  `form_answer`).
+- PDF + AI read coach answers through one `resolveCoachAnswers(submission)` so
+  mapped answers are included.
+- Lock question type/options/section once a template has answers
+  (`questionsUpdate`, `coachplan/index.ts:410`): editing → create a new template
+  version instead.
+
+### 2.3 Course completion
+- One source of truth for "done": `assignment_submission.status` drives the task
+  (`task.done` becomes derived, or updated in the same transaction) and
+  `content_progress`. Remove unused statuses or implement `returned`
+  (coach sends back) — the grading UI already implies it.
+
+### 2.4 Forums & group work (D3: per leerling)
+- Courses stay one private copy per leerling, so course forums and group
+  assignments can never have classmates. Remove them: the `forum` block type
+  and `isGroup` from the builder, `copyStructure` and the seed; migrate existing
+  forum blocks away (their conversations stay readable in chat, or are archived).
+- General chat (1:1 coach↔leerling) is unaffected.
+
+### 2.5 Role model clean-up
+- `user.role` → pg enum without legacy `member`/`admin`; migrate existing rows.
+- Decide on `membership`: either read it (multi-org users) or drop it. Default:
+  drop — `user.organizationId` is what's used everywhere (`base.ts:42`).
+- `hasAtLeast("ontwikkelaar")` for the builder tab → explicit capability
+  `canBuildCourses(role)` so coaches don't inherit builder rights by rank.
+
+**Done when:** a leerling can submit, get a shared plan, revise it, and the
+dashboard/PDF/AI/course labels all show the same version; tests cover each
+illegal transition returning 409.
+
+---
+
+## Phase 3 — Data integrity (M)
+
+Each constraint = migration that first de-duplicates, then adds the index.
+
+- Unique: `form_answer(submission_id, question_id)`,
+  `answer_coach_mapping(submission_id, question_id)` (if kept),
+  `form_assignment(leerling_id)` (or per template — per D2),
+  `coach_assignment(coach_id, leerling_id)`,
+  `task(assignment_id, leerling_id)`,
+  `assignment_submission(assignment_id, leerling_id, attempt)`,
+  partial unique `form_template(organization_id) WHERE is_default`.
+- Autosave `saveAnswer` → `INSERT … ON CONFLICT DO UPDATE` (`coachplan:720`).
+- `maxAttempts`: compute attempt number inside the insert transaction; the
+  unique index makes concurrent over-submission fail.
+- Wrap in transactions: `submit`, `templatesCopyToSchool`, `setSchoolDefault`,
+  `updateBlock` label replace, `setRole`, `invite`, `chat.send`.
+- Audit (`audit-trigger.sql`):
+  - add the `user` table (role/org changes), excluding password/secret columns;
+  - store only changed column names + ids for `message` / `form_answer`, not
+    full content (GDPR erasure must not leave copies);
+  - implement retention (`admin/index.ts:621`): scheduled purge of audit rows
+    and deleted-leerling data after N months (N = decision, default 24).
+
+**Done when:** a concurrency test (20 parallel autosaves / submissions) produces
+no duplicates and no over-limit attempts.
+
+---
+
+## Phase 4 — Accessibility (WCAG AA) (M–L)
+
+- **4.1 Font scaling.** Type tokens in `app.css:61` → `rem`; replace the 167
+  inline `"font-size": "Npx"` and px sizes in `design-system.css` with tokens.
+  Add a lint rule (grep in CI) forbidding px font sizes.
+- **4.2 Reflow (1.4.10).** Replace inline `2fr 1fr` grids
+  (`welkom/index.tsx:326`, `dashboard/$leerlingId.tsx:258`) and `.ds-grid` with
+  responsive classes that stack below ~768px. Test at 320px wide.
+- **4.3 Page titles & route announcements (2.4.2, 4.1.3).** Per-route `head`
+  title ("Mijn plan – Incluvo"); on navigation move focus to `<h1>` (tabindex
+  -1) and announce via a polite live region. Add missing `<h1>` on `/chat`,
+  fix h1→h3 jumps.
+- **4.4 Coach dashboard semantics.** Filter: real `role="tab"`/`aria-selected`
+  or plain toggle buttons (no tablist). Pupil list: real `<table>` or list;
+  row = link to the detail, with Chat/Profiel as separate controls (no nested
+  interactive). Mood emoji: `role="img"` + `aria-label`, full weekday names.
+- **4.5 Unused a11y settings.** Hide "Voorlezen" and "Taal" until implemented.
+- **4.6 Automated checks.** axe-core via Playwright on each role's main pages in
+  CI (the review's scratch scripts can be the starting point); fail on serious
+  violations.
+- Colour: remove hard-coded `#fff` / `rgb(255 255 255/.18)` (`welkom:455-490`)
+  in favour of tokens so high-contrast mode works.
+
+**Done when:** axe clean on all main pages per role; M→L visibly scales text;
+no horizontal scroll at 320px.
+
+---
+
+## Phase 5 — Flow & UI clean-up (M)
+
+- **Dead buttons:** implement or remove — "Taak voor klas", "AI-overzicht week"
+  (`dashboard/index.tsx:182`), PDF/AI-advies on leerling detail
+  (`$leerlingId.tsx:295` → link to `/plan/$id` of the current plan), topbar
+  search, chat phone/video/paperclip. Default: remove; add back when built.
+- **One AI-advice entry point:** the `/plan/$id` sidebar. `/assistent` becomes a
+  thin picker that links there, or goes.
+- **One "Formulieren":** drop the read-only Beheer tab, keep `/plan/beheer`
+  (linked from Beheer). Same for Beheer→Cursussen.
+- **Coach task management:** link `/taken/$leerlingId` from the leerling detail
+  page; back link returns to where you came from.
+- **Ontwikkelaar home:** own nav (Cursussen/Bouwen, Chat, Profiel) and landing on
+  `/cursussen`; `startMine` rejects non-leerlingen server-side.
+- Nav: remove the duplicate "Mijn successen"; remove unused breadcrumb code or
+  pass `crumbs`.
+- Error states: every query shows an error state distinct from "empty"; map
+  server errors to friendly Dutch messages (`plan/index.tsx:136`, `login.tsx:67`).
+- Remove ticket numbers from UI copy (`cursussen/$courseId.tsx:299,526,585`,
+  `templates-panel.tsx`).
+- Confirm dialog (or undo) on deleting a builder section.
+- `todayKey()` (`welkom:112`) → Europe/Amsterdam date.
+- Successen toggle persisted per leerling (server-side), per decision doc.
+- "Volgende afspraak": hide until it has a backend.
+
+---
+
+## Phase 6 — Code health & docs (ongoing, S each)
+
+- Split `dashboard/$leerlingId.tsx`, `course-builder.tsx`, `welkom/index.tsx`,
+  `courses/index.ts` (2k lines), `coachplan/index.ts` into per-feature modules.
+- Shared utils: one `initials()`, one `relativeTime()`, use `ProgressBar`.
+- Pick one styling system: migrate the ported prototype CSS / inline styles to
+  Tailwind + `components/ui` page by page as they're touched.
+- Data fetching: plan wizard to solid-query like the rest.
+- AI prompts: pupil answers and `coachplanContext` in the *user* message with
+  delimiters, not the system prompt; server builds the context (ignore the
+  client-supplied one); reject client `assistant` turns; cap `messages` length;
+  pseudonymise the pupil name before sending.
+- AI residency: `AI_ALLOWED_HOSTS` override only honoured when
+  `NODE_ENV !== "production"`; log a loud warning at boot when it's set.
+- Rewrite `docs/IMPLEMENTATION-STATUS.md` from the code (it's wrong in both
+  directions), and link this plan from `ROADMAP.md`.
+
+---
+
+## Order & milestones
+
+1. **Week 1:** Phase 0 + 1.2 (sign-up/invite) + 1.1 started. → no more open doors.
+2. **Week 2:** 1.1 complete, 1.3, 1.4. → **gate: OK for real minors' data**
+   (together with the EU AI endpoint).
+3. **Week 3:** Phase 3 + 4.1–4.3.
+4. **Weeks 4–5:** Phase 2 (lifecycle, mapping, completion, forums).
+5. **Week 6:** 4.4–4.6, Phase 5. Phase 6 alongside, as files are touched.
