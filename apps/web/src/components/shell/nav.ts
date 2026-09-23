@@ -23,8 +23,7 @@ export type NavBadges = {
 
 /**
  * Role-aware sidebar navigation. The branching is real (driven by the session
- * role from `account.me`); hrefs point at placeholder routes (`/`, `/items`,
- * `/beheer`) that later epics replace with the real destinations.
+ * role from `account.me`).
  *
  *   - leerling     → Welkom, Mijn taken, Cursussen, Mijn plan, Chat
  *   - coach        → Dashboard, Coachplannen, Cursussen, Chat, Assistent

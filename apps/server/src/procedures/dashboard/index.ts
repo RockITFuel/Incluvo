@@ -12,10 +12,10 @@ import {
 	task,
 	user,
 } from "@incluvo/drizzle/schema";
-import { isSuperadmin, policies, sameTenant } from "@incluvo/permissions";
-import { ORPCError } from "@orpc/server";
+import { policies, sameTenant } from "@incluvo/permissions";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
+import { reachableLeerlingen, requireLeerlingAccess } from "../../access";
 import {
 	type AuthedContext,
 	base,
@@ -191,43 +191,8 @@ function planStatusFor(
 	}
 }
 
-/**
- * Assert the leerling is assigned to this coach within the tenant. Loads the
- * leerling row so cross-tenant access is rejected even for the superadmin's
- * own-tenant safety, then (for non-superadmins) requires a `coach_assignment`
- * linking actor→leerling. Returns the leerling row.
- */
-async function assertAssigned(context: AuthedContext, leerlingId: string) {
-	const { actor } = context;
-	const [leerling] = await context.db
-		.select({
-			id: user.id,
-			name: user.name,
-			email: user.email,
-			organizationId: user.organizationId,
-		})
-		.from(user)
-		.where(eq(user.id, leerlingId));
-	if (!leerling) throw new ORPCError("NOT_FOUND");
-	if (!sameTenant(actor, leerling)) throw new ORPCError("FORBIDDEN");
-	if (!isSuperadmin(actor.role)) {
-		const [link] = await context.db
-			.select({ id: coachAssignment.id })
-			.from(coachAssignment)
-			.where(
-				and(
-					eq(coachAssignment.coachId, actor.userId),
-					eq(coachAssignment.leerlingId, leerlingId),
-				),
-			);
-		if (!link) {
-			throw new ORPCError("FORBIDDEN", {
-				message: "Leerling is niet aan jou gekoppeld",
-			});
-		}
-	}
-	return leerling;
-}
+/** The leerling, if the actor may see their data (`requireLeerlingAccess`). */
+const assertAssigned = requireLeerlingAccess;
 
 /** Latest submission (any status) for a leerling, with its discuss-flag count. */
 async function latestPlan(
@@ -540,36 +505,22 @@ const overview = protectedProcedure
 	.handler(async ({ context }) => {
 		const { actor } = context;
 
-		// Assigned leerlingen for this coach (superadmin: all in tenant).
-		let leerlingRows: {
-			id: string;
-			name: string;
-			email: string;
-			organizationId: string | null;
-		}[];
-		if (isSuperadmin(actor.role)) {
-			leerlingRows = await context.db
-				.select({
-					id: user.id,
-					name: user.name,
-					email: user.email,
-					organizationId: user.organizationId,
-				})
-				.from(user)
-				.where(eq(user.role, "leerling"));
-		} else {
-			const assigned = await context.db
-				.select({
-					id: user.id,
-					name: user.name,
-					email: user.email,
-					organizationId: user.organizationId,
-				})
-				.from(coachAssignment)
-				.innerJoin(user, eq(user.id, coachAssignment.leerlingId))
-				.where(eq(coachAssignment.coachId, actor.userId));
-			leerlingRows = assigned;
-		}
+		// Leerlingen this actor may see: assigned (coach), whole school
+		// (keyuser, D1) or everyone (superadmin).
+		let leerlingRows = await context.db
+			.select({
+				id: user.id,
+				name: user.name,
+				email: user.email,
+				organizationId: user.organizationId,
+			})
+			.from(user)
+			.where(
+				and(
+					eq(user.role, "leerling"),
+					await reachableLeerlingen(context, user.id, user.organizationId),
+				),
+			);
 
 		// Defence in depth: never leak cross-tenant leerlingen.
 		leerlingRows = leerlingRows.filter((l) => sameTenant(actor, l));

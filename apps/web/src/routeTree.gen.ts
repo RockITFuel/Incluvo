@@ -13,7 +13,6 @@ import { Route as WachtwoordInstellenRouteImport } from './routes/wachtwoord-ins
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ProtectedRouteImport } from './routes/_protected'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as ProtectedItemsRouteImport } from './routes/_protected/items'
 import { Route as ProtectedWelkomIndexRouteImport } from './routes/_protected/welkom/index'
 import { Route as ProtectedTakenIndexRouteImport } from './routes/_protected/taken/index'
 import { Route as ProtectedProfielIndexRouteImport } from './routes/_protected/profiel/index'
@@ -48,11 +47,6 @@ const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
-} as any)
-const ProtectedItemsRoute = ProtectedItemsRouteImport.update({
-  id: '/items',
-  path: '/items',
-  getParentRoute: () => ProtectedRoute,
 } as any)
 const ProtectedWelkomIndexRoute = ProtectedWelkomIndexRouteImport.update({
   id: '/welkom/',
@@ -140,7 +134,6 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/wachtwoord-instellen': typeof WachtwoordInstellenRoute
-  '/items': typeof ProtectedItemsRoute
   '/cursussen/$courseId': typeof ProtectedCursussenCourseIdRoute
   '/dashboard/$leerlingId': typeof ProtectedDashboardLeerlingIdRoute
   '/plan/$submissionId': typeof ProtectedPlanSubmissionIdRoute
@@ -161,7 +154,6 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/wachtwoord-instellen': typeof WachtwoordInstellenRoute
-  '/items': typeof ProtectedItemsRoute
   '/cursussen/$courseId': typeof ProtectedCursussenCourseIdRoute
   '/dashboard/$leerlingId': typeof ProtectedDashboardLeerlingIdRoute
   '/plan/$submissionId': typeof ProtectedPlanSubmissionIdRoute
@@ -184,7 +176,6 @@ export interface FileRoutesById {
   '/_protected': typeof ProtectedRouteWithChildren
   '/login': typeof LoginRoute
   '/wachtwoord-instellen': typeof WachtwoordInstellenRoute
-  '/_protected/items': typeof ProtectedItemsRoute
   '/_protected/cursussen/$courseId': typeof ProtectedCursussenCourseIdRoute
   '/_protected/dashboard/$leerlingId': typeof ProtectedDashboardLeerlingIdRoute
   '/_protected/plan/$submissionId': typeof ProtectedPlanSubmissionIdRoute
@@ -207,7 +198,6 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/wachtwoord-instellen'
-    | '/items'
     | '/cursussen/$courseId'
     | '/dashboard/$leerlingId'
     | '/plan/$submissionId'
@@ -228,7 +218,6 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/wachtwoord-instellen'
-    | '/items'
     | '/cursussen/$courseId'
     | '/dashboard/$leerlingId'
     | '/plan/$submissionId'
@@ -250,7 +239,6 @@ export interface FileRouteTypes {
     | '/_protected'
     | '/login'
     | '/wachtwoord-instellen'
-    | '/_protected/items'
     | '/_protected/cursussen/$courseId'
     | '/_protected/dashboard/$leerlingId'
     | '/_protected/plan/$submissionId'
@@ -304,13 +292,6 @@ declare module '@tanstack/solid-router' {
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
-    }
-    '/_protected/items': {
-      id: '/_protected/items'
-      path: '/items'
-      fullPath: '/items'
-      preLoaderRoute: typeof ProtectedItemsRouteImport
-      parentRoute: typeof ProtectedRoute
     }
     '/_protected/welkom/': {
       id: '/_protected/welkom/'
@@ -421,7 +402,6 @@ declare module '@tanstack/solid-router' {
 }
 
 interface ProtectedRouteChildren {
-  ProtectedItemsRoute: typeof ProtectedItemsRoute
   ProtectedCursussenCourseIdRoute: typeof ProtectedCursussenCourseIdRoute
   ProtectedDashboardLeerlingIdRoute: typeof ProtectedDashboardLeerlingIdRoute
   ProtectedPlanSubmissionIdRoute: typeof ProtectedPlanSubmissionIdRoute
@@ -440,7 +420,6 @@ interface ProtectedRouteChildren {
 }
 
 const ProtectedRouteChildren: ProtectedRouteChildren = {
-  ProtectedItemsRoute: ProtectedItemsRoute,
   ProtectedCursussenCourseIdRoute: ProtectedCursussenCourseIdRoute,
   ProtectedDashboardLeerlingIdRoute: ProtectedDashboardLeerlingIdRoute,
   ProtectedPlanSubmissionIdRoute: ProtectedPlanSubmissionIdRoute,

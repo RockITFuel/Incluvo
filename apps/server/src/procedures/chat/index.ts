@@ -11,6 +11,7 @@ import { and, desc, eq, inArray, lt } from "drizzle-orm";
 import { z } from "zod";
 import { notify } from "../../notifications/notify";
 import { publishTo } from "../../sse";
+import { canReachLeerling } from "../../access";
 import { type AuthedContext, base, protectedProcedure } from "../base";
 
 /**
@@ -88,25 +89,25 @@ async function loadAccessibleConversation(context: AuthedContext, conversationId
     memberIds,
   };
 
-  // Tenant + membership (or coach read-along for forums #6).
-  if (!checkPermission(policies.accessChat, context.actor, resource)) {
-    throw new ORPCError("FORBIDDEN", {
-      message: "Geen toegang tot dit gesprek",
-    });
-  }
-
-  // The coach read-along (#6) only applies to group/forum chats, never to a
-  // 1:1 chat they are not part of. A coach who is an explicit member of a
-  // direct chat is of course allowed.
+  // Members may take part. A non-member may only read along in a course forum
+  // (#6) when they may see one of its leerlingen (assigned coach, keyuser of
+  // the school, superadmin) — never in someone else's 1:1 chat.
   const isExplicitMember = memberIds.includes(context.actor.userId);
-  if (
-    !isExplicitMember &&
-    conv.kind === "direct" &&
-    !members.some((m) => m.userId === context.actor.userId)
-  ) {
-    throw new ORPCError("FORBIDDEN", {
-      message: "Geen toegang tot dit 1-op-1 gesprek",
-    });
+  if (!checkPermission(policies.accessChat, context.actor, resource)) {
+    let readAlong = false;
+    if (conv.kind === "forum") {
+      for (const m of members) {
+        if (m.role === "member" && (await canReachLeerling(context, m.userId))) {
+          readAlong = true;
+          break;
+        }
+      }
+    }
+    if (!readAlong) {
+      throw new ORPCError("FORBIDDEN", {
+        message: "Geen toegang tot dit gesprek",
+      });
+    }
   }
 
   return { conv, members, memberIds, isExplicitMember };

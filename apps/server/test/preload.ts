@@ -5,8 +5,7 @@
  *    Postgres as the dev DB (or TEST_DATABASE_URL when set, e.g. in CI).
  * 2. Drops + recreates it, then applies exactly what production startup does
  *    (apps/server/startup.ts): pgvector, committed migrations, audit trigger.
- * 3. Seeds the demo tenants (seed-demo.ts, run as a subprocess because the seed
- *    scripts call process.exit).
+ * 3. Seeds the demo tenants, the coachplan template and the demo courses.
  *
  * Env is set here, before anything imports `@incluvo/drizzle`, because the
  * pool reads DATABASE_URL at import time.
@@ -61,12 +60,17 @@ await migrate(drizzle(pool), { migrationsFolder: drizzleDir });
 await pool.query(readFileSync(join(drizzleDir, "audit-trigger.sql"), "utf8"));
 await pool.end();
 
-const seed = Bun.spawnSync(["bun", "src/seed-demo.ts"], {
-	cwd: join(import.meta.dir, ".."),
-	env: process.env,
-	stdout: "pipe",
-	stderr: "pipe",
-});
-if (seed.exitCode !== 0) {
-	throw new Error(`seed-demo failed:\n${seed.stdout}\n${seed.stderr}`);
+// Demo tenants/users first, then the coachplan template and the courses (with
+// a student execution + forum for leerling@). The seed scripts call
+// process.exit, so each runs as a subprocess.
+for (const script of ["seed-demo.ts", "seed-coachplan.ts", "seed-courses.ts"]) {
+	const seed = Bun.spawnSync(["bun", `src/${script}`], {
+		cwd: join(import.meta.dir, ".."),
+		env: process.env,
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	if (seed.exitCode !== 0) {
+		throw new Error(`${script} failed:\n${seed.stdout}\n${seed.stderr}`);
+	}
 }

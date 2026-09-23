@@ -16,3 +16,5 @@ export {
 	sameTenant,
 } from "./src/check";
 export * as policies from "./src/policies";
+export type { LeerlingLink } from "./src/leerling-access";
+export { canAccessLeerling } from "./src/leerling-access";

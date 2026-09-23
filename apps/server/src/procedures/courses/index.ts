@@ -16,13 +16,7 @@ import {
 	task,
 	user,
 } from "@incluvo/drizzle/schema";
-import {
-	atLeast,
-	checkPermission,
-	isSuperadmin,
-	policies,
-	sameTenant,
-} from "@incluvo/permissions";
+import { atLeast, checkPermission, policies } from "@incluvo/permissions";
 import { ORPCError } from "@orpc/server";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -44,6 +38,11 @@ import {
 import { parseYoutubeId, youtubeEmbedUrl } from "../../courses/youtube";
 import { notify } from "../../notifications/notify";
 import { publishTo } from "../../sse";
+import {
+	canReachLeerling,
+	reachableLeerlingen,
+	requireLeerlingAccess,
+} from "../../access";
 import { type AuthedContext, base, protectedProcedure } from "../base";
 
 /**
@@ -159,6 +158,12 @@ async function loadReadable(context: AuthedContext, id: string) {
 		}
 		return row;
 	}
+	// A leerling's own course copy is their data: only those who may see the
+	// leerling (assigned coach, keyuser of the school, superadmin).
+	if (row.kind === "student_execution" && row.leerlingId) {
+		await requireLeerlingAccess(context, row.leerlingId);
+		return row;
+	}
 	const sharedTemplate =
 		row.kind === "ondivera_template" && row.organizationId === null;
 	if (
@@ -173,6 +178,9 @@ async function loadReadable(context: AuthedContext, id: string) {
 /** Load + assert the actor may manage the course (ontwikkelaar+, #25–#36). */
 async function loadManageable(context: AuthedContext, id: string) {
 	const row = await loadCourse(context, id);
+	if (row.kind === "student_execution" && row.leerlingId) {
+		await requireLeerlingAccess(context, row.leerlingId);
+	}
 	if (
 		!checkPermission(policies.manageCourse, context.actor, courseResource(row))
 	) {
@@ -183,44 +191,40 @@ async function loadManageable(context: AuthedContext, id: string) {
 	return row;
 }
 
+
 /**
- * When a non-leerling actor acts on behalf of a `leerlingId` it supplied, verify
- * that leerling exists, is in the actor's tenant, and is reachable by the actor
- * (superadmin, or a coach with a `coach_assignment` to this leerling). This stops
- * a coach/keyuser from reading or writing another tenant's / an unassigned
- * leerling's progress or leervoorkeuren (Medium: courses trust client leerlingId).
- *
- * A leerling acting on themselves never reaches here (callers force their own id).
+ * A stored file's key starts with the scope it was uploaded for (see
+ * `makeStorageKey`). Blocks, grades and submissions only accept keys of their
+ * own scope, so e.g. a builder can't point a course block at a pupil's
+ * submission file. Returns the key.
  */
-async function assertLeerlingReachable(
+function assertKeyScope(key: string, scope: "bestand" | "submission" | "feedback"): string {
+	try {
+		assertValidStorageKey(key);
+	} catch {
+		throw new ORPCError("BAD_REQUEST", { message: "Ongeldige opslagsleutel" });
+	}
+	if (!key.startsWith(`${scope}/`)) {
+		throw new ORPCError("BAD_REQUEST", { message: "Ongeldige opslagsleutel" });
+	}
+	return key;
+}
+
+/** A submission may only attach fresh uploads or files from the same leerling. */
+async function assertOwnSubmissionKey(
 	context: AuthedContext,
+	key: string,
 	leerlingId: string,
 ): Promise<void> {
-	const { actor } = context;
-	const [ll] = await context.db
-		.select({ id: user.id, organizationId: user.organizationId })
-		.from(user)
-		.where(eq(user.id, leerlingId));
-	if (!ll) throw new ORPCError("NOT_FOUND", { message: "Leerling niet gevonden" });
-	if (!sameTenant(actor, ll)) {
-		throw new ORPCError("FORBIDDEN", {
-			message: "Leerling hoort bij een andere organisatie",
-		});
-	}
-	if (isSuperadmin(actor.role)) return;
-	const [link] = await context.db
-		.select({ id: coachAssignment.id })
-		.from(coachAssignment)
+	assertKeyScope(key, "submission");
+	const others = await context.db
+		.select({ leerlingId: assignmentSubmission.leerlingId })
+		.from(assignmentSubmission)
 		.where(
-			and(
-				eq(coachAssignment.coachId, actor.userId),
-				eq(coachAssignment.leerlingId, leerlingId),
-			),
+			sql`${assignmentSubmission.fileStorageKeys} @> ${JSON.stringify([key])}::jsonb`,
 		);
-	if (!link) {
-		throw new ORPCError("FORBIDDEN", {
-			message: "Leerling is niet aan jou gekoppeld",
-		});
+	if (others.some((o) => o.leerlingId !== leerlingId)) {
+		throw new ORPCError("FORBIDDEN", { message: "Dit bestand hoort bij iemand anders" });
 	}
 }
 
@@ -336,7 +340,22 @@ const list = protectedProcedure
 			return false;
 		});
 
+		// Leerling course copies only for leerlingen the actor may see.
+		const reachable = new Set(
+			(
+				await context.db
+					.select({ id: user.id })
+					.from(user)
+					.where(await reachableLeerlingen(context, user.id, user.organizationId))
+			).map((u) => u.id),
+		);
 		const filtered = visible.filter((row) => {
+			if (
+				row.kind === "student_execution" &&
+				!(row.leerlingId && reachable.has(row.leerlingId))
+			) {
+				return false;
+			}
 			if (input?.kind && row.kind !== input.kind) return false;
 			if (input?.leerlingId && row.leerlingId !== input.leerlingId) return false;
 			return true;
@@ -373,9 +392,24 @@ const create = protectedProcedure
 			});
 		}
 
+		// A leerling's copy belongs to that leerling (and their school), and only
+		// those who may see the leerling may create one.
+		let executionOrg: string | null = null;
+		if (input.kind === "student_execution") {
+			if (!input.leerlingId) {
+				throw new ORPCError("BAD_REQUEST", { message: "Kies een leerling" });
+			}
+			executionOrg = (await requireLeerlingAccess(context, input.leerlingId))
+				.organizationId;
+		}
+
 		// Ondivera templates live at the platform (null org) — superadmin only.
 		const organizationId =
-			input.kind === "ondivera_template" ? null : actor.organizationId;
+			input.kind === "ondivera_template"
+				? null
+				: input.kind === "student_execution"
+					? executionOrg
+					: actor.organizationId;
 		if (input.kind === "ondivera_template" && !atLeast(actor.role, "superadmin")) {
 			throw new ORPCError("FORBIDDEN", {
 				message: "Alleen Ondivera kan een sjablooncursus aanmaken",
@@ -392,7 +426,7 @@ const create = protectedProcedure
 			.values({
 				kind: input.kind,
 				organizationId,
-				leerlingId: input.leerlingId ?? null,
+				leerlingId: input.kind === "student_execution" ? input.leerlingId : null,
 				title: input.title,
 				description: input.description ?? null,
 				createdById: actor.userId,
@@ -441,11 +475,8 @@ const setProgressBarHidden = protectedProcedure
 	.input(z.object({ id: z.string().uuid(), hidden: z.boolean() }))
 	.output(CourseSchema)
 	.handler(async ({ input, context }) => {
-		const row = await loadCourse(context, input.id);
-		if (
-			!atLeast(context.actor.role, "coach") ||
-			!checkPermission(policies.readCourse, context.actor, courseResource(row))
-		) {
+		await loadReadable(context, input.id);
+		if (!atLeast(context.actor.role, "coach")) {
 			throw new ORPCError("FORBIDDEN", {
 				message: "Alleen een coach kan de voortgangsbalk verbergen",
 			});
@@ -612,6 +643,10 @@ const derive = protectedProcedure
 				});
 			}
 		}
+		const destOrg =
+			input.kind === "student_execution" && input.leerlingId
+				? (await requireLeerlingAccess(context, input.leerlingId)).organizationId
+				: actor.organizationId;
 
 		// Atomic: the dest course + its deep-copied sections/blocks/labels/
 		// assignments + seeded tasks must commit together — a partial copy would
@@ -621,7 +656,7 @@ const derive = protectedProcedure
 				.insert(course)
 				.values({
 					kind: input.kind,
-					organizationId: actor.organizationId,
+					organizationId: destOrg,
 					parentCourseId: src.id,
 					leerlingId:
 						input.kind === "student_execution" ? (input.leerlingId ?? null) : null,
@@ -868,7 +903,9 @@ const addBlock = protectedProcedure
 					body: input.type === "pagina" ? (input.body ?? null) : null,
 					youtubeUrl: youtubeId,
 					fileStorageKey:
-						input.type === "bestand" ? (input.fileStorageKey ?? null) : null,
+						input.type === "bestand" && input.fileStorageKey
+							? assertKeyScope(input.fileStorageKey, "bestand")
+							: null,
 					countsForProgress: input.countsForProgress ?? true,
 				})
 				.returning({ id: contentBlock.id, type: contentBlock.type });
@@ -1024,7 +1061,9 @@ const updateBlock = protectedProcedure
 				body: block.type === "pagina" ? input.body : undefined,
 				youtubeUrl: block.type === "youtube" ? youtubeId : undefined,
 				fileStorageKey:
-					block.type === "bestand" ? input.fileStorageKey : undefined,
+					block.type === "bestand" && input.fileStorageKey
+						? assertKeyScope(input.fileStorageKey, "bestand")
+						: undefined,
 				countsForProgress: input.countsForProgress,
 				updatedAt: new Date(),
 			})
@@ -1206,7 +1245,6 @@ async function authorizeFileAccess(
 	context: AuthedContext,
 	storageKey: string,
 ): Promise<void> {
-	const { actor } = context;
 	const scope = storageKey.split("/")[0];
 
 	if (scope === "bestand") {
@@ -1256,14 +1294,8 @@ async function authorizeFileAccess(
 			.from(assignmentSubmission)
 			.where(eq(assignmentSubmission.id, grade.submissionId));
 		if (!sub) throw new ORPCError("NOT_FOUND");
-		const { course: crs } = await loadAssignmentCourse(context, sub.assignmentId);
-		// The leerling the feedback is for, or a coach who can read the course.
-		if (
-			actor.userId === sub.leerlingId ||
-			checkPermission(policies.readCourse, actor, courseResource(crs))
-		) {
-			return;
-		}
+		// The leerling the feedback is for, or someone who may see them.
+		if (await canReachLeerling(context, sub.leerlingId)) return;
 		throw new ORPCError("FORBIDDEN");
 	}
 
@@ -1283,15 +1315,10 @@ async function authorizeFileAccess(
 					storageKey,
 				])}::jsonb`,
 			);
-		const sub = candidates[0];
-		if (!sub) throw new ORPCError("NOT_FOUND");
-		const { course: crs } = await loadAssignmentCourse(context, sub.assignmentId);
-		// The owning leerling, or a coach who may read/grade the course.
-		if (
-			actor.userId === sub.leerlingId ||
-			checkPermission(policies.readCourse, actor, courseResource(crs))
-		) {
-			return;
+		if (candidates.length === 0) throw new ORPCError("NOT_FOUND");
+		// The owning leerling, or someone who may see them.
+		for (const sub of candidates) {
+			if (await canReachLeerling(context, sub.leerlingId)) return;
 		}
 		throw new ORPCError("FORBIDDEN");
 	}
@@ -1410,8 +1437,8 @@ const tree = protectedProcedure
 		// A non-leerling who supplies a leerlingId must be allowed to act for them
 		// (same tenant + assigned), else they could read another pupil's progress
 		// and leervoorkeuren (Medium).
-		if (actor.role !== "leerling" && input.leerlingId) {
-			await assertLeerlingReachable(context, input.leerlingId);
+		if (input.leerlingId && input.leerlingId !== actor.userId) {
+			await requireLeerlingAccess(context, input.leerlingId);
 		}
 		const leerlingId =
 			actor.role === "leerling"
@@ -1619,8 +1646,8 @@ const setProgress = protectedProcedure
 
 		// A non-leerling writing progress for a supplied leerlingId must be
 		// allowed to act for them (same tenant + assigned) before any write (Medium).
-		if (actor.role !== "leerling" && input.leerlingId) {
-			await assertLeerlingReachable(context, input.leerlingId);
+		if (input.leerlingId && input.leerlingId !== actor.userId) {
+			await requireLeerlingAccess(context, input.leerlingId);
 		}
 		const leerlingId =
 			actor.role === "leerling"
@@ -1688,7 +1715,7 @@ async function loadAssignmentCourse(context: AuthedContext, assignmentId: string
 		.from(courseSection)
 		.where(eq(courseSection.id, block.sectionId));
 	if (!sec) throw new ORPCError("NOT_FOUND");
-	const crs = await loadCourse(context, sec.courseId);
+	const crs = await loadReadable(context, sec.courseId);
 	return { assignment: asg, course: crs };
 }
 
@@ -1714,12 +1741,21 @@ const submitAssignment = protectedProcedure
 		if (!leerlingId) {
 			throw new ORPCError("BAD_REQUEST", { message: "Geen leerling opgegeven" });
 		}
+		// Work is handed in on the leerling's own course copy.
+		if (crs.kind !== "student_execution" || crs.leerlingId !== leerlingId) {
+			throw new ORPCError("FORBIDDEN", {
+				message: "Deze opdracht hoort niet bij jouw cursus",
+			});
+		}
+		for (const key of input.fileStorageKeys ?? []) {
+			await assertOwnSubmissionKey(context, key, leerlingId);
+		}
 
 		// A non-leerling submitting on behalf of a supplied leerlingId must be
 		// allowed to act for them (same tenant + assigned) before creating the
 		// submission (Medium).
-		if (actor.role !== "leerling" && input.leerlingId) {
-			await assertLeerlingReachable(context, input.leerlingId);
+		if (input.leerlingId && input.leerlingId !== actor.userId) {
+			await requireLeerlingAccess(context, input.leerlingId);
 		}
 
 		// submitAssignment policy: own submission, or coach on behalf, same tenant.
@@ -1794,10 +1830,8 @@ const listSubmissions = protectedProcedure
 	)
 	.handler(async ({ input, context }) => {
 		const { actor } = context;
-		const { course: crs } = await loadAssignmentCourse(context, input.assignmentId);
-		if (!checkPermission(policies.readCourse, actor, courseResource(crs))) {
-			throw new ORPCError("FORBIDDEN");
-		}
+		// Readable course = the leerling's copy for someone who may see them.
+		await loadAssignmentCourse(context, input.assignmentId);
 
 		const rows = await context.db
 			.select({
@@ -1866,13 +1900,18 @@ const gradeSubmission = protectedProcedure
 		if (!sub) throw new ORPCError("NOT_FOUND");
 		const { course: crs } = await loadAssignmentCourse(context, sub.assignmentId);
 
-		// gradeAssignment policy: coach+, same tenant.
+		// gradeAssignment policy: coach+, same tenant; the leerling rule already
+		// ran in loadAssignmentCourse (the submission lives on their copy).
 		if (
 			!checkPermission(policies.gradeAssignment, actor, courseResource(crs))
 		) {
 			throw new ORPCError("FORBIDDEN", {
 				message: "Alleen een coach kan beoordelen",
 			});
+		}
+		await requireLeerlingAccess(context, sub.leerlingId);
+		if (input.feedbackMediaStorageKey) {
+			assertKeyScope(input.feedbackMediaStorageKey, "feedback");
 		}
 
 		// Atomic: the grade insert + the submission status flip commit together —
@@ -2010,11 +2049,9 @@ const respondProposal = protectedProcedure
 			.from(proposedAssignment)
 			.where(eq(proposedAssignment.id, input.id));
 		if (!prop) throw new ORPCError("NOT_FOUND");
-		const crs = await loadCourse(context, prop.courseId);
-		if (
-			!atLeast(actor.role, "coach") ||
-			!checkPermission(policies.readCourse, actor, courseResource(crs))
-		) {
+		const crs = await loadReadable(context, prop.courseId);
+		await requireLeerlingAccess(context, prop.leerlingId);
+		if (!atLeast(actor.role, "coach")) {
 			throw new ORPCError("FORBIDDEN", {
 				message: "Alleen een coach kan een voorstel beoordelen",
 			});
