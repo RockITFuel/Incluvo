@@ -1,10 +1,11 @@
 import { coachAssignment, task, user } from "@incluvo/drizzle/schema";
-import { atLeast, checkPermission, isSuperadmin, policies } from "@incluvo/permissions";
+import { atLeast, checkPermission, policies } from "@incluvo/permissions";
 import { ORPCError } from "@orpc/server";
-import { and, asc, eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { notify } from "../../notifications/notify";
 import { publishTo } from "../../sse";
+import { requireLeerlingAccess } from "../../access";
 import { type AuthedContext, base, protectedProcedure } from "../base";
 
 /**
@@ -95,15 +96,8 @@ async function resolveLeerling(
 		});
 	}
 
-	// A coach acts only on leerlingen assigned to them (#37–#41). The policy
-	// above only checks tenant+role, so gate on an actual coach_assignment.
-	if (leerling.id !== actor.userId && !isSuperadmin(actor.role)) {
-		const [link] = await context.db
-			.select({ id: coachAssignment.id })
-			.from(coachAssignment)
-			.where(and(eq(coachAssignment.coachId, actor.userId), eq(coachAssignment.leerlingId, leerling.id)));
-		if (!link) throw new ORPCError("FORBIDDEN", { message: "Leerling is niet aan jou gekoppeld" });
-	}
+	// The policy above only checks tenant+role; the leerling rule decides.
+	await requireLeerlingAccess(context, leerling.id);
 	return leerling;
 }
 
@@ -275,16 +269,8 @@ async function loadManageable(context: AuthedContext, id: string) {
 		throw new ORPCError("FORBIDDEN");
 	}
 
-	// A coach acts only on leerlingen assigned to them (#37–#41). The policy
-	// above only checks tenant+role, so gate on an actual coach_assignment.
-	const { actor } = context;
-	if (row.leerlingId !== actor.userId && !isSuperadmin(actor.role)) {
-		const [link] = await context.db
-			.select({ id: coachAssignment.id })
-			.from(coachAssignment)
-			.where(and(eq(coachAssignment.coachId, actor.userId), eq(coachAssignment.leerlingId, row.leerlingId)));
-		if (!link) throw new ORPCError("FORBIDDEN", { message: "Leerling is niet aan jou gekoppeld" });
-	}
+	// The policy above only checks tenant+role; the leerling rule decides.
+	await requireLeerlingAccess(context, row.leerlingId);
 	return row;
 }
 

@@ -1,5 +1,4 @@
 import {
-	coachAssignment,
 	formAnswer,
 	formQuestion,
 	formSubmission,
@@ -7,7 +6,7 @@ import {
 	transcription,
 	user,
 } from "@incluvo/drizzle/schema";
-import { atLeast, can, isSuperadmin, policies } from "@incluvo/permissions";
+import { atLeast, can, policies } from "@incluvo/permissions";
 import { ORPCError } from "@orpc/server";
 import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -17,6 +16,7 @@ import { getAiProvider } from "../../ai/provider";
 import { formatKennisContext, retrieveKennisHits } from "../../ai/retrieval";
 import { assertValidStorageKey, deleteObject } from "../../courses/storage";
 import { rateLimit } from "../../rate-limit";
+import { requireLeerlingAccess } from "../../access";
 import { type AuthedContext, base, protectedProcedure } from "../base";
 
 /**
@@ -128,15 +128,9 @@ async function loadReviewableSubmission(
 	return sub;
 }
 
-/** Non-superadmin actors other than the owning leerling must hold a coach_assignment to the leerling. */
+/** Only actors who may see this leerling's data (`requireLeerlingAccess`). */
 async function assertAssignedToLeerling(context: AuthedContext, leerlingId: string): Promise<void> {
-	const { actor } = context;
-	if (isSuperadmin(actor.role) || actor.userId === leerlingId) return;
-	const [link] = await context.db
-		.select({ id: coachAssignment.id })
-		.from(coachAssignment)
-		.where(and(eq(coachAssignment.coachId, actor.userId), eq(coachAssignment.leerlingId, leerlingId)));
-	if (!link) throw new ORPCError("FORBIDDEN", { message: "Leerling is niet aan jou gekoppeld" });
+	await requireLeerlingAccess(context, leerlingId);
 }
 
 const ProposedAnswerSchema = z.object({

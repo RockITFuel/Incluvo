@@ -218,17 +218,16 @@ interface ChatResource extends TenantScoped {
 }
 
 /**
- * Participate in a chat. A member may read/post; a coach may always read along
- * in group chats they supervise (#6). Tenant-scoped.
+ * Take part in a chat: members only, within the tenant. Reading along in a
+ * course forum as a non-member is decided per leerling on the server
+ * (`canAccessLeerling`), not by role.
  */
 export const accessChat = definePolicy<ChatResource>({
 	name: "chat:access",
 	subject: "chat",
 	action: "read",
 	evaluate: (actor, resource) =>
-		sameTenant(actor, resource) &&
-		(resource?.memberIds?.includes(actor.userId) === true ||
-			atLeast(actor.role, "coach")),
+		sameTenant(actor, resource) && resource?.memberIds?.includes(actor.userId) === true,
 });
 
 // ---------------------------------------------------------------------------

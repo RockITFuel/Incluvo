@@ -39,6 +39,7 @@ import {
 import { notify } from "../../notifications/notify";
 import { rateLimit } from "../../rate-limit";
 import { publishTo } from "../../sse";
+import { reachableLeerlingen, requireLeerlingAccess } from "../../access";
 import { type AuthedContext, base, protectedProcedure, withPolicy } from "../base";
 
 /**
@@ -79,15 +80,9 @@ async function coachIdsFor(
 	return [...new Set(rows.map((r) => r.coachId))];
 }
 
-/** Non-superadmin actors other than the owning leerling must hold a coach_assignment to the leerling. */
+/** Only actors who may see this leerling's data (`requireLeerlingAccess`). */
 async function assertAssignedToLeerling(context: AuthedContext, leerlingId: string): Promise<void> {
-	const { actor } = context;
-	if (isSuperadmin(actor.role) || actor.userId === leerlingId) return;
-	const [link] = await context.db
-		.select({ id: coachAssignment.id })
-		.from(coachAssignment)
-		.where(and(eq(coachAssignment.coachId, actor.userId), eq(coachAssignment.leerlingId, leerlingId)));
-	if (!link) throw new ORPCError("FORBIDDEN", { message: "Leerling is niet aan jou gekoppeld" });
+	await requireLeerlingAccess(context, leerlingId);
 }
 
 /** Map a template row to the DTO shape (Date columns pass through). */
@@ -908,9 +903,24 @@ const submit = protectedProcedure
 // ---------------------------------------------------------------------------
 
 /** Build the answer-overview payload (questions + answers) for a submission. */
+/** Statuses in which the leerling may see the coach's part of their plan. */
+const SHARED_STATUSES: readonly string[] = ["shared_with_leerling", "completed"];
+
+/**
+ * The coach part (coach answers + leervoorkeuren) is the coach's work in
+ * progress until they share the plan; the leerling sees it only after that.
+ */
+function coachPartVisible(
+	actor: AuthedContext["actor"],
+	submission: typeof formSubmission.$inferSelect,
+): boolean {
+	return actor.userId !== submission.leerlingId || SHARED_STATUSES.includes(submission.status);
+}
+
 async function buildOverview(
 	db: typeof import("@incluvo/drizzle").db,
 	submission: typeof formSubmission.$inferSelect,
+	opts: { includeCoachPart: boolean },
 ) {
 	const [tpl] = await db
 		.select()
@@ -931,12 +941,17 @@ async function buildOverview(
 		.select({ label: learningPreferenceLabel.label })
 		.from(learningPreferenceLabel)
 		.where(eq(learningPreferenceLabel.submissionId, submission.id));
+	const coachQuestionIds = new Set(
+		questions.filter((q) => q.section === "coach").map((q) => q.id),
+	);
 	return {
 		submission: submissionDto(submission),
 		template: tpl ? templateDto(tpl) : null,
 		questions: questions.map(questionDto),
-		answers: answers.map(answerDto),
-		learningPreferences: prefs.map((p) => p.label),
+		answers: answers
+			.filter((a) => opts.includeCoachPart || !coachQuestionIds.has(a.questionId))
+			.map(answerDto),
+		learningPreferences: opts.includeCoachPart ? prefs.map((p) => p.label) : [],
 	};
 }
 
@@ -964,7 +979,9 @@ const getSubmission = protectedProcedure
 		// Role+tenant alone isn't enough: a coach must be assigned to this leerling
 		// (the owning leerling passes via the self short-circuit).
 		await assertAssignedToLeerling(context, sub.leerlingId);
-		return buildOverview(context.db, sub);
+		return buildOverview(context.db, sub, {
+			includeCoachPart: coachPartVisible(actor, sub),
+		});
 	});
 
 /** List the leerling's own submissions (latest first). */
@@ -998,18 +1015,8 @@ const inbox = protectedProcedure
 	.output(z.array(InboxRowSchema))
 	.handler(async ({ context }) => {
 		const { actor } = context;
-		const organizationId = actor.organizationId;
-		if (!organizationId && !isSuperadmin(actor.role)) return [];
-		// A coach only sees plans of leerlingen assigned to them; superadmin sees all.
-		let assignedIds: string[] = [];
-		if (!isSuperadmin(actor.role)) {
-			const links = await context.db
-				.select({ leerlingId: coachAssignment.leerlingId })
-				.from(coachAssignment)
-				.where(eq(coachAssignment.coachId, actor.userId));
-			assignedIds = [...new Set(links.map((l) => l.leerlingId))];
-			if (assignedIds.length === 0) return [];
-		}
+		// Plans of leerlingen this actor may see: assigned (coach), whole
+		// school (keyuser, D1) or everyone (superadmin).
 		const rows = await context.db
 			.select({
 				submission: formSubmission,
@@ -1020,23 +1027,19 @@ const inbox = protectedProcedure
 			.innerJoin(user, eq(user.id, formSubmission.leerlingId))
 			.innerJoin(formTemplate, eq(formTemplate.id, formSubmission.templateId))
 			.where(
-				isSuperadmin(actor.role)
-					? inArray(formSubmission.status, [
-							"submitted",
-							"coach_review",
-							"shared_with_leerling",
-							"completed",
-						])
-					: and(
-							eq(formSubmission.organizationId, organizationId ?? ""),
-							inArray(formSubmission.leerlingId, assignedIds),
-							inArray(formSubmission.status, [
-								"submitted",
-								"coach_review",
-								"shared_with_leerling",
-								"completed",
-							]),
-						),
+				and(
+					await reachableLeerlingen(
+						context,
+						formSubmission.leerlingId,
+						formSubmission.organizationId,
+					),
+					inArray(formSubmission.status, [
+						"submitted",
+						"coach_review",
+						"shared_with_leerling",
+						"completed",
+					]),
+				),
 			)
 			.orderBy(desc(formSubmission.submittedAt));
 
@@ -1213,12 +1216,12 @@ const saveCoachAnswer = protectedProcedure
 	.output(AnswerSchema)
 	.handler(async ({ input, context }) => {
 		const sub = await loadReviewable(context, input.submissionId);
-		// Must be a coach-section question.
+		// Must be a coach-section question of this plan's own template.
 		const [q] = await context.db
-			.select({ section: formQuestion.section })
+			.select({ section: formQuestion.section, templateId: formQuestion.templateId })
 			.from(formQuestion)
 			.where(eq(formQuestion.id, input.questionId));
-		if (!q) throw new ORPCError("NOT_FOUND");
+		if (!q || q.templateId !== sub.templateId) throw new ORPCError("NOT_FOUND");
 		if (q.section !== "coach") {
 			throw new ORPCError("BAD_REQUEST", { message: "Geen coachvraag" });
 		}
@@ -1429,6 +1432,12 @@ const generatePdf = protectedProcedure
 		if (!can(actor, policies.readCoachplan, sub)) throw new ORPCError("FORBIDDEN");
 		// Role+tenant alone isn't enough: a coach must be assigned to this leerling.
 		await assertAssignedToLeerling(context, sub.leerlingId);
+		// The PDF includes the coach part, which the leerling sees once shared.
+		if (!coachPartVisible(actor, sub)) {
+			throw new ORPCError("FORBIDDEN", {
+				message: "Je coach heeft het plan nog niet met je gedeeld",
+			});
+		}
 
 		const [tpl] = await context.db
 			.select()

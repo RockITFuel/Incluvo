@@ -43,7 +43,7 @@ Nothing here changes behaviour; it makes the later phases verifiable.
 
 ## Phase 1 — Security & tenant isolation (L) — blocker for any real data
 
-### 1.1 One central "who may touch this leerling" rule
+### 1.1 One central "who may touch this leerling" rule ✅ done 2026-09-23 (except the items marked *open*)
 Root cause of most findings: policies in `packages/permissions/src/policies.ts`
 check tenant + role only; the coach↔leerling link is checked ad hoc.
 
@@ -67,7 +67,6 @@ check tenant + role only; the coach↔leerling link is checked ad hoc.
   - `getFile` / `authorizeFileAccess`: resolve the key to its owning row
     (submission / feedback / block) and check access on *that*; plain
     `readCourse` is not enough for pupil files
-  - `confirmUpload`: only the uploader may confirm their key
   - `chat.messages` for forum conversations: require membership (or
     `requireLeerlingAccess` for the course's leerling), not "coach-or-higher"
   - coachplan `saveCoachAnswer`: also verify the question belongs to the
@@ -75,8 +74,12 @@ check tenant + role only; the coach↔leerling link is checked ad hoc.
   - coachplan `getSubmission` for a leerling: hide coach-section answers until
     status is `shared`
 - `addBlock` / `updateBlock`: reject a `fileStorageKey` that wasn't uploaded by
-  the actor for this course (record uploads in a small `upload` table, or sign
-  keys server-side).
+  the actor for this course. Done as a scope check (block/grade/submission keys
+  must carry their own prefix; submission keys can't be reused across
+  leerlingen). *open:* tie keys to the uploader (small `upload` table).
+- *open:* `confirmUpload` still reports the size of any key.
+- *open (phase 5):* the course "afleiden" dialog lists every leerling of the
+  school; an ontwikkelaar or unassigned coach now gets a "no access" toast.
 - Remove the `items` entity: router entry (`router.ts:36`), procedures, policies,
   schema, `/items` route, seed. It's readable across tenants today.
 
