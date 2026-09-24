@@ -30,5 +30,8 @@
 		"oxlint": "^1.61.0",
 		"turbo": "^2.9.6"
 	},
-	"packageManager": "bun@1.2.21"
+	"packageManager": "bun@1.2.21",
+	"overrides": {
+		"solid-js": "1.9.13"
+	}
 }
