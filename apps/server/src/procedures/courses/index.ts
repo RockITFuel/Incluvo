@@ -89,6 +89,8 @@ const CourseSchema = z.object({
 	title: z.string(),
 	description: z.string().nullable(),
 	progressBarHidden: z.boolean(),
+	contentUpdatedAt: z.date(),
+	sourceContentAt: z.date().nullable(),
 	createdAt: z.date(),
 	updatedAt: z.date(),
 });
@@ -110,6 +112,8 @@ const courseColumns = {
 	title: course.title,
 	description: course.description,
 	progressBarHidden: course.progressBarHidden,
+	contentUpdatedAt: course.contentUpdatedAt,
+	sourceContentAt: course.sourceContentAt,
 	createdAt: course.createdAt,
 	updatedAt: course.updatedAt,
 } as const;
@@ -246,6 +250,22 @@ async function courseChangedRecipients(
 		for (const c of coaches) ids.add(c.coachId);
 	}
 	return [...ids];
+}
+
+/**
+ * A builder changed the course's content: bump `contentUpdatedAt` (so copies
+ * can tell their source changed, D5) and return the `course.changed`
+ * recipients.
+ */
+async function contentChanged(
+	context: AuthedContext,
+	crs: { id: string; leerlingId: string | null },
+): Promise<string[]> {
+	await context.db
+		.update(course)
+		.set({ contentUpdatedAt: new Date() })
+		.where(eq(course.id, crs.id));
+	return courseChangedRecipients(context, crs);
 }
 
 /** Recipients for a task.changed event: the leerling + their coach(es). */
@@ -469,7 +489,7 @@ const update = protectedProcedure
 		if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
 		publishTo(
 			{ type: "course.changed", payload: { courseId: row.id } },
-			await courseChangedRecipients(context, row),
+			await contentChanged(context, row),
 		);
 		return row;
 	});
@@ -671,6 +691,7 @@ const derive = protectedProcedure
 					kind: input.kind,
 					organizationId: destOrg,
 					parentCourseId: src.id,
+					sourceContentAt: src.contentUpdatedAt,
 					leerlingId:
 						input.kind === "student_execution" ? (input.leerlingId ?? null) : null,
 					title: input.title ?? src.title,
@@ -765,7 +786,7 @@ const addSection = protectedProcedure
 		if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
 		publishTo(
 			{ type: "course.changed", payload: { courseId: input.courseId } },
-			await courseChangedRecipients(context, crs),
+			await contentChanged(context, crs),
 		);
 		return row;
 	});
@@ -784,7 +805,7 @@ const updateSection = protectedProcedure
 		if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
 		publishTo(
 			{ type: "course.changed", payload: { courseId: crs.id } },
-			await courseChangedRecipients(context, crs),
+			await contentChanged(context, crs),
 		);
 		return row;
 	});
@@ -798,7 +819,7 @@ const deleteSection = protectedProcedure
 		await context.db.delete(courseSection).where(eq(courseSection.id, input.id));
 		publishTo(
 			{ type: "course.changed", payload: { courseId: crs.id } },
-			await courseChangedRecipients(context, crs),
+			await contentChanged(context, crs),
 		);
 		return { id: input.id };
 	});
@@ -830,7 +851,7 @@ const reorderSections = protectedProcedure
 		}
 		publishTo(
 			{ type: "course.changed", payload: { courseId: input.courseId } },
-			await courseChangedRecipients(context, crs),
+			await contentChanged(context, crs),
 		);
 		return { ok: true };
 	});
@@ -974,7 +995,7 @@ const addBlock = protectedProcedure
 
 		publishTo(
 			{ type: "course.changed", payload: { courseId: crs.id } },
-			await courseChangedRecipients(context, crs),
+			await contentChanged(context, crs),
 		);
 		return block;
 	});
@@ -1035,7 +1056,7 @@ const updateBlock = protectedProcedure
 
 		publishTo(
 			{ type: "course.changed", payload: { courseId: crs.id } },
-			await courseChangedRecipients(context, crs),
+			await contentChanged(context, crs),
 		);
 		return { id: input.id };
 	});
@@ -1049,7 +1070,7 @@ const deleteBlock = protectedProcedure
 		await context.db.delete(contentBlock).where(eq(contentBlock.id, input.id));
 		publishTo(
 			{ type: "course.changed", payload: { courseId: crs.id } },
-			await courseChangedRecipients(context, crs),
+			await contentChanged(context, crs),
 		);
 		return { id: input.id };
 	});
@@ -1080,7 +1101,7 @@ const reorderBlocks = protectedProcedure
 		}
 		publishTo(
 			{ type: "course.changed", payload: { courseId: crs.id } },
-			await courseChangedRecipients(context, crs),
+			await contentChanged(context, crs),
 		);
 		return { ok: true };
 	});
@@ -1365,6 +1386,11 @@ const tree = protectedProcedure
 	.output(
 		z.object({
 			course: CourseSchema,
+			/**
+			 * For a school's copy of an Ondivera course: the source changed
+			 * since the copy was made (D5, the school decides what to do).
+			 */
+			sourceChanged: z.boolean(),
 			leervoorkeuren: z.array(z.string()),
 			progress: z.object({
 				total: z.number(),
@@ -1510,8 +1536,19 @@ const tree = protectedProcedure
 			};
 		});
 
+		let sourceChanged = false;
+		if (crs.kind === "school_template" && crs.parentCourseId) {
+			const [source] = await context.db
+				.select({ contentUpdatedAt: course.contentUpdatedAt })
+				.from(course)
+				.where(eq(course.id, crs.parentCourseId));
+			sourceChanged =
+				!!source && source.contentUpdatedAt > (crs.sourceContentAt ?? crs.createdAt);
+		}
+
 		return {
 			course: crs,
+			sourceChanged,
 			leervoorkeuren,
 			progress: {
 				total,
