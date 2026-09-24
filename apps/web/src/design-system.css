@@ -348,6 +348,7 @@
 	justify-content: space-between;
 	margin-bottom: var(--s-4);
 }
+.card-head h2,
 .card-head h3 {
 	font-size: 1.0625rem;
 }

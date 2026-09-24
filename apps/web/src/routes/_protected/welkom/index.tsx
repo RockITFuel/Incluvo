@@ -303,7 +303,7 @@ function WelkomPage() {
 
 	return (
 		<>
-			<div class="page-head">
+			<div class="page-head" data-page-title="Welkom">
 				<div>
 					<h1>{greeting()}</h1>
 					<div class="sub">{dateSubline(new Date())}</div>
@@ -329,7 +329,7 @@ function WelkomPage() {
 					<div class="card">
 						<div class="card-head">
 							<div>
-								<h3>Hoe zit je erbij vandaag?</h3>
+								<h2>Hoe zit je erbij vandaag?</h2>
 								<div class="card-sub">Je coach ziet dit alleen als je het deelt.</div>
 							</div>
 							<Show when={!moodSkipped()}>
@@ -417,7 +417,7 @@ function WelkomPage() {
 					<div class="card">
 						<div class="card-head">
 							<div>
-								<h3>Vandaag</h3>
+								<h2>Vandaag</h2>
 								<div class="card-sub">Een rustig overzicht — je taken staan op één plek</div>
 							</div>
 						</div>
@@ -464,9 +464,9 @@ function WelkomPage() {
 							when={nextDeadline()}
 							fallback={
 								<>
-									<h3 style={{ color: "#fff", "font-size": "1.25rem" }}>
+									<h2 style={{ color: "#fff", "font-size": "1.25rem" }}>
 										Niets met een deadline
-									</h3>
+									</h2>
 									<div style={{ "font-size": "0.875rem", opacity: "0.85", "margin-top": "6px" }}>
 										Er staat nu niets gepland. Je coach is één berichtje verwijderd.
 									</div>
@@ -475,7 +475,7 @@ function WelkomPage() {
 						>
 							{(t) => (
 								<>
-									<h3 style={{ color: "#fff", "font-size": "1.25rem" }}>{t().title}</h3>
+									<h2 style={{ color: "#fff", "font-size": "1.25rem" }}>{t().title}</h2>
 									<div style={{ "font-size": "0.875rem", opacity: "0.85", "margin-top": "6px" }}>
 										<Clock
 											class="size-3.5"
@@ -511,7 +511,7 @@ function WelkomPage() {
 
 					<div class="card">
 						<div class="card-head">
-							<h3>Successen</h3>
+							<h2>Successen</h2>
 							<div class="ds-row" style={{ gap: "8px" }}>
 								<Show when={showSuccess() && successenWeek() > 0}>
 									<span class="chip success">+{successenWeek()} deze week</span>
@@ -560,7 +560,7 @@ function WelkomPage() {
 
 					<div class="card">
 						<div class="card-head">
-							<h3>Sociaal</h3>
+							<h2>Sociaal</h2>
 							<Show when={me.organization()?.name}>
 								<span class="chip">{me.organization()?.name}</span>
 							</Show>

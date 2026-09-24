@@ -260,7 +260,7 @@ function ProfilePage() {
 								{/* Coachplan */}
 								<div class="card">
 									<div class="card-head">
-										<h3>Coachplan</h3>
+										<h2>Coachplan</h2>
 										<PlanStatusBadge status={data().plan.status} />
 									</div>
 									<div class="ds-col" style={{ gap: "14px" }}>
@@ -345,7 +345,7 @@ function ProfilePage() {
 								{/* Activiteit — derived from live signals */}
 								<div class="card">
 									<div class="card-head">
-										<h3>Activiteit</h3>
+										<h2>Activiteit</h2>
 										<span class="chip">Laatste 7 dagen</span>
 									</div>
 									<Show
@@ -405,7 +405,7 @@ function ProfilePage() {
 								{/* Recente inzendingen */}
 								<div class="card">
 									<div class="card-head">
-										<h3>Recente inzendingen</h3>
+										<h2>Recente inzendingen</h2>
 									</div>
 									<Show
 										when={data().recentSubmissions.length > 0}
@@ -474,7 +474,7 @@ function ProfilePage() {
 								{/* Actieve cursussen */}
 								<div class="card">
 									<div class="card-head">
-										<h3>Actieve cursussen</h3>
+										<h2>Actieve cursussen</h2>
 									</div>
 									<Show
 										when={data().courses.length > 0}
@@ -549,7 +549,7 @@ function ProfilePage() {
 								{/* Leervoorkeuren */}
 								<div class="card">
 									<div class="card-head">
-										<h3>Leervoorkeuren</h3>
+										<h2>Leervoorkeuren</h2>
 									</div>
 									<Show
 										when={data().leervoorkeuren.length > 0}
@@ -578,7 +578,7 @@ function ProfilePage() {
 								{/* Mood deze week — alleen gedeelde moods; anders eerlijke lege staat. */}
 								<div class="card">
 									<div class="card-head">
-										<h3>Mood deze week</h3>
+										<h2>Mood deze week</h2>
 									</div>
 									<Show
 										when={(week.data?.length ?? 0) > 0}
@@ -649,7 +649,7 @@ function ProfilePage() {
 								{/* Taken */}
 								<div class="card">
 									<div class="card-head">
-										<h3>Taken</h3>
+										<h2>Taken</h2>
 									</div>
 									<div class="ds-row" style={{ gap: "24px" }}>
 										<Stat label="Open" value={data().tasks.open} />
@@ -710,7 +710,7 @@ function ProfilePage() {
 								{/* Begeleiding */}
 								<div class="card">
 									<div class="card-head">
-										<h3>Begeleiding</h3>
+										<h2>Begeleiding</h2>
 									</div>
 									<Show
 										when={data().assignments.length > 0}
@@ -768,7 +768,7 @@ function ProfilePage() {
 								{/* Ouders — geen ouder-koppeling in het systeem; eerlijke lege staat. */}
 								<div class="card">
 									<div class="card-head">
-										<h3>Ouders</h3>
+										<h2>Ouders</h2>
 									</div>
 									<p
 										style={{

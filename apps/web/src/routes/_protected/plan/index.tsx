@@ -148,7 +148,7 @@ function LeerlingPlan() {
 			</Show>
 
 			<Show when={phase() === "with_coach"}>
-				<section class="mx-auto flex w-full max-w-3xl flex-col gap-6">
+				<section class="mx-auto flex w-full max-w-3xl flex-col gap-6" data-page-title="Mijn plan">
 					<Card class="border-primary bg-primary text-primary-fg">
 						<h1 class="font-head text-h1">Je plan ligt bij je coach</h1>
 						<p class="mt-2 text-body opacity-90">
@@ -173,7 +173,7 @@ function LeerlingPlan() {
 
 			<Show when={phase() === "shared" && current()}>
 				{(c) => (
-					<section class="mx-auto flex w-full max-w-3xl flex-col gap-6">
+					<section class="mx-auto flex w-full max-w-3xl flex-col gap-6" data-page-title="Mijn plan">
 						<div class="flex flex-wrap items-end justify-between gap-3">
 							<div>
 								<h1 class="font-head text-h1 text-ink">Mijn plan</h1>
@@ -353,7 +353,7 @@ function PlanWizard(props: { onSubmitted: () => void }) {
 	// ---- Renders ----
 
 	return (
-		<section class="mx-auto flex w-full max-w-3xl flex-col gap-6">
+		<section class="mx-auto flex w-full max-w-3xl flex-col gap-6" data-page-title="Mijn plan">
 			<Show when={bootError()}>
 				<Card class="border-warning bg-warning-100/40">
 					<h1 class="font-head text-h2 text-ink">Nog geen plan</h1>

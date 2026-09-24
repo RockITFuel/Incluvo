@@ -112,9 +112,9 @@ function CursussenPage() {
 										</span>
 									</div>
 									<div style={{ padding: "16px" }}>
-										<h3 style={{ "font-size": "1.0625rem", "margin-bottom": "6px" }}>
+										<h2 style={{ "font-size": "1.0625rem", "margin-bottom": "6px" }}>
 											{c.title}
-										</h3>
+										</h2>
 										<div
 											style={{
 												"font-size": "0.8125rem",

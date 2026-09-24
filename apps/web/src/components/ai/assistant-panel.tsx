@@ -82,7 +82,7 @@ export function AssistantPanel(props: {
 	return (
 		<section class="card" aria-label="AI-advies over interventies">
 			<div class="card-head">
-				<h3 style={{ "font-size": "0.9375rem" }}>{props.title ?? "AI-advies"}</h3>
+				<h2 style={{ "font-size": "0.9375rem" }}>{props.title ?? "AI-advies"}</h2>
 				<span class="chip primary">
 					<Sparkles class="size-3" aria-hidden="true" /> Wens
 				</span>

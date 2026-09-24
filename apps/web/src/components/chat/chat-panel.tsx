@@ -184,9 +184,9 @@ export function ChatPanel(props: {
 							"margin-bottom": "10px",
 						}}
 					>
-						<h2 class="font-head text-ink" style={{ "font-size": "1.0625rem" }}>
+						<h1 class="font-head text-ink" style={{ "font-size": "1.0625rem" }}>
 							Chat
-						</h2>
+						</h1>
 						{/* Decorative — starting a new chat happens via the list below. */}
 						<button
 							type="button"
