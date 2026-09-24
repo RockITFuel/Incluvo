@@ -11,6 +11,7 @@ export type { TenantScoped } from "./src/check";
 export {
 	atLeast,
 	can,
+	canBuildCourses,
 	checkPermission,
 	isSuperadmin,
 	sameTenant,

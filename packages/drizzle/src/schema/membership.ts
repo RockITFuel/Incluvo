@@ -9,29 +9,7 @@ import {
 	uuid,
 } from "drizzle-orm/pg-core";
 import { user } from "./better-auth";
-import { organization, userRole } from "./organization";
-
-/**
- * Explicit tenant membership with a role. Kept alongside the denormalised
- * `user.role` / `user.organizationId` to support an eventual many-tenant model
- * (QUESTIONS 3.2) and coach<->leerling assignment (dashboard #42–#44).
- */
-export const membership = pgTable("membership", {
-	id: uuid("id").primaryKey().defaultRandom(),
-	organizationId: uuid("organization_id")
-		.notNull()
-		.references(() => organization.id, { onDelete: "cascade" }),
-	userId: text("user_id")
-		.notNull()
-		.references(() => user.id, { onDelete: "cascade" }),
-	role: userRole("role").notNull().default("leerling"),
-	createdAt: timestamp("created_at").notNull().defaultNow(),
-	updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (t) => [
-	// Hot path: resolve a user's memberships.
-	index("membership_user_idx").on(t.userId),
-	uniqueIndex("membership_user_org_uq").on(t.userId, t.organizationId),
-]);
+import { organization } from "./organization";
 
 /**
  * Coach <-> leerling assignment within a tenant. Drives the coach dashboard
@@ -59,21 +37,8 @@ export const coachAssignment = pgTable("coach_assignment", {
 	uniqueIndex("coach_assignment_pair_uq").on(t.coachId, t.leerlingId),
 ]);
 
-export type Membership = typeof membership.$inferSelect;
-export type NewMembership = typeof membership.$inferInsert;
 export type CoachAssignment = typeof coachAssignment.$inferSelect;
 export type NewCoachAssignment = typeof coachAssignment.$inferInsert;
-
-export const membershipRelations = relations(membership, ({ one }) => ({
-	organization: one(organization, {
-		fields: [membership.organizationId],
-		references: [organization.id],
-	}),
-	user: one(user, {
-		fields: [membership.userId],
-		references: [user.id],
-	}),
-}));
 
 export const coachAssignmentRelations = relations(
 	coachAssignment,

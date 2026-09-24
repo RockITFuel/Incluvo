@@ -8,7 +8,16 @@ export function atLeast(role: UserRole, min: UserRole): boolean {
 
 /** Platform owner (Ondivera). Treated as cross-tenant superuser. */
 export function isSuperadmin(role: UserRole): boolean {
-	return role === "superadmin" || role === "admin";
+	return role === "superadmin";
+}
+
+/**
+ * Who builds course templates (#25–#36): the ontwikkelaar, a keyuser for their
+ * school, and Ondivera. A capability rather than a rank, so a coach doesn't
+ * get the builder just by being above the ontwikkelaar in `ROLES`.
+ */
+export function canBuildCourses(role: UserRole): boolean {
+	return role === "ontwikkelaar" || role === "keyuser" || role === "superadmin";
 }
 
 /** A resource that is scoped to a tenant (organization). */

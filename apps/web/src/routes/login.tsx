@@ -1,4 +1,5 @@
-import { atLeast, type UserRole } from "@incluvo/permissions";
+import type { UserRole } from "@incluvo/permissions";
+import { roleHome } from "../lib/auth/role-home";
 import { createFileRoute, useRouter } from "@tanstack/solid-router";
 import { Show, createSignal, onMount } from "solid-js";
 import { A11yPanel } from "../components/a11y-panel";
@@ -17,8 +18,6 @@ export const Route = createFileRoute("/login")({
 	component: Login,
 });
 
-const roleHome = (role: UserRole) =>
-	atLeast(role, "coach") ? "/dashboard" : "/welkom";
 
 function Login() {
 	const router = useRouter();
@@ -46,7 +45,7 @@ function Login() {
 			const data = await getCachedSession();
 			if (data?.session) {
 				const role = ((data.user as { role?: string } | undefined)?.role ??
-					"member") as UserRole;
+					"leerling") as UserRole;
 				router.navigate({ to: roleHome(role), replace: true });
 			}
 		} catch {
@@ -94,7 +93,7 @@ function Login() {
 		// straight back to /login.
 		clearCachedSession();
 		const role = ((data?.user as { role?: string } | undefined)?.role ??
-			"member") as UserRole;
+			"leerling") as UserRole;
 		router.navigate({ to: roleHome(role) });
 	}
 

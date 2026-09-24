@@ -214,12 +214,18 @@ Today "the plan" = newest submission; a new draft appears after every submit.
   leerling to coach+ and lists only reachable leerlingen (was: every user in
   the school, and a 403 for an ontwikkelaar).
 
-### 2.5 Role model clean-up
+### 2.5 Role model clean-up ✅ done 2026-09-24
 - `user.role` → pg enum without legacy `member`/`admin`; migrate existing rows.
 - Decide on `membership`: either read it (multi-org users) or drop it. Default:
   drop — `user.organizationId` is what's used everywhere (`base.ts:42`).
 - `hasAtLeast("ontwikkelaar")` for the builder tab → explicit capability
   `canBuildCourses(role)` so coaches don't inherit builder rights by rank.
+- Done as: `ROLES` = the five Incluvo roles; `user.role` is the `user_role`
+  enum (migration 0012: admin → superadmin, member → leerling); `membership`
+  dropped. `canBuildCourses` (ontwikkelaar, keyuser, superadmin) for
+  templates, coach+ for a leerling's own copy. The ontwikkelaar has their own
+  nav and lands on /cursussen; coachplan `mine`/`startMine`/`revise` are
+  leerling-only. The web's `useMe().role()` is null while loading.
 
 **Done when:** a leerling can submit, get a shared plan, revise it, and the
 dashboard/PDF/AI/course labels all show the same version; tests cover each
@@ -311,8 +317,8 @@ no horizontal scroll at 320px.
   (linked from Beheer). Same for Beheer→Cursussen.
 - **Coach task management:** link `/taken/$leerlingId` from the leerling detail
   page; back link returns to where you came from.
-- **Ontwikkelaar home:** own nav (Cursussen/Bouwen, Chat, Profiel) and landing on
-  `/cursussen`; `startMine` rejects non-leerlingen server-side.
+- ✅ (in 2.5) **Ontwikkelaar home:** own nav and landing on `/cursussen`;
+  `startMine` rejects non-leerlingen server-side.
 - Nav: remove the duplicate "Mijn successen"; remove unused breadcrumb code or
   pass `crumbs`.
 - Error states: every query shows an error state distinct from "empty"; map

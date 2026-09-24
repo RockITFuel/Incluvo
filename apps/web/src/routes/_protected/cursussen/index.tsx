@@ -58,7 +58,7 @@ function CursussenPage() {
 					<Show when={(coursesQuery.data?.length ?? 0) > 0}>
 						<span class="chip">{coursesQuery.data?.length} actief</span>
 					</Show>
-					<Show when={me.hasAtLeast("ontwikkelaar")}>
+					<Show when={me.canBuildCourses()}>
 						<CreateCourseDialog />
 					</Show>
 				</div>

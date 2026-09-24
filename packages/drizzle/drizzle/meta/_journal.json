@@ -85,6 +85,13 @@
       "when": 1790234505568,
       "tag": "0011_form_versions",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1790238312574,
+      "tag": "0012_role_enum_drop_membership",
+      "breakpoints": true
     }
   ]
 }

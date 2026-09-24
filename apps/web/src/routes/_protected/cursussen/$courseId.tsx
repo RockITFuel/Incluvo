@@ -76,12 +76,18 @@ function CourseDetail() {
 		const t: { value: string; label: string }[] = [
 			{ value: "leren", label: "Cursus" },
 		];
-		if (me.hasAtLeast("ontwikkelaar")) t.push({ value: "bouwen", label: "Bouwen" });
+		if (canBuild()) t.push({ value: "bouwen", label: "Bouwen" });
 		if (me.hasAtLeast("coach")) t.push({ value: "beoordelen", label: "Beoordelen" });
 		return t;
 	};
 
 	const canComplete = () => me.is("leerling") || me.hasAtLeast("coach");
+	// Templates are built by course builders; a leerling's own copy may be
+	// adapted by someone coaching them (the server checks the leerling rule).
+	const canBuild = () =>
+		treeQuery.data?.course.kind === "student_execution"
+			? me.hasAtLeast("coach")
+			: me.canBuildCourses();
 
 	return (
 		<section class="flex flex-col gap-5">
@@ -94,7 +100,7 @@ function CourseDetail() {
 				<Show when={treeQuery.data}>
 					{(data) => (
 						<div class="ds-row" style={{ gap: "8px" }}>
-							<Show when={me.hasAtLeast("ontwikkelaar")}>
+							<Show when={me.canBuildCourses() || me.hasAtLeast("coach")}>
 								<DeriveDialog course={data().course} onDone={refetch} />
 							</Show>
 							<Show when={me.hasAtLeast("coach")}>
@@ -352,7 +358,7 @@ function CourseDetail() {
 							</Show>
 
 							{/* ── Bouwen (ontwikkelaar/keyuser) ────────────────────────── */}
-							<Show when={view() === "bouwen" && me.hasAtLeast("ontwikkelaar")}>
+							<Show when={view() === "bouwen" && canBuild()}>
 								<CourseBuilder
 									courseId={courseId()}
 									courseTitle={data().course.title}
