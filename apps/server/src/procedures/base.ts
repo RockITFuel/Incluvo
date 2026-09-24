@@ -52,7 +52,7 @@ const requireAuth = base.middleware(async ({ context, next }) => {
 
 	const actor: PolicySubject = {
 		userId: sessionUser.id,
-		role: ((sessionUser as { role?: string }).role ?? "member") as UserRole,
+		role: ((sessionUser as { role?: string }).role ?? "leerling") as UserRole,
 		organizationId: row?.organizationId ?? null,
 	};
 

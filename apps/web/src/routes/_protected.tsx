@@ -90,7 +90,7 @@ function AuthedShell() {
 		}
 	});
 
-	const role = (): UserRole => me.role();
+	const role = (): UserRole | null => me.role();
 
 	// Live nav-badge counts, like the prototype's sidebar badges: a leerling
 	// sees their open taken voor vandaag, a coach the ingeleverde coachplannen.

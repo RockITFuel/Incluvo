@@ -27,7 +27,7 @@ export async function requireRole(
 	}
 	const data = await getCachedSession();
 	const role = ((data?.user as { role?: string } | undefined)?.role ??
-		"member") as UserRole;
+		"leerling") as UserRole;
 
 	if (!data?.session) {
 		throw redirect({ to: "/login" });

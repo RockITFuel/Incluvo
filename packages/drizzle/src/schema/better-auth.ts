@@ -6,7 +6,7 @@ import {
 	timestamp,
 	uuid,
 } from "drizzle-orm/pg-core";
-import { organization } from "./organization";
+import { organization, userRole } from "./organization";
 
 /**
  * Tables required by better-auth's Drizzle adapter.
@@ -19,11 +19,9 @@ export const user = pgTable("user", {
 	email: text("email").notNull().unique(),
 	emailVerified: boolean("email_verified").notNull().default(false),
 	image: text("image"),
-	// App-level role, mirrored onto the session for fast access checks.
-	// Values are the @incluvo/permissions UserRole (superadmin, keyuser, coach,
-	// leerling, ontwikkelaar). Kept as `text` because better-auth's adapter owns
-	// this column; the legacy default "member" stays valid for compatibility.
-	role: text("role").notNull().default("member"),
+	// App-level role, mirrored onto the session for fast access checks: the
+	// @incluvo/permissions UserRole (leerling … superadmin).
+	role: userRole("role").notNull().default("leerling"),
 	// Tenant the user belongs to (multi-tenant, QUESTIONS 3.x).
 	// ASSUMPTION: one user belongs to exactly one tenant for now (QUESTIONS 3.2).
 	organizationId: uuid("organization_id").references(() => organization.id, {

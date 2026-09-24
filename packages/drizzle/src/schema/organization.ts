@@ -11,8 +11,8 @@ import { pgEnum, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
  *
  * ASSUMPTION (QUESTIONS 3.2 open): one user belongs to exactly one tenant for
  * now. A user's `organizationId` (on the `user` table) is the single tenant.
- * The `membership` table records the explicit role link and leaves room to
- * relax this to many-to-many later without a breaking change.
+ * The role is `user.role`. (A `membership` table for a later many-to-many
+ * model was written but never read; it was dropped in migration 0012.)
  */
 
 export const organizationKind = pgEnum("organization_kind", [

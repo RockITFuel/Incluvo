@@ -655,6 +655,7 @@ const startMine = protectedProcedure
 		}),
 	)
 	.handler(async ({ context }) => {
+		assertLeerling(context);
 		const { actor } = context;
 		const organizationId = actor.organizationId;
 		if (!organizationId) throw new ORPCError("BAD_REQUEST", { message: "No tenant" });
@@ -708,6 +709,13 @@ const startMine = protectedProcedure
 		};
 	});
 
+/** A coachplan is the leerling's own; other roles don't have one. */
+function assertLeerling(context: AuthedContext): void {
+	if (context.actor.role !== "leerling") {
+		throw new ORPCError("FORBIDDEN", { message: "Alleen een leerling heeft een coachplan" });
+	}
+}
+
 /**
  * The leerling's plan at a glance: the version they're working on or waiting
  * on (`latest`) and the version their coach last shared (`current`). The
@@ -722,6 +730,7 @@ const mine = protectedProcedure
 		}),
 	)
 	.handler(async ({ context }) => {
+		assertLeerling(context);
 		const { actor } = context;
 		const latest = await latestVersion(context.db, actor.userId);
 		const current = await currentVersion(context.db, actor.userId);
@@ -740,6 +749,7 @@ const revise = protectedProcedure
 	.route({ method: "POST", path: "/coachplan/revise", tags: ["coachplan"] })
 	.output(SubmissionSchema)
 	.handler(async ({ context }) => {
+		assertLeerling(context);
 		const { actor } = context;
 		const latest = await latestVersion(context.db, actor.userId);
 		if (!latest || latest.leerlingId !== actor.userId) {

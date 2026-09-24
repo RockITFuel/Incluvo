@@ -112,7 +112,7 @@ describe("invite", () => {
 		await createAccount({
 			email: "leraar@school.nl",
 			name: "Voorgeregistreerd",
-			role: "member",
+			role: "leerling",
 			organizationId: null,
 			password: "aanvaller-wachtwoord",
 		});
@@ -126,7 +126,7 @@ describe("invite", () => {
 		expect(code).toBe("CONFLICT");
 		const row = await findUser("leraar@school.nl");
 		expect(row?.organizationId).toBeNull();
-		expect(row?.role).toBe("member");
+		expect(row?.role).toBe("leerling");
 	});
 
 	test("refuses a user from another school", async () => {

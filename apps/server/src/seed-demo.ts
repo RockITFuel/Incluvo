@@ -5,7 +5,7 @@
  *
  * Users are created through `createAccount` (users.ts), which hashes the
  * password with better-auth (public sign-up is disabled); we then set their
- * app `role` + `organizationId` and membership row. Re-running is safe: orgs/users/
+ * app `role` + `organizationId`. Re-running is safe: orgs/users/
  * assignments are looked up before insert.
  *
  * Demo logins (all password `incluvo123`):
@@ -30,7 +30,7 @@ const { createAccount } = await import("./users");
 const schema = await import("@incluvo/drizzle/schema");
 const { and, eq } = await import("drizzle-orm");
 
-const { organization, user, membership, coachAssignment } = schema;
+const { organization, user, coachAssignment } = schema;
 type IncluvoRole = (typeof schema.userRole.enumValues)[number];
 
 const PASSWORD = "incluvo123";
@@ -102,7 +102,7 @@ async function ensureUser(d: DemoUser): Promise<string> {
 	return id;
 }
 
-/** Set the app role + tenant on the user row, and upsert a membership row. */
+/** Set the app role + tenant on the user row. */
 async function setRoleAndTenant(
 	userId: string,
 	role: IncluvoRole,
@@ -112,24 +112,6 @@ async function setRoleAndTenant(
 		.update(user)
 		.set({ role, organizationId, updatedAt: new Date() })
 		.where(eq(user.id, userId));
-
-	const [m] = await db
-		.select({ id: membership.id })
-		.from(membership)
-		.where(
-			and(
-				eq(membership.userId, userId),
-				eq(membership.organizationId, organizationId),
-			),
-		);
-	if (m) {
-		await db
-			.update(membership)
-			.set({ role, updatedAt: new Date() })
-			.where(eq(membership.id, m.id));
-	} else {
-		await db.insert(membership).values({ userId, organizationId, role });
-	}
 }
 
 async function ensureCoachAssignment(

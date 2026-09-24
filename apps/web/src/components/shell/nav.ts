@@ -28,9 +28,23 @@ export type NavBadges = {
  *   - leerling     → Welkom, Mijn taken, Cursussen, Mijn plan, Chat
  *   - coach        → Dashboard, Coachplannen, Cursussen, Chat, Assistent
  *   - keyuser/up   → coach nav + a Beheer/Admin entry
- *   - ontwikkelaar → leerling-style nav (course builder lives under Cursussen)
+ *   - ontwikkelaar → Cursussen (the course builder) and their profiel (D4)
+ * While the role is still loading (null) there is no nav yet.
  */
-export function navForRole(role: UserRole, badges: NavBadges = {}): NavSection[] {
+export function navForRole(role: UserRole | null, badges: NavBadges = {}): NavSection[] {
+	if (role === null) return [];
+	if (role === "ontwikkelaar") {
+		return [
+			{
+				label: "Navigatie",
+				items: [{ label: "Cursussen", href: "/cursussen", icon: GraduationCap }],
+			},
+			{
+				label: "Snel",
+				items: [{ label: "Mijn profiel", href: "/profiel", icon: UserRound }],
+			},
+		];
+	}
 	// Coach and above get the coach-oriented nav. There is deliberately no
 	// separate "Leerlingen" entry: /dashboard *is* the leerlingen-overzicht
 	// (backlog #42), the prototype's coach nav does not have one, and the entry
@@ -63,7 +77,7 @@ export function navForRole(role: UserRole, badges: NavBadges = {}): NavSection[]
 		return sections;
 	}
 
-	// leerling / ontwikkelaar / member: pupil-oriented nav.
+	// leerling: pupil-oriented nav.
 	return [
 		{
 			label: "Navigatie",
@@ -93,7 +107,7 @@ export function navForRole(role: UserRole, badges: NavBadges = {}): NavSection[]
 }
 
 /** Human-readable Dutch label for a role, shown in the shell user area. */
-export function roleLabel(role: UserRole): string {
+export function roleLabel(role: UserRole | null): string {
 	switch (role) {
 		case "superadmin":
 			return "Superadmin";

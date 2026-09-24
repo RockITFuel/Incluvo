@@ -12,7 +12,7 @@ import {
 	task,
 	user,
 } from "@incluvo/drizzle/schema";
-import { atLeast, checkPermission, policies } from "@incluvo/permissions";
+import { atLeast, canBuildCourses, checkPermission, policies } from "@incluvo/permissions";
 import { ORPCError } from "@orpc/server";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -129,8 +129,11 @@ async function loadCourse(context: AuthedContext, id: string) {
 }
 
 /** Tenant resource for a course; Ondivera templates have a null org. */
-function courseResource(row: { organizationId: string | null }) {
-	return { organizationId: row.organizationId };
+function courseResource(row: {
+	organizationId: string | null;
+	kind?: "ondivera_template" | "school_template" | "student_execution";
+}) {
+	return { organizationId: row.organizationId, kind: row.kind };
 }
 
 /**
@@ -381,9 +384,18 @@ const create = protectedProcedure
 	.output(CourseSchema)
 	.handler(async ({ input, context }) => {
 		const { actor } = context;
-		if (!atLeast(actor.role, "ontwikkelaar")) {
+		// Templates are built by course builders; a leerling's copy is made by
+		// someone coaching them (checked below via the leerling rule).
+		if (
+			input.kind === "student_execution"
+				? !atLeast(actor.role, "coach")
+				: !canBuildCourses(actor.role)
+		) {
 			throw new ORPCError("FORBIDDEN", {
-				message: "Alleen een ontwikkelaar kan cursussen aanmaken",
+				message:
+					input.kind === "student_execution"
+						? "Alleen een coach kan een leerling een cursus geven"
+						: "Alleen een cursusbouwer kan cursussen aanmaken",
 			});
 		}
 
@@ -608,9 +620,16 @@ const derive = protectedProcedure
 	.handler(async ({ input, context }) => {
 		const { actor } = context;
 		const src = await loadReadable(context, input.id);
-		if (!atLeast(actor.role, "ontwikkelaar")) {
+		if (
+			input.kind === "student_execution"
+				? !atLeast(actor.role, "coach")
+				: !canBuildCourses(actor.role)
+		) {
 			throw new ORPCError("FORBIDDEN", {
-				message: "Alleen een ontwikkelaar kan een cursus afleiden",
+				message:
+					input.kind === "student_execution"
+						? "Alleen een coach kan een leerling een cursus geven"
+						: "Alleen een cursusbouwer kan een cursus afleiden",
 			});
 		}
 		if (!actor.organizationId) {
@@ -1089,7 +1108,7 @@ const presignUpload = protectedProcedure
 	.handler(async ({ input, context }) => {
 		const { actor } = context;
 		// Ontwikkelaar+ upload course files; a leerling uploads submission files.
-		if (input.scope === "bestand" && !atLeast(actor.role, "ontwikkelaar")) {
+		if (input.scope === "bestand" && !canBuildCourses(actor.role)) {
 			throw new ORPCError("FORBIDDEN");
 		}
 		if (input.scope === "feedback" && !atLeast(actor.role, "coach")) {
@@ -1136,7 +1155,7 @@ const uploadLocal = protectedProcedure
 	.output(z.object({ storageKey: z.string(), size: z.number() }))
 	.handler(async ({ input, context }) => {
 		const { actor } = context;
-		if (input.scope === "bestand" && !atLeast(actor.role, "ontwikkelaar")) {
+		if (input.scope === "bestand" && !canBuildCourses(actor.role)) {
 			throw new ORPCError("FORBIDDEN");
 		}
 		if (input.scope === "feedback" && !atLeast(actor.role, "coach")) {

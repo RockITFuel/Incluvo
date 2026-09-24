@@ -1,10 +1,15 @@
-import { atLeast, isSuperadmin, sameTenant, type TenantScoped } from "./check";
+import {
+	atLeast,
+	canBuildCourses,
+	isSuperadmin,
+	sameTenant,
+	type TenantScoped,
+} from "./check";
 import { definePolicy } from "./policy";
 
 /**
  * RBAC policies for Incluvo. Roles (least→most privileged):
  *   leerling < ontwikkelaar < coach < keyuser < superadmin
- * Legacy "member" (lowest) and "admin" (highest) aliases stay valid.
  *
  * Tenant scoping: resource-scoped policies use `sameTenant(actor, resource)` so
  * a keyuser/coach/leerling can only act within their own organization, while
@@ -107,13 +112,24 @@ export const reviewCoachplan = definePolicy<OwnedByLeerling>({
 // Online cursus (#23–#36, #61)
 // ---------------------------------------------------------------------------
 
-/** Build/manage courses, sections, content blocks (#25–#36): ontwikkelaar+. */
-export const manageCourse = definePolicy<TenantScoped>({
+interface CourseResource extends TenantScoped {
+	kind?: "ondivera_template" | "school_template" | "student_execution";
+}
+
+/**
+ * Build/manage courses, sections, content blocks (#25–#36). Templates: the
+ * course builders (`canBuildCourses`). A leerling's own copy: coach+, who may
+ * adapt it for that leerling (the leerling rule is checked on top, server-side).
+ */
+export const manageCourse = definePolicy<CourseResource>({
 	name: "course:manage",
 	subject: "course",
 	action: "update",
 	evaluate: (actor, resource) =>
-		atLeast(actor.role, "ontwikkelaar") && sameTenant(actor, resource),
+		sameTenant(actor, resource) &&
+		(resource?.kind === "student_execution"
+			? atLeast(actor.role, "coach")
+			: canBuildCourses(actor.role)),
 });
 
 /** Read course content within the tenant (#23/#24/#35). */

@@ -1,4 +1,4 @@
-import { atLeast, type UserRole } from "@incluvo/permissions";
+import { atLeast, canBuildCourses, type UserRole } from "@incluvo/permissions";
 import { useQuery } from "@tanstack/solid-query";
 import { orpc } from "../orpc";
 
@@ -13,6 +13,8 @@ import { orpc } from "../orpc";
  *   me.hasAtLeast("keyuser");  // false
  *   me.organization()?.name;   // "Demo School"
  *
+ * While `account.me` loads, `role()` is null and every role check is false.
+ *
  * The query is cached app-wide by oRPC's query key, so calling `useMe()` in
  * several components reuses the same fetch.
  */
@@ -22,8 +24,7 @@ export function useMe() {
 		staleTime: 60_000,
 	}));
 
-	const role = (): UserRole =>
-		(query.data?.role as UserRole | undefined) ?? "member";
+	const role = (): UserRole | null => (query.data?.role as UserRole | undefined) ?? null;
 
 	return {
 		query,
@@ -33,8 +34,16 @@ export function useMe() {
 		organization: () => query.data?.organization ?? null,
 		capabilities: () => query.data?.capabilities,
 		/** True when the current role is at least `min` in the role hierarchy. */
-		hasAtLeast: (min: UserRole) => atLeast(role(), min),
+		hasAtLeast: (min: UserRole) => {
+			const r = role();
+			return r !== null && atLeast(r, min);
+		},
 		/** True when the current role equals `target` exactly. */
 		is: (target: UserRole) => role() === target,
+		/** May build course templates (ontwikkelaar, keyuser, superadmin). */
+		canBuildCourses: () => {
+			const r = role();
+			return r !== null && canBuildCourses(r);
+		},
 	};
 }

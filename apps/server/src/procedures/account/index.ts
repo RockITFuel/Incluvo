@@ -1,6 +1,7 @@
-import { membership, organization, user } from "@incluvo/drizzle/schema";
+import { organization, user } from "@incluvo/drizzle/schema";
 import {
 	atLeast,
+	canBuildCourses,
 	can,
 	INCLUVO_ROLES,
 	type IncluvoRole,
@@ -10,7 +11,7 @@ import {
 	type UserRole,
 } from "@incluvo/permissions";
 import { ORPCError } from "@orpc/server";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { createAccount, hasPassword, sendInvite } from "../../users";
 import { base, ownTenant, protectedProcedure, withPolicy } from "../base";
@@ -114,7 +115,7 @@ const me = protectedProcedure
 				canManageTenant: can(actor, policies.manageTenant),
 				canReadUsers: atLeast(actor.role, "coach"),
 				canManageUsers: atLeast(actor.role, "keyuser"),
-				canManageCourses: atLeast(actor.role, "ontwikkelaar"),
+				canManageCourses: canBuildCourses(actor.role),
 				isSuperadmin: isSuperadmin(actor.role),
 			},
 		};
@@ -314,35 +315,19 @@ const usersSetRole = protectedProcedure
 			});
 		}
 
-		// The user's role and the membership row change together.
-		return context.db.transaction(async (tx) => {
-			const [row] = await tx
-				.update(user)
-				.set({ role: input.role, updatedAt: new Date() })
-				.where(eq(user.id, input.userId))
-				.returning({
-					id: user.id,
-					name: user.name,
-					email: user.email,
-					role: user.role,
-					organizationId: user.organizationId,
-				});
-			if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
-
-			// Keep the explicit membership row in sync with the denormalised role.
-			if (row.organizationId) {
-				await tx
-					.update(membership)
-					.set({ role: input.role, updatedAt: new Date() })
-					.where(
-						and(
-							eq(membership.userId, row.id),
-							eq(membership.organizationId, row.organizationId),
-						),
-					);
-			}
-			return row;
-		});
+		const [row] = await context.db
+			.update(user)
+			.set({ role: input.role, updatedAt: new Date() })
+			.where(eq(user.id, input.userId))
+			.returning({
+				id: user.id,
+				name: user.name,
+				email: user.email,
+				role: user.role,
+				organizationId: user.organizationId,
+			});
+		if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
+		return row;
 	});
 
 /**
@@ -431,20 +416,10 @@ const usersInvite = protectedProcedure
 			});
 		}
 
-		// Role + membership (unique on user + organization) together.
-		await context.db.transaction(async (tx) => {
-			await tx
-				.update(user)
-				.set({ role: input.role, updatedAt: new Date() })
-				.where(eq(user.id, userId));
-			await tx
-				.insert(membership)
-				.values({ userId, organizationId, role: input.role })
-				.onConflictDoUpdate({
-					target: [membership.userId, membership.organizationId],
-					set: { role: input.role, updatedAt: new Date() },
-				});
-		});
+		await context.db
+			.update(user)
+			.set({ role: input.role, updatedAt: new Date() })
+			.where(eq(user.id, userId));
 
 		let mailSent = true;
 		if (!existing || !(await hasPassword(userId))) {
