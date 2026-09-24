@@ -393,12 +393,15 @@ function DeriveDialog(props: {
 	const [leerlingId, setLeerlingId] = createSignal<string | undefined>();
 	const [busy, setBusy] = createSignal(false);
 
-	const usersQuery = useQuery(() => ({
-		...orpc.account.users.listInTenant.queryOptions(),
-		enabled: props.course.kind === "school_template",
+	// Giving a leerling a course is coach work (D4: an ontwikkelaar builds
+	// courses only); offer only the leerlingen this user may see.
+	const me = useMe();
+	const canAssign = () => me.hasAtLeast("coach");
+	const leerlingQuery = useQuery(() => ({
+		...orpc.dashboard.overview.queryOptions(),
+		enabled: props.course.kind === "school_template" && canAssign(),
 	}));
-	const leerlingen = () =>
-		(usersQuery.data ?? []).filter((u) => u.role === "leerling");
+	const leerlingen = () => (leerlingQuery.data ?? []).map((row) => row.leerling);
 
 	const targetKind = () =>
 		props.course.kind === "ondivera_template"
@@ -407,7 +410,7 @@ function DeriveDialog(props: {
 
 	const canDerive = () =>
 		props.course.kind === "ondivera_template" ||
-		props.course.kind === "school_template";
+		(props.course.kind === "school_template" && canAssign());
 
 	const derive = async () => {
 		setBusy(true);

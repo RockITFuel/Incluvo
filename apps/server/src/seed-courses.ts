@@ -35,8 +35,6 @@ const {
 	contentBlockLabel,
 	assignment,
 	task,
-	conversation,
-	conversationMember,
 } = schema;
 
 const ONDIVERA_TITLE = "Ondivera Basiscursus Mediawijsheid";
@@ -206,7 +204,6 @@ async function main() {
 				name: "Jouw mediadagboek",
 				description:
 					"Houd één dag bij welke media je gebruikt en lever een korte reflectie in (tekst of bestand).",
-				isGroup: false,
 				responseType: "text_and_files",
 				maxAttempts: 3,
 			});
@@ -215,16 +212,7 @@ async function main() {
 				.values({ contentBlockId: opdrachtBlock.id, label: "doen" });
 		}
 
-		// forum (#32) — created on the template; the forum conversation is created
-		// when this is used in a student execution (it needs an org + leerling).
-		await tx.insert(contentBlock).values({
-			sectionId: sec2.id,
-			type: "forum",
-			title: "Forum: bespreek je ervaringen",
-			position: 1,
-		});
-
-		console.log("  + sections + content blocks (pagina/youtube/bestand/opdracht/forum)");
+		console.log("  + sections + content blocks (pagina/youtube/bestand/opdracht)");
 
 		// 2) Copy the template into the Demo School as a school template.
 		const schoolCourseId = await deepCopy(tx, tpl.id, {
@@ -247,8 +235,7 @@ async function main() {
 		});
 		console.log("  + student execution for demo leerling");
 
-		// 4) Seed a takenlijst task for each opdracht in the student execution (#27/#37),
-		//    and create the forum conversation for the leerling (#32).
+		// 4) Seed a takenlijst task for each opdracht in the student execution (#27/#37).
 		await seedExecutionExtras(tx, studentCourseId, schoolOrg, leerling);
 	});
 
@@ -346,7 +333,6 @@ async function deepCopy(tx: Tx, srcId: string, target: CopyTarget): Promise<stri
 						contentBlockId: nb.id,
 						name: a.name,
 						description: a.description,
-						isGroup: a.isGroup,
 						responseType: a.responseType,
 						maxAttempts: a.maxAttempts,
 						dueAt: a.dueAt,
@@ -361,7 +347,7 @@ async function deepCopy(tx: Tx, srcId: string, target: CopyTarget): Promise<stri
 	return dest.id;
 }
 
-/** Seed tasks for opdracht + a forum conversation for a student execution. */
+/** Seed a takenlijst task for each opdracht of a student execution. */
 async function seedExecutionExtras(
 	tx: Tx,
 	courseId: string,
@@ -392,36 +378,6 @@ async function seedExecutionExtras(
 		});
 	}
 	console.log("  + takenlijst task(s) voor opdracht (#27/#37)");
-
-	// Forum conversation for each forum block (#32).
-	const forumBlocks = await tx
-		.select({ id: contentBlock.id, title: contentBlock.title })
-		.from(contentBlock)
-		.innerJoin(courseSection, eq(courseSection.id, contentBlock.sectionId))
-		.where(eq(courseSection.courseId, courseId));
-	for (const b of forumBlocks.filter(() => true)) {
-		// Only forum-typed blocks; re-query type cheaply.
-		const [row] = await tx
-			.select({ type: contentBlock.type })
-			.from(contentBlock)
-			.where(eq(contentBlock.id, b.id));
-		if (row?.type !== "forum") continue;
-		const [conv] = await tx
-			.insert(conversation)
-			.values({
-				organizationId: orgId,
-				kind: "forum",
-				courseContentBlockId: b.id,
-				title: b.title,
-			})
-			.returning({ id: conversation.id });
-		if (conv) {
-			await tx
-				.insert(conversationMember)
-				.values({ conversationId: conv.id, userId: leerling, role: "member" });
-		}
-	}
-	console.log("  + forum conversation(s) (#32)");
 }
 
 main().catch((error) => {

@@ -6,8 +6,6 @@ import {
 	contentBlock,
 	contentBlockLabel,
 	contentProgress,
-	conversation,
-	conversationMember,
 	course,
 	courseSection,
 	proposedAssignment,
@@ -60,8 +58,9 @@ type Tx = Parameters<Parameters<AuthedContext["db"]["transaction"]>[0]>[0];
  * `parentCourseId` link. Ontwikkelaar+ build courses, sections (#25) and content
  * blocks (#26) of every CbS type: opdracht (#27 → also seeds a `task`), pagina
  * (#29, Tiptap ProseMirror JSON in `body`), bestand (#30, presigned upload),
- * youtube (#31, validated 11-char id), forum (#32, creates a chat conversation).
- * LTI (#33) + Ondivera-content (#34) are typed stubs (post-MVP).
+ * youtube (#31, validated 11-char id). Course forums (#32) and group
+ * assignments were dropped (D3: a course copy belongs to one leerling, so
+ * there are no classmates to discuss or work with). LTI (#33) + Ondivera-content (#34) are typed stubs (post-MVP).
  *
  * Leerlingen view their course with a voortgangsbalk (#24), mark blocks done,
  * and submit assignments which a coach grades (#28). Content blocks carry
@@ -75,8 +74,6 @@ type Tx = Parameters<Parameters<AuthedContext["db"]["transaction"]>[0]>[0];
  * Cross-domain table writes (shared TABLES, not shared code):
  *   - INSERT `task` (source="assignment") when an opdracht block is created on a
  *     student_execution course, so it appears in the takenlijst (#27/#37).
- *   - INSERT `conversation` (kind="forum") + `conversation_member` rows when a
- *     forum block is created (#32).
  */
 
 // ---------------------------------------------------------------------------
@@ -101,7 +98,6 @@ const blockType = z.enum([
 	"pagina",
 	"bestand",
 	"youtube",
-	"forum",
 	"lti",
 ]);
 
@@ -585,7 +581,6 @@ async function copyStructure(
 						contentBlockId: newBlock.id,
 						name: asg.name,
 						description: asg.description,
-						isGroup: asg.isGroup,
 						responseType: asg.responseType,
 						maxAttempts: asg.maxAttempts,
 						dueAt: asg.dueAt,
@@ -843,7 +838,6 @@ const BlockInput = z.object({
 		.object({
 			name: z.string().min(1),
 			description: z.string().optional(),
-			isGroup: z.boolean().optional(),
 			responseType: z.enum(["text", "files", "text_and_files"]).optional(),
 			maxAttempts: z.number().int().positive().optional(),
 			dueAt: z.coerce.date().optional(),
@@ -877,7 +871,7 @@ const addBlock = protectedProcedure
 		}
 
 		// Atomic: the block + its labels + (for opdracht) the assignment + seeded
-		// task + (for forum) the conversation must all commit together (H2).
+		// task must all commit together (H2).
 		let seededTaskLeerlingId: string | null = null;
 		const block = await context.db.transaction(async (tx) => {
 			const [agg] = await tx
@@ -923,7 +917,6 @@ const addBlock = protectedProcedure
 						contentBlockId: created.id,
 						name: a.name,
 						description: a.description ?? null,
-						isGroup: a.isGroup ?? false,
 						responseType: a.responseType ?? "text_and_files",
 						maxAttempts: a.maxAttempts ?? null,
 						dueAt: a.dueAt ?? null,
@@ -949,10 +942,6 @@ const addBlock = protectedProcedure
 				}
 			}
 
-			// forum: create + link a chat conversation (#32).
-			if (input.type === "forum") {
-				await createForumConversation(tx, created.id, crs, input.title);
-			}
 			return created;
 		});
 
@@ -970,57 +959,6 @@ const addBlock = protectedProcedure
 		);
 		return block;
 	});
-
-/**
- * Create a kind="forum" conversation linked to a forum content block (#32) and
- * add the leerling (if this is a student execution) + their coach as supervisor.
- * Cross-domain write into the chat tables (shared TABLES, not shared code).
- */
-async function createForumConversation(
-	tx: Tx,
-	blockId: string,
-	crs: { organizationId: string | null; leerlingId: string | null },
-	title: string,
-): Promise<void> {
-	if (!crs.organizationId) return;
-	const [conv] = await tx
-		.insert(conversation)
-		.values({
-			organizationId: crs.organizationId,
-			kind: "forum",
-			courseContentBlockId: blockId,
-			title,
-		})
-		.returning({ id: conversation.id });
-	if (!conv) return;
-
-	const members: { conversationId: string; userId: string; role: "member" | "supervisor" }[] =
-		[];
-	if (crs.leerlingId) {
-		members.push({
-			conversationId: conv.id,
-			userId: crs.leerlingId,
-			role: "member",
-		});
-		// Add the leerling's assigned coach(es) as supervisor (#32). Skip the
-		// leerling if they somehow appear in their own assignments.
-		const coaches = await tx
-			.select({ coachId: coachAssignment.coachId })
-			.from(coachAssignment)
-			.where(eq(coachAssignment.leerlingId, crs.leerlingId));
-		for (const coachId of new Set(coaches.map((c) => c.coachId))) {
-			if (coachId === crs.leerlingId) continue;
-			members.push({
-				conversationId: conv.id,
-				userId: coachId,
-				role: "supervisor",
-			});
-		}
-	}
-	if (members.length > 0) {
-		await tx.insert(conversationMember).values(members);
-	}
-}
 
 const updateBlock = protectedProcedure
 	.route({ method: "POST", path: "/blocks/{id}/update", tags: ["courses"] })
@@ -1389,13 +1327,11 @@ const BlockViewSchema = z.object({
 			id: z.string(),
 			name: z.string(),
 			description: z.string().nullable(),
-			isGroup: z.boolean(),
 			responseType: z.enum(["text", "files", "text_and_files"]),
 			maxAttempts: z.number().nullable(),
 			dueAt: z.date().nullable(),
 		})
 		.nullable(),
-	forumConversationId: z.string().nullable(),
 });
 
 const tree = protectedProcedure
@@ -1456,7 +1392,7 @@ const tree = protectedProcedure
 			: [];
 		const blockIds = blocks.map((b) => b.id);
 
-		// Labels, assignments, progress, forums — batched.
+		// Labels, assignments, progress — batched.
 		const labels = blockIds.length
 			? await context.db
 					.select()
@@ -1480,15 +1416,6 @@ const tree = protectedProcedure
 						),
 					)
 			: [];
-		const forums = blockIds.length
-			? await context.db
-					.select({
-						id: conversation.id,
-						blockId: conversation.courseContentBlockId,
-					})
-					.from(conversation)
-					.where(inArray(conversation.courseContentBlockId, blockIds))
-			: [];
 
 		const labelsByBlock = new Map<string, string[]>();
 		for (const l of labels) {
@@ -1499,9 +1426,6 @@ const tree = protectedProcedure
 		const asgByBlock = new Map(assignments.map((a) => [a.contentBlockId, a]));
 		const doneSet = new Set(
 			progress.filter((p) => p.completed).map((p) => p.contentBlockId),
-		);
-		const forumByBlock = new Map(
-			forums.filter((f) => f.blockId).map((f) => [f.blockId as string, f.id]),
 		);
 
 		// Leervoorkeuren of the leerling (#35) from their latest coachplan submission.
@@ -1552,13 +1476,11 @@ const tree = protectedProcedure
 								id: asg.id,
 								name: asg.name,
 								description: asg.description,
-								isGroup: asg.isGroup,
 								responseType: asg.responseType,
 								maxAttempts: asg.maxAttempts,
 								dueAt: asg.dueAt,
 							}
 						: null,
-					forumConversationId: forumByBlock.get(b.id) ?? null,
 				};
 			});
 			return {

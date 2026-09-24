@@ -10,7 +10,6 @@ import {
 	File as FileIcon,
 	FileText,
 	GripVertical,
-	MessageSquare,
 	PlayCircle,
 	Plus,
 	Sparkles,
@@ -44,7 +43,6 @@ const blockIcon: Record<BlockDTO["type"], Component<{ style?: Record<string, str
 	youtube: Youtube,
 	bestand: FileIcon,
 	opdracht: ClipboardList,
-	forum: MessageSquare,
 	lti: Sparkles,
 };
 const blockLabel: Record<BlockDTO["type"], string> = {
@@ -52,7 +50,6 @@ const blockLabel: Record<BlockDTO["type"], string> = {
 	youtube: "Video",
 	bestand: "Bestand",
 	opdracht: "Opdracht",
-	forum: "Forum",
 	lti: "Externe tool",
 };
 
@@ -61,7 +58,6 @@ const palette: [BlockDTO["type"] | "lti", string, Component<{ style?: Record<str
 	["opdracht", "Opdracht", ClipboardList],
 	["bestand", "Bestand", FileIcon],
 	["youtube", "YouTube", Youtube],
-	["forum", "Forum", MessageSquare],
 	["lti", "LTI", Sparkles],
 ];
 
@@ -623,7 +619,6 @@ const blockTypeOptions = [
 	{ value: "youtube", label: "YouTube-video" },
 	{ value: "bestand", label: "Bestand" },
 	{ value: "opdracht", label: "Opdracht" },
-	{ value: "forum", label: "Forum / groepschat" },
 ];
 
 function AddBlockDialog(props: {
@@ -643,7 +638,6 @@ function AddBlockDialog(props: {
 	// opdracht fields
 	const [asgName, setAsgName] = createSignal("");
 	const [asgDesc, setAsgDesc] = createSignal("");
-	const [isGroup, setIsGroup] = createSignal(false);
 	const [responseType, setResponseType] = createSignal("text_and_files");
 	const [asgDue, setAsgDue] = createSignal("");
 
@@ -656,7 +650,6 @@ function AddBlockDialog(props: {
 		setLabels([]);
 		setAsgName("");
 		setAsgDesc("");
-		setIsGroup(false);
 		setResponseType("text_and_files");
 		setAsgDue("");
 	};
@@ -697,7 +690,6 @@ function AddBlockDialog(props: {
 						? {
 								name: asgName() || title(),
 								description: asgDesc() || undefined,
-								isGroup: isGroup(),
 								responseType: responseType() as never,
 								dueAt: asgDue()
 									? new Date(`${asgDue()}T00:00:00`)
@@ -724,8 +716,6 @@ function AddBlockDialog(props: {
 		switch (type()) {
 			case "youtube":
 				return <PlayCircle class="size-4" />;
-			case "forum":
-				return <MessageSquare class="size-4" />;
 			default:
 				return <FileText class="size-4" />;
 		}
@@ -819,11 +809,6 @@ function AddBlockDialog(props: {
 							value={asgDesc()}
 							onInput={(e) => setAsgDesc(e.currentTarget.value)}
 						/>
-						<Switch
-							label="Groepsopdracht"
-							checked={isGroup()}
-							onChange={setIsGroup}
-						/>
 						<Select
 							label="Antwoordmogelijkheid"
 							options={[
@@ -841,13 +826,6 @@ function AddBlockDialog(props: {
 							onInput={(e) => setAsgDue(e.currentTarget.value)}
 						/>
 					</div>
-				</Show>
-
-				<Show when={type() === "forum"}>
-					<p class="text-small text-muted">
-						Er wordt automatisch een groepschat/forum aangemaakt en gekoppeld aan
-						dit blok (#32).
-					</p>
 				</Show>
 
 				{/* Leervoorkeur labels (#36) */}

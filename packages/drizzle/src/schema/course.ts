@@ -21,7 +21,8 @@ import { organization } from "./organization";
  * from an Ondivera template), and a student execution (derived from a school
  * template). The parent/derived link is `parentCourseId`. A course has ordered
  * `section`s (#25), each with ordered `contentBlock`s (CbS, #26) discriminated
- * by `type` (opdracht/pagina/bestand/youtube/forum/lti, #27–#33).
+ * by `type` (opdracht/pagina/bestand/youtube/lti, #27–#33). Course forums
+ * (#32) and group assignments were dropped (D3, migration 0009).
  *
  * Opdracht blocks own an `assignment` (#27); leerlingen create
  * `assignmentSubmission`s which a coach grades (#28). Per-leerling progress per
@@ -82,7 +83,6 @@ export const contentBlockType = pgEnum("content_block_type", [
 	"pagina",
 	"bestand",
 	"youtube",
-	"forum",
 	"lti",
 ]);
 
@@ -140,8 +140,6 @@ export const assignment = pgTable("assignment", {
 		.references(() => contentBlock.id, { onDelete: "cascade" }),
 	name: text("name").notNull(),
 	description: text("description"),
-	// Individual vs group assignment (#27).
-	isGroup: boolean("is_group").notNull().default(false),
 	responseType: assignmentResponseType("response_type")
 		.notNull()
 		.default("text_and_files"),

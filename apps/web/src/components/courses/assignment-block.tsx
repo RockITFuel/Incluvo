@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/solid-query";
-import { Paperclip, Send, Users } from "lucide-solid";
+import { Paperclip, Send } from "lucide-solid";
 import { createSignal, For, Show } from "solid-js";
 import { client, orpc } from "../../lib/orpc";
 import { Badge } from "../ui/badge";
@@ -13,7 +13,6 @@ type AssignmentDTO = {
 	id: string;
 	name: string;
 	description: string | null;
-	isGroup: boolean;
 	responseType: "text" | "files" | "text_and_files";
 	maxAttempts: number | null;
 	dueAt: Date | null;
@@ -75,11 +74,6 @@ export function AssignmentBlock(props: {
 		<div class="flex flex-col gap-3">
 			<div class="flex flex-wrap items-center gap-2">
 				<h4 class="font-medium text-ink">{props.assignment.name}</h4>
-				<Show when={props.assignment.isGroup}>
-					<Badge variant="accent">
-						<Users class="size-3" /> Groepsopdracht
-					</Badge>
-				</Show>
 				<Show when={props.assignment.dueAt}>
 					{(d) => (
 						<Badge variant="warning">

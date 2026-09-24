@@ -160,3 +160,46 @@ export async function planVersion(
 	}
 	return version;
 }
+
+/**
+ * Run `fn` against a scratch database migrated up to migration `upTo`
+ * (inclusive); `fn` receives the pool and a `migrateRest()` that applies the
+ * remaining migrations. The database is dropped afterwards. For testing a
+ * migration against data that existed before it.
+ */
+export async function withDbAt(
+	upTo: number,
+	fn: (pool: import("pg").Pool, migrateRest: () => Promise<void>) => Promise<void>,
+): Promise<void> {
+	const pg = (await import("pg")).default;
+	const { cpSync, mkdtempSync, readFileSync, writeFileSync } = await import("node:fs");
+	const { tmpdir } = await import("node:os");
+	const { join } = await import("node:path");
+	const { drizzle } = await import("drizzle-orm/node-postgres");
+	const { migrate } = await import("drizzle-orm/node-postgres/migrator");
+
+	const drizzleDir = join(import.meta.dir, "../../../packages/drizzle/drizzle");
+	const base = new URL(process.env.DATABASE_URL!);
+	const name = `${base.pathname.slice(1)}_at${upTo}`;
+	const url = (db: string) => Object.assign(new URL(base), { pathname: `/${db}` }).toString();
+	const admin = new pg.Client({ connectionString: url("postgres") });
+	await admin.connect();
+	await admin.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`);
+	await admin.query(`CREATE DATABASE "${name}"`);
+	const pool = new pg.Pool({ connectionString: url(name), max: 1 });
+	try {
+		await pool.query("CREATE EXTENSION IF NOT EXISTS vector");
+		const partial = mkdtempSync(join(tmpdir(), "incluvo-migr-"));
+		cpSync(drizzleDir, partial, { recursive: true });
+		const journalPath = join(partial, "meta/_journal.json");
+		const journal = JSON.parse(readFileSync(journalPath, "utf8"));
+		journal.entries = journal.entries.filter((e: { idx: number }) => e.idx <= upTo);
+		writeFileSync(journalPath, JSON.stringify(journal));
+		await migrate(drizzle(pool), { migrationsFolder: partial });
+		await fn(pool, () => migrate(drizzle(pool), { migrationsFolder: drizzleDir }));
+	} finally {
+		await pool.end();
+		await admin.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`);
+		await admin.end();
+	}
+}
