@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/solid-router";
 import { useMutation, useQueryClient } from "@tanstack/solid-query";
 import { Calendar, Check, Clock, Flame, Plus, X } from "lucide-solid";
 import { createSignal, For, type JSX, Show } from "solid-js";
@@ -406,6 +407,8 @@ function BigTask(props: { task: TaskRow; canManage: boolean; onToggle: () => voi
 		);
 	// A task literally due today (vs. merely self-pinned for today) reads as urgent.
 	const urgent = () => !props.task.done && props.task.dueAt !== null;
+	// An opdracht task is done by handing the opdracht in, not by ticking it.
+	const fromOpdracht = () => props.task.source === "assignment";
 
 	return (
 		<div
@@ -420,9 +423,18 @@ function BigTask(props: { task: TaskRow; canManage: boolean; onToggle: () => voi
 		>
 			<button
 				type="button"
-				aria-label={props.task.done ? "Vinkje weghalen" : "Afvinken"}
+				aria-label={
+					fromOpdracht()
+						? props.task.done
+							? "Opdracht ingeleverd"
+							: "Klaar zodra je de opdracht inlevert"
+						: props.task.done
+							? "Vinkje weghalen"
+							: "Afvinken"
+				}
+				title={fromOpdracht() ? "Klaar zodra de opdracht is ingeleverd" : undefined}
 				aria-pressed={props.task.done}
-				disabled={!props.canManage}
+				disabled={!props.canManage || fromOpdracht()}
 				onClick={props.onToggle}
 				style={{
 					width: "24px",
@@ -456,7 +468,14 @@ function BigTask(props: { task: TaskRow; canManage: boolean; onToggle: () => voi
 			<Show when={urgent()}>
 				<span class="chip danger">Deadline</span>
 			</Show>
-			<span class="chip">{SOURCE_LABEL[props.task.source]}</span>
+			<Show
+				when={fromOpdracht() && !props.task.done}
+				fallback={<span class="chip">{SOURCE_LABEL[props.task.source]}</span>}
+			>
+				<Link to="/cursussen" class="chip primary">
+					Naar de opdracht
+				</Link>
+			</Show>
 		</div>
 	);
 }

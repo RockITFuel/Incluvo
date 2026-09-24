@@ -103,7 +103,9 @@ export function BlockView(props: {
 		return props.block.type === "opdracht" && d ? isToday(new Date(d)) : false;
 	};
 
-	const canToggle = () => props.block.countsForProgress && props.canComplete;
+	// An opdracht is completed by handing it in (AssignmentBlock), not here.
+	const canToggle = () =>
+		props.block.countsForProgress && props.canComplete && props.block.type !== "opdracht";
 
 	return (
 		<div class="ds-col" style={{ gap: "0" }}>

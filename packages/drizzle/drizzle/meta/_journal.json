@@ -71,6 +71,13 @@
       "when": 1790233954236,
       "tag": "0009_drop_course_forums",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790234206885,
+      "tag": "0010_sync_course_completion",
+      "breakpoints": true
     }
   ]
 }

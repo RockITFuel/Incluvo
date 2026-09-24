@@ -174,11 +174,17 @@ Today "the plan" = newest submission; a new draft appears after every submit.
   (`questionsUpdate`, `coachplan/index.ts:410`): editing → create a new template
   version instead.
 
-### 2.3 Course completion
+### 2.3 Course completion ✅ done 2026-09-24
 - One source of truth for "done": `assignment_submission.status` drives the task
   (`task.done` becomes derived, or updated in the same transaction) and
   `content_progress`. Remove unused statuses or implement `returned`
   (coach sends back) — the grading UI already implies it.
+- Done as: an opdracht is done once handed in. `submitAssignment` sets the
+  submission, the takenlijst task and the block's progress in one
+  transaction; ticking an opdracht task or block by hand is refused
+  (BAD_REQUEST), and the takenlijst shows "Naar de opdracht" instead of a
+  checkbox. Migration 0010 aligns existing data. *open:* `draft`/`returned`
+  submission statuses stay unused until "coach stuurt terug" is wanted.
 
 ### 2.4 Forums & group work (D3: per leerling) ✅ done 2026-09-24
 - Courses stay one private copy per leerling, so course forums and group

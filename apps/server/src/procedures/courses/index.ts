@@ -1536,10 +1536,16 @@ const setProgress = protectedProcedure
 		const { actor } = context;
 		// Load block → section → course and ensure read access.
 		const [block] = await context.db
-			.select({ id: contentBlock.id, sectionId: contentBlock.sectionId })
+			.select({ id: contentBlock.id, sectionId: contentBlock.sectionId, type: contentBlock.type })
 			.from(contentBlock)
 			.where(eq(contentBlock.id, input.id));
 		if (!block) throw new ORPCError("NOT_FOUND");
+		// An opdracht is done by handing it in (submitAssignment), not by ticking it.
+		if (block.type === "opdracht") {
+			throw new ORPCError("BAD_REQUEST", {
+				message: "Een opdracht is klaar zodra je hem inlevert",
+			});
+		}
 		const [sec] = await context.db
 			.select({ courseId: courseSection.courseId })
 			.from(courseSection)
@@ -1675,37 +1681,60 @@ const submitAssignment = protectedProcedure
 		// unique per assignment + leerling, so of two concurrent submits for the
 		// same number one loses and retries with the next — which then counts
 		// against maxAttempts too.
-		let row: typeof assignmentSubmission.$inferSelect | undefined;
-		for (let tries = 0; !row && tries < 3; tries++) {
-			const [last] = await context.db
-				.select({ attempt: sql<number>`coalesce(max(${assignmentSubmission.attempt}), 0)` })
-				.from(assignmentSubmission)
-				.where(
-					and(
-						eq(assignmentSubmission.assignmentId, asg.id),
-						eq(assignmentSubmission.leerlingId, leerlingId),
-					),
-				);
-			const attempt = Number(last?.attempt ?? 0) + 1;
-			if (asg.maxAttempts && attempt > asg.maxAttempts) {
-				throw new ORPCError("BAD_REQUEST", {
-					message: "Maximaal aantal inleverpogingen bereikt",
-				});
+		// Handing in is what makes an opdracht done: the submission, the
+		// leerling's takenlijst task and the block's progress change together
+		// (one "done" state, fix plan 2.3).
+		const row = await context.db.transaction(async (tx) => {
+			let row: typeof assignmentSubmission.$inferSelect | undefined;
+			for (let tries = 0; !row && tries < 3; tries++) {
+				const [last] = await tx
+					.select({ attempt: sql<number>`coalesce(max(${assignmentSubmission.attempt}), 0)` })
+					.from(assignmentSubmission)
+					.where(
+						and(
+							eq(assignmentSubmission.assignmentId, asg.id),
+							eq(assignmentSubmission.leerlingId, leerlingId),
+						),
+					);
+				const attempt = Number(last?.attempt ?? 0) + 1;
+				if (asg.maxAttempts && attempt > asg.maxAttempts) {
+					throw new ORPCError("BAD_REQUEST", {
+						message: "Maximaal aantal inleverpogingen bereikt",
+					});
+				}
+				[row] = await tx
+					.insert(assignmentSubmission)
+					.values({
+						assignmentId: asg.id,
+						leerlingId,
+						attempt,
+						status: "submitted",
+						responseText: input.responseText ?? null,
+						fileStorageKeys: input.fileStorageKeys ?? [],
+						submittedAt: new Date(),
+					})
+					.onConflictDoNothing()
+					.returning();
 			}
-			[row] = await context.db
-				.insert(assignmentSubmission)
+			if (!row) return undefined;
+			await tx
+				.update(task)
+				.set({ done: true, doneAt: new Date(), updatedAt: new Date() })
+				.where(and(eq(task.assignmentId, asg.id), eq(task.leerlingId, leerlingId), eq(task.done, false)));
+			await tx
+				.insert(contentProgress)
 				.values({
-					assignmentId: asg.id,
+					contentBlockId: asg.contentBlockId,
 					leerlingId,
-					attempt,
-					status: "submitted",
-					responseText: input.responseText ?? null,
-					fileStorageKeys: input.fileStorageKeys ?? [],
-					submittedAt: new Date(),
+					completed: true,
+					completedAt: new Date(),
 				})
-				.onConflictDoNothing()
-				.returning();
-		}
+				.onConflictDoUpdate({
+					target: [contentProgress.leerlingId, contentProgress.contentBlockId],
+					set: { completed: true, completedAt: new Date(), updatedAt: new Date() },
+				});
+			return row;
+		});
 		if (!row) {
 			throw new ORPCError("CONFLICT", { message: "Probeer het inleveren opnieuw" });
 		}
@@ -1713,6 +1742,10 @@ const submitAssignment = protectedProcedure
 		publishTo(
 			{ type: "course.changed", payload: { courseId: crs.id } },
 			await courseChangedRecipients(context, { leerlingId }),
+		);
+		publishTo(
+			{ type: "task.changed", payload: { leerlingId } },
+			await taskChangedRecipients(context, leerlingId),
 		);
 		return {
 			...row,
