@@ -7,7 +7,7 @@ import { cpSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { db } from "@incluvo/drizzle";
-import { formSubmission } from "@incluvo/drizzle/schema";
+import { coachplan, formSubmission } from "@incluvo/drizzle/schema";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -35,6 +35,8 @@ describe("one plan, versions over time", () => {
 	beforeAll(async () => {
 		leerling = await asUser("leerling2");
 		coach = await asUser("coach2");
+		// Start from "no plan": other test files may have given leerling2 one.
+		await db.delete(coachplan).where(eq(coachplan.leerlingId, leerling.id));
 	});
 
 	test("before anything: no plan", async () => {
