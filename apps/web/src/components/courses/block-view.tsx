@@ -1,11 +1,9 @@
-import { Link } from "@tanstack/solid-router";
 import {
 	Check,
 	ChevronRight,
 	ClipboardList,
 	File as FileIcon,
 	FileText,
-	MessageSquare,
 	Sparkles,
 	Youtube,
 } from "lucide-solid";
@@ -17,7 +15,7 @@ import { PageView } from "./page-view";
 
 export type BlockDTO = {
 	id: string;
-	type: "opdracht" | "pagina" | "bestand" | "youtube" | "forum" | "lti";
+	type: "opdracht" | "pagina" | "bestand" | "youtube" | "lti";
 	title: string;
 	body: string | null;
 	youtubeId: string | null;
@@ -31,12 +29,10 @@ export type BlockDTO = {
 		id: string;
 		name: string;
 		description: string | null;
-		isGroup: boolean;
 		responseType: "text" | "files" | "text_and_files";
 		maxAttempts: number | null;
 		dueAt: Date | null;
 	} | null;
-	forumConversationId: string | null;
 };
 
 const typeIcon = {
@@ -44,7 +40,6 @@ const typeIcon = {
 	youtube: Youtube,
 	bestand: FileIcon,
 	opdracht: ClipboardList,
-	forum: MessageSquare,
 	lti: Sparkles,
 } as const;
 
@@ -53,7 +48,6 @@ const typeLabel: Record<BlockDTO["type"], string> = {
 	youtube: "Video",
 	bestand: "Bestand",
 	opdracht: "Opdracht",
-	forum: "Forum",
 	lti: "Externe tool",
 };
 
@@ -99,8 +93,6 @@ export function BlockView(props: {
 				return b.assignment?.dueAt
 					? `Inleveren voor ${new Date(b.assignment.dueAt).toLocaleString("nl-NL")}`
 					: "Opdracht";
-			case "forum":
-				return "Discussie";
 			default:
 				return "Externe tool";
 		}
@@ -274,25 +266,6 @@ export function BlockView(props: {
 
 					<Show when={props.block.type === "opdracht" && props.block.assignment} keyed>
 						{(a) => <AssignmentBlock assignment={a} courseId={props.courseId} />}
-					</Show>
-
-					<Show when={props.block.type === "forum"}>
-						<Show
-							when={props.block.forumConversationId}
-							fallback={
-								<p class="text-small text-muted">
-									Forum wordt aangemaakt zodra de cursus aan een leerling is
-									gekoppeld.
-								</p>
-							}
-						>
-							<Link to="/chat">
-								<button type="button" class="btn subtle sm">
-									<MessageSquare style={{ width: "16px", height: "16px" }} /> Open het
-									forum
-								</button>
-							</Link>
-						</Show>
 					</Show>
 
 					<Show when={props.block.labels.length > 0}>

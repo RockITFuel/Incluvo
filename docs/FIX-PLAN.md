@@ -78,8 +78,7 @@ check tenant + role only; the coach↔leerling link is checked ad hoc.
   must carry their own prefix; submission keys can't be reused across
   leerlingen). *open:* tie keys to the uploader (small `upload` table).
 - *open:* `confirmUpload` still reports the size of any key.
-- *open (phase 5):* the course "afleiden" dialog lists every leerling of the
-  school; an ontwikkelaar or unassigned coach now gets a "no access" toast.
+- ✅ (in 2.4) the course "afleiden" dialog now only lists reachable leerlingen.
 - Remove the `items` entity: router entry (`router.ts:36`), procedures, policies,
   schema, `/items` route, seed. It's readable across tenants today.
 
@@ -181,12 +180,18 @@ Today "the plan" = newest submission; a new draft appears after every submit.
   `content_progress`. Remove unused statuses or implement `returned`
   (coach sends back) — the grading UI already implies it.
 
-### 2.4 Forums & group work (D3: per leerling)
+### 2.4 Forums & group work (D3: per leerling) ✅ done 2026-09-24
 - Courses stay one private copy per leerling, so course forums and group
   assignments can never have classmates. Remove them: the `forum` block type
   and `isGroup` from the builder, `copyStructure` and the seed; migrate existing
   forum blocks away (their conversations stay readable in chat, or are archived).
 - General chat (1:1 coach↔leerling) is unaffected.
+- Done as: migration 0009 (forum blocks deleted after unlinking their chats,
+  `forum` removed from the block-type enum, `assignment.is_group` dropped),
+  builder/course view/seed cleaned up. Legacy forum chats stay readable for
+  their members. Also: the "afleiden" dialog only offers giving a course to a
+  leerling to coach+ and lists only reachable leerlingen (was: every user in
+  the school, and a 403 for an ontwikkelaar).
 
 ### 2.5 Role model clean-up
 - `user.role` → pg enum without legacy `member`/`admin`; migrate existing rows.

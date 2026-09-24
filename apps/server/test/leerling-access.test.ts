@@ -11,7 +11,11 @@
  * demo leerling (leerling@incluvo.local).
  */
 import { db } from "@incluvo/drizzle";
-import { assignmentSubmission } from "@incluvo/drizzle/schema";
+import {
+	assignmentSubmission,
+	conversation,
+	conversationMember,
+} from "@incluvo/drizzle/schema";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import { type DemoUser, type TestUser, asUser, expectForbidden, userId, planVersion } from "./harness";
@@ -54,13 +58,19 @@ beforeAll(async () => {
 	const tree = await leerling.client.courses.tree({ id: f.courseId });
 	const blocks = tree.sections.flatMap((s) => s.blocks);
 	const opdracht = blocks.find((b) => b.assignment);
-	const forum = blocks.find((b) => b.forumConversationId);
-	if (!opdracht?.assignment || !forum?.forumConversationId) {
-		throw new Error("seed course lacks an opdracht or forum");
-	}
+	if (!opdracht?.assignment) throw new Error("seed course lacks an opdracht");
 	f.assignmentId = opdracht.assignment.id;
 	f.blockId = opdracht.id;
-	f.forumConversationId = forum.forumConversationId;
+
+	// A legacy course forum (no longer created, D3) the leerling is in.
+	const [forum] = await db
+		.insert(conversation)
+		.values({ organizationId: execution.organizationId!, kind: "forum", title: "Oud forum" })
+		.returning({ id: conversation.id });
+	await db
+		.insert(conversationMember)
+		.values({ conversationId: forum!.id, userId: f.leerlingId, role: "member" });
+	f.forumConversationId = forum!.id;
 
 	const upload = await leerling.client.courses.uploadLocal({
 		filename: "werk.png",
@@ -107,7 +117,7 @@ const READS: Check[] = [
 	["tasks.list", (u) => u.client.tasks.list({ leerlingId: f.leerlingId })],
 	["mood.weekFor", (u) => u.client.mood.weekFor({ leerlingId: f.leerlingId })],
 	[
-		"chat.messages (course forum, reading along)",
+		"chat.messages (legacy course forum, reading along)",
 		(u) => u.client.chat.messages({ conversationId: f.forumConversationId }),
 	],
 	[
