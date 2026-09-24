@@ -71,8 +71,10 @@ jobs:
     env:
       DATABASE_URL: postgres://incluvo:incluvo@localhost:5432/incluvo
       BETTER_AUTH_SECRET: ci-only-secret-ci-only-secret-ci-only-0000
-      BETTER_AUTH_URL: http://localhost:3200
-      CORS_ORIGINS: http://localhost:3200
+      # `vite preview` binds to 127.0.0.1 (vite.config.ts), so the app's origin
+      # is 127.0.0.1 everywhere.
+      BETTER_AUTH_URL: http://127.0.0.1:3200
+      CORS_ORIGINS: http://127.0.0.1:3200
       PORT: 3210
     steps:
       - uses: actions/checkout@v4
@@ -82,24 +84,28 @@ jobs:
       - run: bun install
       - run: bunx playwright install --with-deps chromium
         working-directory: apps/web
+      # A production build: a cold dev server compiles on the first request,
+      # which is slow and not what users get.
+      - run: bunx vite build
+        working-directory: apps/web
       # Same migrations, audit trigger and demo seed as the server tests.
       - run: bun run setup-db
         working-directory: apps/server
       - name: Start server and web app
         run: |
           (cd apps/server && bun src/index.ts > /tmp/server.log 2>&1 &)
-          (cd apps/web && ORPC_SERVER_URL=http://localhost:3210 bunx vite dev --port 3200 --strictPort > /tmp/web.log 2>&1 &)
+          (cd apps/web && ORPC_SERVER_URL=http://localhost:3210 bunx vite preview --port 3200 --strictPort > /tmp/web.log 2>&1 &)
           for i in $(seq 1 60); do
-            curl -sf http://localhost:3200/login > /dev/null && curl -sf http://localhost:3210/api/health > /dev/null && exit 0
+            curl -sf http://127.0.0.1:3200/login > /dev/null && curl -sf http://localhost:3210/api/health > /dev/null && exit 0
             sleep 2
           done
           echo "app did not start"; exit 1
       - run: bun run test:a11y
         working-directory: apps/web
         env:
-          BASE_URL: http://localhost:3200
+          BASE_URL: http://127.0.0.1:3200
       - if: failure()
-        run: tail -50 /tmp/server.log /tmp/web.log
+        run: tail -n 50 /tmp/server.log /tmp/web.log
 
   build-and-push:
     name: Build & Push (${{ matrix.app.name }})
