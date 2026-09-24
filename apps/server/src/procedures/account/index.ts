@@ -314,33 +314,35 @@ const usersSetRole = protectedProcedure
 			});
 		}
 
-		const [row] = await context.db
-			.update(user)
-			.set({ role: input.role, updatedAt: new Date() })
-			.where(eq(user.id, input.userId))
-			.returning({
-				id: user.id,
-				name: user.name,
-				email: user.email,
-				role: user.role,
-				organizationId: user.organizationId,
-			});
-		if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
-
-		// Keep the explicit membership row in sync with the denormalised role.
-		if (row.organizationId) {
-			await context.db
-				.update(membership)
+		// The user's role and the membership row change together.
+		return context.db.transaction(async (tx) => {
+			const [row] = await tx
+				.update(user)
 				.set({ role: input.role, updatedAt: new Date() })
-				.where(
-					and(
-						eq(membership.userId, row.id),
-						eq(membership.organizationId, row.organizationId),
-					),
-				);
-		}
+				.where(eq(user.id, input.userId))
+				.returning({
+					id: user.id,
+					name: user.name,
+					email: user.email,
+					role: user.role,
+					organizationId: user.organizationId,
+				});
+			if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
 
-		return row;
+			// Keep the explicit membership row in sync with the denormalised role.
+			if (row.organizationId) {
+				await tx
+					.update(membership)
+					.set({ role: input.role, updatedAt: new Date() })
+					.where(
+						and(
+							eq(membership.userId, row.id),
+							eq(membership.organizationId, row.organizationId),
+						),
+					);
+			}
+			return row;
+		});
 	});
 
 /**
@@ -419,10 +421,6 @@ const usersInvite = protectedProcedure
 		if (existing) {
 			userId = existing.id;
 			name = existing.name;
-			await context.db
-				.update(user)
-				.set({ role: input.role, updatedAt: new Date() })
-				.where(eq(user.id, userId));
 		} else {
 			name = input.name ?? email.split("@")[0]!;
 			userId = await createAccount({
@@ -433,26 +431,20 @@ const usersInvite = protectedProcedure
 			});
 		}
 
-		// Upsert the membership row (idempotent on user/org).
-		const [m] = await context.db
-			.select({ id: membership.id })
-			.from(membership)
-			.where(
-				and(
-					eq(membership.userId, userId),
-					eq(membership.organizationId, organizationId),
-				),
-			);
-		if (m) {
-			await context.db
-				.update(membership)
+		// Role + membership (unique on user + organization) together.
+		await context.db.transaction(async (tx) => {
+			await tx
+				.update(user)
 				.set({ role: input.role, updatedAt: new Date() })
-				.where(eq(membership.id, m.id));
-		} else {
-			await context.db
+				.where(eq(user.id, userId));
+			await tx
 				.insert(membership)
-				.values({ userId, organizationId, role: input.role });
-		}
+				.values({ userId, organizationId, role: input.role })
+				.onConflictDoUpdate({
+					target: [membership.userId, membership.organizationId],
+					set: { role: input.role, updatedAt: new Date() },
+				});
+		});
 
 		let mailSent = true;
 		if (!existing || !(await hasPassword(userId))) {

@@ -1,7 +1,8 @@
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
 	boolean,
 	index,
+	uniqueIndex,
 	integer,
 	jsonb,
 	pgEnum,
@@ -72,7 +73,12 @@ export const formTemplate = pgTable("form_template", {
 	}),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 	updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (t) => [
+	// At most one school default form per organization (#10).
+	uniqueIndex("form_template_school_default_uq")
+		.on(t.organizationId)
+		.where(sql`${t.isSchoolDefault}`),
+]);
 
 export const formQuestion = pgTable("form_question", {
 	id: uuid("id").primaryKey().defaultRandom(),
@@ -114,7 +120,10 @@ export const formAssignment = pgTable("form_assignment", {
 		.references(() => formTemplate.id, { onDelete: "cascade" }),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 	updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (t) => [
+	// One assigned form per leerling (#10).
+	uniqueIndex("form_assignment_leerling_uq").on(t.organizationId, t.leerlingId),
+]);
 
 /** A leerling's submission lifecycle. */
 export const submissionStatus = pgEnum("submission_status", [
@@ -164,7 +173,10 @@ export const formAnswer = pgTable("form_answer", {
 	deliberatelySkipped: boolean("deliberately_skipped").notNull().default(false),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 	updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (t) => [
+	// One answer per question per submission; autosave upserts on this.
+	uniqueIndex("form_answer_submission_question_uq").on(t.submissionId, t.questionId),
+]);
 
 /**
  * Mapping of a leerling answer onto a question in the coach-gedeelte (#16). The
@@ -198,7 +210,9 @@ export const learningPreferenceLabel = pgTable("learning_preference_label", {
 	// Stable label key (e.g. "visueel", "auditief") used to match course labels.
 	label: text("label").notNull(),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (t) => [
+	uniqueIndex("learning_preference_label_uq").on(t.submissionId, t.label),
+]);
 
 /** Transcription record for a coach conversation (#18). */
 export const transcriptionStatus = pgEnum("transcription_status", [

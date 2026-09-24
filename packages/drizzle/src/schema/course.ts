@@ -122,7 +122,9 @@ export const contentBlockLabel = pgTable("content_block_label", {
 		.references(() => contentBlock.id, { onDelete: "cascade" }),
 	label: text("label").notNull(),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (t) => [
+	uniqueIndex("content_block_label_uq").on(t.contentBlockId, t.label),
+]);
 
 /** Assignment attached to an opdracht content block (#27). */
 export const assignmentResponseType = pgEnum("assignment_response_type", [
@@ -172,7 +174,11 @@ export const assignmentSubmission = pgTable("assignment_submission", {
 	submittedAt: timestamp("submitted_at"),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 	updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (t) => [
+	// Attempt numbers are unique, so concurrent submits can't both take the
+	// last allowed attempt (maxAttempts).
+	uniqueIndex("assignment_submission_attempt_uq").on(t.assignmentId, t.leerlingId, t.attempt),
+]);
 
 /**
  * Grading of a submission (#28). Cijfer is optional; feedback may be text and/or

@@ -292,38 +292,42 @@ const templatesCopyToSchool = protectedProcedure
 			throw new ORPCError("FORBIDDEN");
 		}
 
-		const [copy] = await context.db
-			.insert(formTemplate)
-			.values({
-				name: input.name ?? `${src.name} (kopie)`,
-				description: src.description,
-				scope: "school",
-				organizationId,
-				parentTemplateId: src.id,
-				createdById: actor.userId,
-			})
-			.returning();
-		if (!copy) throw new ORPCError("INTERNAL_SERVER_ERROR");
+		// Template + questions commit together: never a half-copied form.
+		const copy = await context.db.transaction(async (tx) => {
+			const [copy] = await tx
+				.insert(formTemplate)
+				.values({
+					name: input.name ?? `${src.name} (kopie)`,
+					description: src.description,
+					scope: "school",
+					organizationId,
+					parentTemplateId: src.id,
+					createdById: actor.userId,
+				})
+				.returning();
+			if (!copy) throw new ORPCError("INTERNAL_SERVER_ERROR");
 
-		const srcQuestions = await context.db
-			.select()
-			.from(formQuestion)
-			.where(eq(formQuestion.templateId, src.id))
-			.orderBy(asc(formQuestion.position));
-		if (srcQuestions.length) {
-			await context.db.insert(formQuestion).values(
-				srcQuestions.map((q) => ({
-					templateId: copy.id,
-					section: q.section,
-					type: q.type,
-					label: q.label,
-					helpText: q.helpText,
-					required: q.required,
-					position: q.position,
-					options: q.options,
-				})),
-			);
-		}
+			const srcQuestions = await tx
+				.select()
+				.from(formQuestion)
+				.where(eq(formQuestion.templateId, src.id))
+				.orderBy(asc(formQuestion.position));
+			if (srcQuestions.length) {
+				await tx.insert(formQuestion).values(
+					srcQuestions.map((q) => ({
+						templateId: copy.id,
+						section: q.section,
+						type: q.type,
+						label: q.label,
+						helpText: q.helpText,
+						required: q.required,
+						position: q.position,
+						options: q.options,
+					})),
+				);
+			}
+			return copy;
+		});
 		publishTo(
 			{ type: "coachplan.template.changed", payload: { id: copy.id } },
 			[context.actor.userId],
@@ -494,15 +498,18 @@ const setSchoolDefault = protectedProcedure
 		if (!can(actor, policies.manageForms, tpl) || tpl.scope !== "school") {
 			throw new ORPCError("FORBIDDEN");
 		}
-		// Clear any other default in the tenant, then set this one.
-		await context.db
-			.update(formTemplate)
-			.set({ isSchoolDefault: false })
-			.where(eq(formTemplate.organizationId, tpl.organizationId ?? ""));
-		await context.db
-			.update(formTemplate)
-			.set({ isSchoolDefault: true, updatedAt: new Date() })
-			.where(eq(formTemplate.id, input.templateId));
+		// Clear any other default in the tenant, then set this one — together,
+		// so the school is never left without (or with two) defaults.
+		await context.db.transaction(async (tx) => {
+			await tx
+				.update(formTemplate)
+				.set({ isSchoolDefault: false })
+				.where(eq(formTemplate.organizationId, tpl.organizationId ?? ""));
+			await tx
+				.update(formTemplate)
+				.set({ isSchoolDefault: true, updatedAt: new Date() })
+				.where(eq(formTemplate.id, input.templateId));
+		});
 		publishTo(
 			{ type: "coachplan.template.changed", payload: { id: input.templateId } },
 			[context.actor.userId],
@@ -534,26 +541,14 @@ const assignToLeerling = protectedProcedure
 		if (!tpl || tpl.scope !== "school" || !sameTenant(actor, tpl)) {
 			throw new ORPCError("FORBIDDEN");
 		}
-		// Upsert (one assignment per leerling).
-		const [existing] = await context.db
-			.select({ id: formAssignment.id })
-			.from(formAssignment)
-			.where(
-				and(
-					eq(formAssignment.organizationId, organizationId),
-					eq(formAssignment.leerlingId, input.leerlingId),
-				),
-			);
-		if (existing) {
-			await context.db
-				.update(formAssignment)
-				.set({ templateId: input.templateId, updatedAt: new Date() })
-				.where(eq(formAssignment.id, existing.id));
-			return { id: existing.id };
-		}
+		// One assignment per leerling (unique on organization + leerling).
 		const [row] = await context.db
 			.insert(formAssignment)
 			.values({ organizationId, leerlingId: input.leerlingId, templateId: input.templateId })
+			.onConflictDoUpdate({
+				target: [formAssignment.organizationId, formAssignment.leerlingId],
+				set: { templateId: input.templateId, updatedAt: new Date() },
+			})
 			.returning({ id: formAssignment.id });
 		if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
 		return { id: row.id };
@@ -712,16 +707,6 @@ const saveAnswer = protectedProcedure
 			throw new ORPCError("BAD_REQUEST", { message: "Vraag hoort niet bij dit formulier" });
 		}
 
-		const [existing] = await context.db
-			.select()
-			.from(formAnswer)
-			.where(
-				and(
-					eq(formAnswer.submissionId, input.submissionId),
-					eq(formAnswer.questionId, input.questionId),
-				),
-			);
-
 		const patch = {
 			...(input.value !== undefined ? { value: input.value } : {}),
 			...(input.valueJson !== undefined
@@ -735,26 +720,23 @@ const saveAnswer = protectedProcedure
 				: {}),
 		};
 
-		let row: typeof formAnswer.$inferSelect | undefined;
-		if (existing) {
-			[row] = await context.db
-				.update(formAnswer)
-				.set({ ...patch, updatedAt: new Date() })
-				.where(eq(formAnswer.id, existing.id))
-				.returning();
-		} else {
-			[row] = await context.db
-				.insert(formAnswer)
-				.values({
-					submissionId: input.submissionId,
-					questionId: input.questionId,
-					value: input.value ?? null,
-					valueJson: (input.valueJson ?? null) as never,
-					discussWithCoach: input.discussWithCoach ?? false,
-					deliberatelySkipped: input.deliberatelySkipped ?? false,
-				})
-				.returning();
-		}
+		// One statement, so overlapping autosaves can't insert the answer twice
+		// (unique on submission + question).
+		const [row] = await context.db
+			.insert(formAnswer)
+			.values({
+				submissionId: input.submissionId,
+				questionId: input.questionId,
+				value: input.value ?? null,
+				valueJson: (input.valueJson ?? null) as never,
+				discussWithCoach: input.discussWithCoach ?? false,
+				deliberatelySkipped: input.deliberatelySkipped ?? false,
+			})
+			.onConflictDoUpdate({
+				target: [formAnswer.submissionId, formAnswer.questionId],
+				set: { ...patch, updatedAt: new Date() },
+			})
+			.returning();
 		if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
 		// Touch the submission so coach lists re-sort.
 		await context.db
@@ -848,11 +830,15 @@ const submit = protectedProcedure
 	.handler(async ({ input, context }) => {
 		const sub = await loadFillable(context, input.submissionId);
 		const [row] = await context.db.transaction(async (tx) => {
+			// Only a draft can be submitted; a concurrent submit finds no draft.
 			const [updated] = await tx
 				.update(formSubmission)
 				.set({ status: "submitted", submittedAt: new Date(), updatedAt: new Date() })
-				.where(eq(formSubmission.id, sub.id))
+				.where(and(eq(formSubmission.id, sub.id), eq(formSubmission.status, "draft")))
 				.returning();
+			if (!updated) {
+				throw new ORPCError("CONFLICT", { message: "Dit plan is al ingeleverd" });
+			}
 			// #18 — auto-prefill the coach (POPP) fields from corresponding leerling
 			// answers. For every leerling question that declares a `mapsToQuestionId`,
 			// create an `answerCoachMapping` pointing the leerling's answer at the
@@ -1237,30 +1223,7 @@ const saveCoachAnswer = protectedProcedure
 					})
 					.where(eq(formSubmission.id, sub.id));
 			}
-			const [existing] = await tx
-				.select()
-				.from(formAnswer)
-				.where(
-					and(
-						eq(formAnswer.submissionId, input.submissionId),
-						eq(formAnswer.questionId, input.questionId),
-					),
-				);
-			if (existing) {
-				const [updated] = await tx
-					.update(formAnswer)
-					.set({
-						...(input.value !== undefined ? { value: input.value } : {}),
-						...(input.valueJson !== undefined
-							? { valueJson: input.valueJson as never }
-							: {}),
-						updatedAt: new Date(),
-					})
-					.where(eq(formAnswer.id, existing.id))
-					.returning();
-				return updated;
-			}
-			const [inserted] = await tx
+			const [saved] = await tx
 				.insert(formAnswer)
 				.values({
 					submissionId: input.submissionId,
@@ -1268,8 +1231,18 @@ const saveCoachAnswer = protectedProcedure
 					value: input.value ?? null,
 					valueJson: (input.valueJson ?? null) as never,
 				})
+				.onConflictDoUpdate({
+					target: [formAnswer.submissionId, formAnswer.questionId],
+					set: {
+						...(input.value !== undefined ? { value: input.value } : {}),
+						...(input.valueJson !== undefined
+							? { valueJson: input.valueJson as never }
+							: {}),
+						updatedAt: new Date(),
+					},
+				})
 				.returning();
-			return inserted;
+			return saved;
 		});
 		if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
 		return answerDto(row);

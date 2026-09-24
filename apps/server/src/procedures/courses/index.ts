@@ -708,14 +708,7 @@ async function seedTasksForExecution(
 		.where(eq(courseSection.courseId, courseId));
 
 	for (const a of rows) {
-		// Idempotency: skip if a task already exists for this assignment+leerling.
-		const [existing] = await tx
-			.select({ id: task.id })
-			.from(task)
-			.where(
-				and(eq(task.assignmentId, a.assignmentId), eq(task.leerlingId, leerlingId)),
-			);
-		if (existing) continue;
+		// Idempotent: one task per opdracht per leerling (unique index).
 		await tx.insert(task).values({
 			organizationId: crs.organizationId,
 			leerlingId,
@@ -724,7 +717,7 @@ async function seedTasksForExecution(
 			title: a.name,
 			description: a.description,
 			dueAt: a.dueAt,
-		});
+		}).onConflictDoNothing();
 	}
 }
 
@@ -1054,32 +1047,35 @@ const updateBlock = protectedProcedure
 				throw new ORPCError("BAD_REQUEST", { message: "Ongeldige YouTube-link" });
 		}
 
-		await context.db
-			.update(contentBlock)
-			.set({
-				title: input.title,
-				body: block.type === "pagina" ? input.body : undefined,
-				youtubeUrl: block.type === "youtube" ? youtubeId : undefined,
-				fileStorageKey:
-					block.type === "bestand" && input.fileStorageKey
-						? assertKeyScope(input.fileStorageKey, "bestand")
-						: undefined,
-				countsForProgress: input.countsForProgress,
-				updatedAt: new Date(),
-			})
-			.where(eq(contentBlock.id, input.id));
+		// Block fields and its labels change together (#36).
+		await context.db.transaction(async (tx) => {
+			await tx
+				.update(contentBlock)
+				.set({
+					title: input.title,
+					body: block.type === "pagina" ? input.body : undefined,
+					youtubeUrl: block.type === "youtube" ? youtubeId : undefined,
+					fileStorageKey:
+						block.type === "bestand" && input.fileStorageKey
+							? assertKeyScope(input.fileStorageKey, "bestand")
+							: undefined,
+					countsForProgress: input.countsForProgress,
+					updatedAt: new Date(),
+				})
+				.where(eq(contentBlock.id, input.id));
 
-		// Replace labels if provided (#36).
-		if (input.labels) {
-			await context.db
-				.delete(contentBlockLabel)
-				.where(eq(contentBlockLabel.contentBlockId, input.id));
-			if (input.labels.length > 0) {
-				await context.db.insert(contentBlockLabel).values(
-					input.labels.map((label) => ({ contentBlockId: input.id, label })),
-				);
+			// Replace labels if provided (#36).
+			if (input.labels) {
+				await tx
+					.delete(contentBlockLabel)
+					.where(eq(contentBlockLabel.contentBlockId, input.id));
+				if (input.labels.length > 0) {
+					await tx.insert(contentBlockLabel).values(
+						input.labels.map((label) => ({ contentBlockId: input.id, label })),
+					);
+				}
 			}
-		}
+		});
 
 		publishTo(
 			{ type: "course.changed", payload: { courseId: crs.id } },
@@ -1768,35 +1764,44 @@ const submitAssignment = protectedProcedure
 			throw new ORPCError("FORBIDDEN");
 		}
 
-		// Attempt number = count of existing submissions + 1; enforce maxAttempts.
-		const existing = await context.db
-			.select({ id: assignmentSubmission.id })
-			.from(assignmentSubmission)
-			.where(
-				and(
-					eq(assignmentSubmission.assignmentId, asg.id),
-					eq(assignmentSubmission.leerlingId, leerlingId),
-				),
-			);
-		if (asg.maxAttempts && existing.length >= asg.maxAttempts) {
-			throw new ORPCError("BAD_REQUEST", {
-				message: "Maximaal aantal inleverpogingen bereikt",
-			});
+		// Next attempt number, enforcing maxAttempts. The attempt number is
+		// unique per assignment + leerling, so of two concurrent submits for the
+		// same number one loses and retries with the next — which then counts
+		// against maxAttempts too.
+		let row: typeof assignmentSubmission.$inferSelect | undefined;
+		for (let tries = 0; !row && tries < 3; tries++) {
+			const [last] = await context.db
+				.select({ attempt: sql<number>`coalesce(max(${assignmentSubmission.attempt}), 0)` })
+				.from(assignmentSubmission)
+				.where(
+					and(
+						eq(assignmentSubmission.assignmentId, asg.id),
+						eq(assignmentSubmission.leerlingId, leerlingId),
+					),
+				);
+			const attempt = Number(last?.attempt ?? 0) + 1;
+			if (asg.maxAttempts && attempt > asg.maxAttempts) {
+				throw new ORPCError("BAD_REQUEST", {
+					message: "Maximaal aantal inleverpogingen bereikt",
+				});
+			}
+			[row] = await context.db
+				.insert(assignmentSubmission)
+				.values({
+					assignmentId: asg.id,
+					leerlingId,
+					attempt,
+					status: "submitted",
+					responseText: input.responseText ?? null,
+					fileStorageKeys: input.fileStorageKeys ?? [],
+					submittedAt: new Date(),
+				})
+				.onConflictDoNothing()
+				.returning();
 		}
-
-		const [row] = await context.db
-			.insert(assignmentSubmission)
-			.values({
-				assignmentId: asg.id,
-				leerlingId,
-				attempt: existing.length + 1,
-				status: "submitted",
-				responseText: input.responseText ?? null,
-				fileStorageKeys: input.fileStorageKeys ?? [],
-				submittedAt: new Date(),
-			})
-			.returning();
-		if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
+		if (!row) {
+			throw new ORPCError("CONFLICT", { message: "Probeer het inleveren opnieuw" });
+		}
 
 		publishTo(
 			{ type: "course.changed", payload: { courseId: crs.id } },
