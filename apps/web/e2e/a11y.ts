@@ -22,6 +22,17 @@ const PAGES: Record<string, string[]> = {
 };
 
 const failures: string[] = [];
+const browserErrors: string[] = [];
+
+/** A fresh page that records console errors, for diagnosing failures. */
+async function newPage(browser: import("playwright").Browser): Promise<Page> {
+	const page = await (await browser.newContext()).newPage();
+	page.on("console", (m) => {
+		if (m.type() === "error") browserErrors.push(`${page.url()}: ${m.text().slice(0, 300)}`);
+	});
+	page.on("pageerror", (e) => browserErrors.push(`${page.url()}: ${e.message.slice(0, 300)}`));
+	return page;
+}
 
 async function check(page: Page, label: string) {
 	// Pages render after their data arrives. (Not "networkidle": the live
@@ -29,22 +40,25 @@ async function check(page: Page, label: string) {
 	await page.locator("h1").first().waitFor({ timeout: 15_000 });
 	await page.waitForTimeout(1500);
 	const result = await new AxeBuilder({ page }).withTags(TAGS).analyze();
+	const found: string[] = [];
 	for (const v of result.violations) {
 		for (const node of v.nodes) {
-			failures.push(`${label}: ${v.id} (${v.impact}) — ${node.target.join(" ")}\n    ${v.help}`);
+			found.push(`${label}: ${v.id} (${v.impact}) — ${node.target.join(" ")}\n    ${v.help}`);
 		}
 	}
-	console.log(`${result.violations.length === 0 ? "ok  " : "FAIL"} ${label}`);
+	failures.push(...found);
+	console.log(`${found.length === 0 ? "ok  " : "FAIL"} ${label}`);
+	for (const f of found) console.log(`  ${f}`);
 }
 
 const browser = await chromium.launch();
 try {
-	const loginPage = await (await browser.newContext()).newPage();
+	const loginPage = await newPage(browser);
 	await loginPage.goto(`${BASE}/login`);
 	await check(loginPage, "/login");
 
 	for (const [email, paths] of Object.entries(PAGES)) {
-		const page = await (await browser.newContext()).newPage();
+		const page = await newPage(browser);
 		await page.goto(`${BASE}/login`);
 		await page.getByLabel("E-mail").fill(email);
 		await page.getByLabel("Wachtwoord").fill(PASSWORD);
@@ -55,6 +69,10 @@ try {
 			await check(page, `${email.split("@")[0]} ${path}`);
 		}
 	}
+} catch (error) {
+	console.error(`\nThe check itself failed: ${(error as Error).message.split("\n")[0]}`);
+	if (browserErrors.length) console.error(`Browser errors:\n  ${browserErrors.join("\n  ")}`);
+	process.exit(2);
 } finally {
 	await browser.close();
 }
