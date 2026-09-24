@@ -16,7 +16,7 @@ Rough sizing: S ≈ ½ day, M ≈ 1–2 days, L ≈ 3–5 days.
 | D2 | How does a coachplan live over time? | **One living plan + versions** — one current plan per leerling; each share keeps a read-only version; the leerling can start a revision. | 2.1 |
 | D3 | Courses per klas or per leerling? | **Per leerling** — keep one private copy per leerling; drop course forums and group assignments inside courses (general chat stays). | 2.4 |
 | D4 | The **ontwikkelaar**'s job? | **Build courses only** — templates + course builder, no access to any leerling's data. | 1.1, 5 |
-| D5 | Template changes vs. school copies? | **"Create a revision"** — exact meaning still to confirm (see 2.2). | 2.2 |
+| D5 | Template changes vs. school copies? | **Versions, school picks** — a template change creates a new version; a school copy stays on its version, sees that a newer one exists and upgrades when it chooses; filled-in plans keep the version they were made with. | 2.2 |
 
 ---
 
@@ -91,25 +91,35 @@ check tenant + role only; the coach↔leerling link is checked ad hoc.
   through Mailpit/SMTP); existing accounts without an org are refused.
 - *open:* delete any existing tenant-less `member` accounts in production, after
   checking them: `SELECT id, email, created_at FROM "user" WHERE organization_id IS NULL AND role = 'member';`
-- *open:* set `AUTH_IP_HEADER` in production to a header the proxy overwrites.
+- ✅ Production (2026-09-24): `AUTH_IP_HEADER=cf-connecting-ip` (incluvo.d2d-hosting.dev
+  is proxied by Cloudflare) and SMTP via Cloudflare Email Sending
+  (`smtp.mx.cloudflare.net:465`, sender `no-reply@mail.d2d.cloud`, token in
+  1Password `incluvo-smtp`). Takes effect on the next deploy.
+- *open:* the origin (server2.d2d-hosting.dev) is reachable without Cloudflare,
+  where `cf-connecting-ip` can be forged. Restrict the origin to Cloudflare IPs
+  (or use Cloudflare Tunnel) to make the per-IP limit airtight.
 - Rate limit: split — keep strict limits on `sign-in`/`reset`, exempt
   `get-session` (`auth.ts:42`), key by IP+email so one school NAT isn't locked
   out.
 - *open:* gate `ai.translate` and `uploadLocal` behind a tenant + per-user rate
   limit (less urgent now that only invited users can sign in).
 
-### 1.3 Streaming handler DB connection
+### 1.3 Streaming handler DB connection ✅ done 2026-09-24
 - `ai.assistant` (async generator) runs queries after `requireAuth` released its
   pinned connection (`base.ts:53-57`). Either do all DB work before the first
   `yield` and pass plain data into the generator, or acquire/release a
   connection inside the generator (`try/finally`). Add a test that runs two
   assistant streams concurrently with a write in between.
 
-### 1.4 Pool pressure
+### 1.4 Pool pressure ✅ done 2026-09-24
 - Don't hold the pinned connection across slow external work: transcribe, AI
   calls, PDF rendering release it first (same pattern as 1.3).
 - Set a pool acquire timeout (`connectionTimeoutMillis`) so overload returns
   503 instead of hanging.
+- Done as: the request connection is taken on first query (`createRequestDb`),
+  handlers call `context.suspendDb()` before transcribe, the assistant stream
+  and PDF rendering, and the auth middleware releases a stream's connection
+  when the stream ends (`releaseAfterStream`).
 
 **Tests (all in phase 0 harness):** one test per flagged endpoint: unassigned
 coach → 403, other-tenant coach → 403, ontwikkelaar → 403 on pupil data,

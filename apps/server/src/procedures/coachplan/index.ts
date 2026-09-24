@@ -1510,6 +1510,8 @@ const generatePdf = protectedProcedure
 			questions: pdfQuestions,
 		};
 
+		// Rendering launches headless Chromium; don't hold a DB connection for it.
+		await context.suspendDb();
 		const bytes = await renderPlanPdf(plan);
 		return {
 			filename: `coachplan-${(leerling?.name ?? "leerling").replace(/\s+/g, "-").toLowerCase()}.pdf`,

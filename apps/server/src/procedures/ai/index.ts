@@ -212,6 +212,9 @@ const transcribe = coachProcedure
 			.returning();
 		if (!pending) throw new ORPCError("INTERNAL_SERVER_ERROR");
 
+		// The provider call can take a minute; give the connection back meanwhile.
+		// The writes below take a fresh one (actor still pinned for the audit log).
+		await context.suspendDb();
 		const provider = getAiProvider();
 		let result: { transcript: string; proposals: { questionId: string; value: string }[] };
 		try {
@@ -483,6 +486,9 @@ const assistant = coachProcedure
 			},
 			...input.messages,
 		];
+
+		// All DB work is done; don't hold a connection while the advice streams.
+		await context.suspendDb();
 
 		// First frame carries provider metadata so the UI can show "MOCK".
 		yield { meta: { mock: provider.mock, model: provider.model } } as

@@ -23,7 +23,7 @@ import {
  * dashboard procedures, and never return unshared rows.
  *
  * Writes are audited automatically by the DB audit trigger (the actor is pinned
- * on the connection via `acquireRequestActor` in `protectedProcedure`), so — as
+ * on the connection via `createRequestDb` in `protectedProcedure`), so — as
  * with `tasks.add` — there is no manual audit call here.
  */
 
