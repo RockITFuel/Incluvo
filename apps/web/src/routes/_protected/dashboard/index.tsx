@@ -200,14 +200,7 @@ function DashboardPage() {
 
 			<Show when={rows().length > 0}>
 				{/* KPI row */}
-				<div
-					class="ds-grid"
-					style={{
-						"grid-template-columns": "repeat(4, 1fr)",
-						gap: "16px",
-						"margin-bottom": "24px",
-					}}
-				>
+				<div class="ds-grid-tiles" style={{ "margin-bottom": "24px" }}>
 					<KPI
 						label="Plannen klaar"
 						value={`${kpis().klaar}/${kpis().total}`}
@@ -304,7 +297,7 @@ function DashboardPage() {
 								border: "0",
 								background: "transparent",
 								outline: "none",
-								"font-size": "13px",
+								"font-size": "0.8125rem",
 								color: "rgb(var(--ink))",
 							}}
 							placeholder="Zoek leerling…"
@@ -325,7 +318,7 @@ function DashboardPage() {
 									padding: "12px 20px",
 									background: "rgb(var(--bg-2))",
 									"border-bottom": "1px solid rgb(var(--line))",
-									"font-size": "12px",
+									"font-size": "0.75rem",
 									"font-weight": "600",
 									color: "rgb(var(--muted))",
 									"text-transform": "uppercase",
@@ -382,7 +375,7 @@ function DashboardPage() {
 												style={{
 													width: "34px",
 													height: "34px",
-													"font-size": "12px",
+													"font-size": "0.75rem",
 												}}
 												aria-hidden="true"
 											>
@@ -392,14 +385,14 @@ function DashboardPage() {
 												<div
 													style={{
 														"font-weight": "500",
-														"font-size": "14px",
+														"font-size": "0.875rem",
 													}}
 												>
 													{row.leerling.name}
 												</div>
 												<div
 													style={{
-														"font-size": "12px",
+														"font-size": "0.75rem",
 														color: "rgb(var(--muted))",
 														overflow: "hidden",
 														"text-overflow": "ellipsis",
@@ -412,7 +405,7 @@ function DashboardPage() {
 											<Show when={row.aandacht}>
 												<span
 													class="chip danger"
-													style={{ "font-size": "11px" }}
+													style={{ "font-size": "0.6875rem" }}
 												>
 													<Flag class="size-3" aria-hidden="true" /> Aandacht
 												</span>
@@ -425,7 +418,7 @@ function DashboardPage() {
 											fallback={
 												<div
 													style={{
-														"font-size": "14px",
+														"font-size": "0.875rem",
 														color: "rgb(var(--muted))",
 													}}
 													title="Nog geen mood gedeeld"
@@ -436,7 +429,7 @@ function DashboardPage() {
 											}
 										>
 											<div
-												style={{ "font-size": "22px", "line-height": "1" }}
+												style={{ "font-size": "1.375rem", "line-height": "1" }}
 												title={moodMeta(moodByLeerling().get(row.leerling.id) as number).label}
 												aria-label={`Mood: ${moodMeta(moodByLeerling().get(row.leerling.id) as number).label}`}
 											>
@@ -451,7 +444,7 @@ function DashboardPage() {
 											</span>
 											<div
 												style={{
-													"font-size": "11px",
+													"font-size": "0.6875rem",
 													color: "rgb(var(--muted))",
 													"margin-top": "3px",
 												}}
@@ -467,7 +460,7 @@ function DashboardPage() {
 											</div>
 											<div
 												style={{
-													"font-size": "11px",
+													"font-size": "0.6875rem",
 													color: "rgb(var(--muted))",
 												}}
 											>
@@ -478,7 +471,7 @@ function DashboardPage() {
 										{/* Laatst actief */}
 										<div
 											style={{
-												"font-size": "13px",
+												"font-size": "0.8125rem",
 												color: "rgb(var(--muted))",
 											}}
 										>
@@ -526,7 +519,7 @@ function DashboardPage() {
 								<div
 									style={{
 										padding: "24px 20px",
-										"font-size": "13px",
+										"font-size": "0.8125rem",
 										color: "rgb(var(--muted))",
 									}}
 								>
@@ -576,7 +569,7 @@ function KPI(props: {
 			<div class="ds-row ds-between" style={{ "margin-bottom": "8px" }}>
 				<div
 					style={{
-						"font-size": "12px",
+						"font-size": "0.75rem",
 						color: "rgb(var(--muted))",
 						"font-weight": "600",
 						"text-transform": "uppercase",
@@ -603,7 +596,7 @@ function KPI(props: {
 			<div
 				style={{
 					"font-family": "var(--font-head)",
-					"font-size": "28px",
+					"font-size": "1.75rem",
 					"font-weight": "600",
 					"line-height": "1",
 				}}
@@ -612,7 +605,7 @@ function KPI(props: {
 			</div>
 			<div
 				style={{
-					"font-size": "12px",
+					"font-size": "0.75rem",
 					color: "rgb(var(--muted))",
 					"margin-top": "6px",
 				}}

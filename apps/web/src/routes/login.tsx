@@ -217,7 +217,7 @@ function Login() {
 
 				{/* Tagline */}
 				<div class="max-w-md">
-					<h2 class="font-head text-[28px] font-semibold leading-tight">
+					<h2 class="font-head text-[1.75rem] font-semibold leading-tight">
 						Leren op jouw manier.
 					</h2>
 					<p class="mt-2 text-body" style={{ color: "rgb(255 255 255 / 0.82)" }}>

@@ -226,14 +226,14 @@ function CourseDetail() {
 										<div>
 											<div
 												style={{
-													"font-size": "13px",
+													"font-size": "0.8125rem",
 													opacity: "0.85",
 													"margin-bottom": "6px",
 												}}
 											>
 												{kindLabel[data().course.kind]}
 											</div>
-											<h1 style={{ color: "#fff", "font-size": "30px" }}>
+											<h1 style={{ color: "#fff", "font-size": "1.875rem" }}>
 												{data().course.title}
 											</h1>
 										</div>
@@ -255,7 +255,7 @@ function CourseDetail() {
 													fallback={
 														<div
 															style={{
-																"font-size": "13px",
+																"font-size": "0.8125rem",
 																color: "rgb(var(--muted))",
 															}}
 														>
@@ -299,7 +299,7 @@ function CourseDetail() {
 												display: "flex",
 												"align-items": "center",
 												gap: "10px",
-												"font-size": "13px",
+												"font-size": "0.8125rem",
 												color: "rgb(var(--muted))",
 												"flex-wrap": "wrap",
 											}}
@@ -321,7 +321,7 @@ function CourseDetail() {
 													border: "0",
 													color: "rgb(var(--primary))",
 													"font-weight": "500",
-													"font-size": "13px",
+													"font-size": "0.8125rem",
 													cursor: "pointer",
 												}}
 											>
@@ -351,7 +351,7 @@ function CourseDetail() {
 												<div
 													style={{
 														"font-family": "var(--font-head)",
-														"font-size": "18px",
+														"font-size": "1.125rem",
 														"font-weight": "600",
 													}}
 												>

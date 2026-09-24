@@ -154,7 +154,7 @@ export function BlockView(props: {
 						<div class="ds-row" style={{ gap: "8px", "margin-bottom": "2px" }}>
 							<span
 								style={{
-									"font-size": "11px",
+									"font-size": "0.6875rem",
 									color: "rgb(var(--muted))",
 									"font-weight": "600",
 									"text-transform": "uppercase",
@@ -164,16 +164,16 @@ export function BlockView(props: {
 								{typeLabel[props.block.type]}
 							</span>
 							<Show when={props.block.recommended && props.block.labels.length > 0}>
-								<span class="chip primary" style={{ "font-size": "11px" }}>
+								<span class="chip primary" style={{ "font-size": "0.6875rem" }}>
 									<Sparkles style={{ width: "11px", height: "11px" }} /> Aanbevolen
 								</span>
 							</Show>
 						</div>
-						<div style={{ "font-weight": "500", "font-size": "14.5px" }}>
+						<div style={{ "font-weight": "500", "font-size": "0.9062rem" }}>
 							{props.block.title}
 						</div>
 						<div
-							style={{ "font-size": "12px", color: "rgb(var(--muted))", "margin-top": "2px" }}
+							style={{ "font-size": "0.75rem", color: "rgb(var(--muted))", "margin-top": "2px" }}
 						>
 							{meta()}
 						</div>

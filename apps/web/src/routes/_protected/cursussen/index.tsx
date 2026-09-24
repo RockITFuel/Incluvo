@@ -74,8 +74,7 @@ function CursussenPage() {
 			</Show>
 
 			<div
-				class="ds-grid"
-				style={{ "grid-template-columns": "repeat(auto-fill, minmax(280px, 1fr))", gap: "16px" }}
+				class="ds-grid-cards"
 			>
 				<For each={coursesQuery.data}>
 					{(c, i) => {
@@ -113,12 +112,12 @@ function CursussenPage() {
 										</span>
 									</div>
 									<div style={{ padding: "16px" }}>
-										<h3 style={{ "font-size": "17px", "margin-bottom": "6px" }}>
+										<h3 style={{ "font-size": "1.0625rem", "margin-bottom": "6px" }}>
 											{c.title}
 										</h3>
 										<div
 											style={{
-												"font-size": "13px",
+												"font-size": "0.8125rem",
 												color: "rgb(var(--muted))",
 												"margin-bottom": "12px",
 												display: "-webkit-box",
@@ -136,7 +135,7 @@ function CursussenPage() {
 										</div>
 										<div
 											class="ds-row ds-between"
-											style={{ "font-size": "12px", color: "rgb(var(--muted))" }}
+											style={{ "font-size": "0.75rem", color: "rgb(var(--muted))" }}
 										>
 											<span>Bekijk cursus →</span>
 										</div>

@@ -21,6 +21,7 @@ import { toast } from "../../../components/ui/toast";
 import { requireRole } from "../../../lib/auth/require-role";
 import { RequireRole } from "../../../lib/auth/role-guard";
 import { moodMeta } from "../../../lib/mood";
+import { downloadPlanPdf } from "../../../lib/coachplan/pdf";
 import { client, orpc } from "../../../lib/orpc";
 
 /**
@@ -184,7 +185,7 @@ function ProfilePage() {
 									style={{
 										width: "88px",
 										height: "88px",
-										"font-size": "28px",
+										"font-size": "1.75rem",
 										border: "4px solid rgb(var(--surface))",
 									}}
 									aria-hidden="true"
@@ -197,18 +198,18 @@ function ProfilePage() {
 								>
 									<h1
 										class="ds-row"
-										style={{ "font-size": "26px", gap: "8px" }}
+										style={{ "font-size": "1.625rem", gap: "8px" }}
 									>
 										{data().leerling.name}
 										<Show when={data().aandacht}>
-											<span class="chip danger" style={{ "font-size": "11px" }}>
+											<span class="chip danger" style={{ "font-size": "0.6875rem" }}>
 												<Flag class="size-3" aria-hidden="true" /> Aandacht
 											</span>
 										</Show>
 									</h1>
 									<div
 										style={{
-											"font-size": "14px",
+											"font-size": "0.875rem",
 											color: "rgb(var(--muted))",
 										}}
 									>
@@ -219,7 +220,7 @@ function ProfilePage() {
 									>
 										<div
 											style={{
-												"font-size": "13px",
+												"font-size": "0.8125rem",
 												color: "rgb(var(--ink-2))",
 												"margin-top": "4px",
 											}}
@@ -253,10 +254,7 @@ function ProfilePage() {
 						</div>
 
 						{/* Body */}
-						<div
-							class="ds-grid"
-							style={{ "grid-template-columns": "2fr 1fr", gap: "24px" }}
-						>
+						<div class="ds-grid-main">
 							{/* Left */}
 							<div class="ds-col" style={{ gap: "24px" }}>
 								{/* Coachplan */}
@@ -290,19 +288,39 @@ function ProfilePage() {
 									</div>
 									<div
 										class="ds-row"
-										style={{ "margin-top": "16px", gap: "8px" }}
+										style={{ "margin-top": "16px", gap: "8px", "flex-wrap": "wrap" }}
 									>
-										<button type="button" class="btn ghost sm">
-											<FileText class="size-3.5" aria-hidden="true" /> PDF
-										</button>
-										<button type="button" class="btn ghost sm">
-											<Sparkles class="size-3.5" aria-hidden="true" /> AI-advies
-										</button>
+										<Show when={submissionId()}>
+											{(id) => (
+												<>
+													<button
+														type="button"
+														class="btn ghost sm"
+														onClick={async () => {
+															try {
+																await downloadPlanPdf(id());
+															} catch {
+																toast({ title: "PDF maken lukte niet", tone: "danger" });
+															}
+														}}
+													>
+														<FileText class="size-3.5" aria-hidden="true" /> PDF
+													</button>
+													<Link
+														to="/plan/$submissionId"
+														params={{ submissionId: id() }}
+														class="btn ghost sm"
+													>
+														<Sparkles class="size-3.5" aria-hidden="true" /> AI-advies
+													</Link>
+												</>
+											)}
+										</Show>
 										<div class="ds-grow" />
 										<Show when={submissionId()}>
 											<label
 												class="ds-row"
-												style={{ gap: "8px", "font-size": "13px" }}
+												style={{ gap: "8px", "font-size": "0.8125rem" }}
 											>
 												<span class="toggle">
 													<input
@@ -339,7 +357,7 @@ function ProfilePage() {
 										fallback={
 											<p
 												style={{
-													"font-size": "13px",
+													"font-size": "0.8125rem",
 													color: "rgb(var(--muted))",
 												}}
 											>
@@ -394,7 +412,7 @@ function ProfilePage() {
 										fallback={
 											<p
 												style={{
-													"font-size": "13px",
+													"font-size": "0.8125rem",
 													color: "rgb(var(--muted))",
 												}}
 											>
@@ -417,7 +435,7 @@ function ProfilePage() {
 														<div style={{ "min-width": "0" }}>
 															<div
 																style={{
-																	"font-size": "13px",
+																	"font-size": "0.8125rem",
 																	"font-weight": "500",
 																}}
 															>
@@ -425,7 +443,7 @@ function ProfilePage() {
 															</div>
 															<div
 																style={{
-																	"font-size": "11px",
+																	"font-size": "0.6875rem",
 																	color: "rgb(var(--muted))",
 																}}
 															>
@@ -463,7 +481,7 @@ function ProfilePage() {
 										fallback={
 											<p
 												style={{
-													"font-size": "13px",
+													"font-size": "0.8125rem",
 													color: "rgb(var(--muted))",
 												}}
 											>
@@ -485,7 +503,7 @@ function ProfilePage() {
 													>
 														<div
 															style={{
-																"font-size": "13px",
+																"font-size": "0.8125rem",
 																"font-weight": "500",
 																flex: "1",
 																"min-width": "0",
@@ -510,7 +528,7 @@ function ProfilePage() {
 														</div>
 														<div
 															style={{
-																"font-size": "12px",
+																"font-size": "0.75rem",
 																color: "rgb(var(--muted))",
 																width: "32px",
 																"text-align": "right",
@@ -538,7 +556,7 @@ function ProfilePage() {
 										fallback={
 											<p
 												style={{
-													"font-size": "13px",
+													"font-size": "0.8125rem",
 													color: "rgb(var(--muted))",
 												}}
 											>
@@ -567,7 +585,7 @@ function ProfilePage() {
 										fallback={
 											<p
 												style={{
-													"font-size": "13px",
+													"font-size": "0.8125rem",
 													color: "rgb(var(--muted))",
 												}}
 											>
@@ -589,7 +607,7 @@ function ProfilePage() {
 													<div>
 														<div
 															style={{
-																"font-size": "11px",
+																"font-size": "0.6875rem",
 																color: "rgb(var(--muted))",
 																"margin-bottom": "6px",
 															}}
@@ -601,7 +619,7 @@ function ProfilePage() {
 															fallback={
 																<div
 																	style={{
-																		"font-size": "18px",
+																		"font-size": "1.125rem",
 																		color: "rgb(var(--muted))",
 																	}}
 																>
@@ -610,7 +628,7 @@ function ProfilePage() {
 															}
 														>
 															<div
-																style={{ "font-size": "22px", "line-height": "1" }}
+																style={{ "font-size": "1.375rem", "line-height": "1" }}
 																title={
 																	moodMeta(moodByDate().get(iso) as number).label
 																}
@@ -646,7 +664,7 @@ function ProfilePage() {
 										<div style={{ "margin-top": "16px" }}>
 											<div
 												style={{
-													"font-size": "11px",
+													"font-size": "0.6875rem",
 													color: "rgb(var(--muted))",
 													"text-transform": "uppercase",
 													"letter-spacing": "0.04em",
@@ -665,7 +683,7 @@ function ProfilePage() {
 																background: "rgb(var(--bg-2))",
 																"border-radius": "8px",
 																gap: "8px",
-																"font-size": "13px",
+																"font-size": "0.8125rem",
 															}}
 														>
 															<span
@@ -699,7 +717,7 @@ function ProfilePage() {
 										fallback={
 											<p
 												style={{
-													"font-size": "13px",
+													"font-size": "0.8125rem",
 													color: "rgb(var(--muted))",
 												}}
 											>
@@ -716,7 +734,7 @@ function ProfilePage() {
 															style={{
 																width: "34px",
 																height: "34px",
-																"font-size": "12px",
+																"font-size": "0.75rem",
 															}}
 															aria-hidden="true"
 														>
@@ -726,14 +744,14 @@ function ProfilePage() {
 															<div
 																style={{
 																	"font-weight": "500",
-																	"font-size": "13px",
+																	"font-size": "0.8125rem",
 																}}
 															>
 																{a.coachName}
 															</div>
 															<div
 																style={{
-																	"font-size": "12px",
+																	"font-size": "0.75rem",
 																	color: "rgb(var(--muted))",
 																}}
 															>
@@ -754,7 +772,7 @@ function ProfilePage() {
 									</div>
 									<p
 										style={{
-											"font-size": "13px",
+											"font-size": "0.8125rem",
 											color: "rgb(var(--muted))",
 										}}
 									>
@@ -781,7 +799,7 @@ function Field(props: {
 			<div
 				class="ds-row"
 				style={{
-					"font-size": "12px",
+					"font-size": "0.75rem",
 					color: "rgb(var(--muted))",
 					"margin-bottom": "4px",
 					"font-weight": "500",
@@ -790,14 +808,14 @@ function Field(props: {
 			>
 				{props.label}
 				<Show when={props.flag}>
-					<span class="chip accent" style={{ "font-size": "10px" }}>
+					<span class="chip accent" style={{ "font-size": "0.625rem" }}>
 						<Flag class="size-3" aria-hidden="true" /> Bespreken
 					</span>
 				</Show>
 			</div>
 			<Show
 				when={props.chips}
-				fallback={<div style={{ "font-size": "14px" }}>{props.val}</div>}
+				fallback={<div style={{ "font-size": "0.875rem" }}>{props.val}</div>}
 			>
 				<div class="ds-row" style={{ "flex-wrap": "wrap", gap: "6px" }}>
 					<For each={props.chips}>
@@ -855,8 +873,8 @@ function ActivityRow(props: {
 				<props.icon class="size-4" aria-hidden="true" />
 			</div>
 			<div class="ds-grow" style={{ "min-width": "0" }}>
-				<div style={{ "font-size": "13.5px" }}>{props.text}</div>
-				<div style={{ "font-size": "11px", color: "rgb(var(--muted))" }}>
+				<div style={{ "font-size": "0.8438rem" }}>{props.text}</div>
+				<div style={{ "font-size": "0.6875rem", color: "rgb(var(--muted))" }}>
 					{props.when}
 				</div>
 			</div>
@@ -870,7 +888,7 @@ function Stat(props: { label: string; value: number; tone?: "danger" }) {
 			<div
 				style={{
 					"font-family": "var(--font-head)",
-					"font-size": "24px",
+					"font-size": "1.5rem",
 					"font-weight": "600",
 					color:
 						props.tone === "danger"
@@ -880,7 +898,7 @@ function Stat(props: { label: string; value: number; tone?: "danger" }) {
 			>
 				{props.value}
 			</div>
-			<div style={{ "font-size": "11px", color: "rgb(var(--muted))" }}>
+			<div style={{ "font-size": "0.6875rem", color: "rgb(var(--muted))" }}>
 				{props.label}
 			</div>
 		</div>

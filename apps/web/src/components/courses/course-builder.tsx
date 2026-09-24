@@ -261,10 +261,7 @@ export function CourseBuilder(props: {
 				</div>
 			</div>
 
-			<div
-				class="ds-grid"
-				style={{ "grid-template-columns": "1fr 280px", gap: "24px" }}
-			>
+			<div class="ds-grid-side">
 				{/* ── Sections column ─────────────────────────────────────────── */}
 				<div class="ds-col" style={{ gap: "16px" }}>
 					<For each={props.sections}>
@@ -314,14 +311,14 @@ export function CourseBuilder(props: {
 											style={{
 												"font-family": "var(--font-head)",
 												"font-weight": "600",
-												"font-size": "16px",
+												"font-size": "1rem",
 											}}
 										>
 											{section.title}
 										</span>
 										<span
 											class="chip"
-											style={{ "margin-left": "8px", "font-size": "11px" }}
+											style={{ "margin-left": "8px", "font-size": "0.6875rem" }}
 										>
 											{section.blocks.length} items
 										</span>
@@ -402,7 +399,7 @@ export function CourseBuilder(props: {
 													<div class="ds-grow" style={{ "min-width": "0" }}>
 														<div
 															style={{
-																"font-size": "11px",
+																"font-size": "0.6875rem",
 																color: "rgb(var(--muted))",
 																"text-transform": "uppercase",
 																"letter-spacing": "0.06em",
@@ -412,7 +409,7 @@ export function CourseBuilder(props: {
 														>
 															{blockLabel[block.type]}
 														</div>
-														<div style={{ "font-size": "14px", "font-weight": "500" }}>
+														<div style={{ "font-size": "0.875rem", "font-weight": "500" }}>
 															{block.title}
 														</div>
 													</div>
@@ -420,7 +417,7 @@ export function CourseBuilder(props: {
 														<div class="ds-row" style={{ gap: "4px", "flex-wrap": "wrap" }}>
 															<For each={block.labels}>
 																{(l) => (
-																	<span class="chip" style={{ "font-size": "11px" }}>
+																	<span class="chip" style={{ "font-size": "0.6875rem" }}>
 																		{l}
 																	</span>
 																)}
@@ -485,7 +482,7 @@ export function CourseBuilder(props: {
 									"border-radius": "12px",
 									background: "transparent",
 									color: "rgb(var(--muted))",
-									"font-size": "14px",
+									"font-size": "0.875rem",
 									"font-weight": "500",
 									cursor: "pointer",
 									display: "inline-flex",
@@ -526,7 +523,7 @@ export function CourseBuilder(props: {
 				<div class="ds-col" style={{ gap: "14px" }}>
 					<div class="card">
 						<div class="card-head">
-							<h3 style={{ "font-size": "15px" }}>Content toevoegen</h3>
+							<h3 style={{ "font-size": "0.9375rem" }}>Content toevoegen</h3>
 						</div>
 						<div
 							class="ds-grid"
@@ -558,7 +555,7 @@ export function CourseBuilder(props: {
 								padding: "10px 12px",
 								background: "rgb(var(--accent-100))",
 								"border-radius": "10px",
-								"font-size": "12px",
+								"font-size": "0.75rem",
 								color: "rgb(var(--accent-700))",
 							}}
 						>
@@ -569,11 +566,11 @@ export function CourseBuilder(props: {
 
 					<div class="card">
 						<div class="card-head">
-							<h3 style={{ "font-size": "15px" }}>Leervoorkeur-labels</h3>
+							<h3 style={{ "font-size": "0.9375rem" }}>Leervoorkeur-labels</h3>
 						</div>
 						<div
 							style={{
-								"font-size": "12px",
+								"font-size": "0.75rem",
 								color: "rgb(var(--muted))",
 								"margin-bottom": "10px",
 							}}
@@ -584,7 +581,7 @@ export function CourseBuilder(props: {
 						<Show
 							when={props.availableLabels.length > 0}
 							fallback={
-								<div style={{ "font-size": "12px", color: "rgb(var(--muted))" }}>
+								<div style={{ "font-size": "0.75rem", color: "rgb(var(--muted))" }}>
 									Nog geen labels — deze komen uit het coachplan van de gekoppelde
 									leerling (#36).
 								</div>
@@ -600,7 +597,7 @@ export function CourseBuilder(props: {
 
 					<div class="card">
 						<div class="card-head">
-							<h3 style={{ "font-size": "15px" }}>Voortgang</h3>
+							<h3 style={{ "font-size": "0.9375rem" }}>Voortgang</h3>
 						</div>
 						<Switch
 							label="Toon voortgangsbalk aan leerlingen"

@@ -44,7 +44,7 @@ function ProfielPage() {
 					<div class="ds-row" style={{ gap: "16px" }}>
 						<div
 							class="avatar"
-							style={{ width: "64px", height: "64px", "font-size": "22px" }}
+							style={{ width: "64px", height: "64px", "font-size": "1.375rem" }}
 							aria-hidden="true"
 						>
 							{initials(me.user()?.name ?? "")}
@@ -53,7 +53,7 @@ function ProfielPage() {
 							<div
 								style={{
 									"font-family": "var(--font-head)",
-									"font-size": "20px",
+									"font-size": "1.25rem",
 									"font-weight": "600",
 								}}
 							>
@@ -102,7 +102,7 @@ function ProfielPage() {
 						>
 							<Accessibility class="size-4" aria-hidden="true" />
 						</div>
-						<div style={{ "font-size": "13px", color: "rgb(var(--ink-2))" }}>
+						<div style={{ "font-size": "0.8125rem", color: "rgb(var(--ink-2))" }}>
 							Weergave aanpassen (contrast, lettergrootte, dyslexie-lettertype,
 							voorlezen)? Gebruik de <strong>toegankelijkheidsknop</strong>{" "}
 							rechtsboven in de balk — je keuzes gelden overal in Incluvo.
@@ -122,7 +122,7 @@ function ProfileRow(props: { icon: unknown; label: string; value: string }) {
 			</span>
 			<span
 				style={{
-					"font-size": "12px",
+					"font-size": "0.75rem",
 					color: "rgb(var(--muted))",
 					width: "72px",
 					"flex-shrink": "0",
@@ -130,7 +130,7 @@ function ProfileRow(props: { icon: unknown; label: string; value: string }) {
 			>
 				{props.label}
 			</span>
-			<span style={{ "font-size": "14px", "min-width": "0", "overflow-wrap": "anywhere" }}>
+			<span style={{ "font-size": "0.875rem", "min-width": "0", "overflow-wrap": "anywhere" }}>
 				{props.value}
 			</span>
 		</div>

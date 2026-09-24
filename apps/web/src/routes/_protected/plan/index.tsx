@@ -448,7 +448,7 @@ function PlanWizard(props: { onSubmitted: () => void }) {
 									/>
 								</div>
 
-								<div class="flex items-center justify-between gap-2">
+								<div class="flex flex-wrap items-center justify-between gap-2">
 									<Button
 										variant="ghost"
 										disabled={step() === 0}
@@ -456,7 +456,7 @@ function PlanWizard(props: { onSubmitted: () => void }) {
 									>
 										← Terug
 									</Button>
-									<div class="flex gap-2">
+									<div class="flex flex-wrap gap-2">
 										<Button variant="ghost" onClick={() => skip(q())}>
 											Sla over
 										</Button>

@@ -61,7 +61,7 @@
 	color: #fff;
 	font-family: var(--font-head);
 	font-weight: 600;
-	font-size: 18px;
+	font-size: 1.125rem;
 	position: relative;
 }
 .brand-mark::after {
@@ -78,7 +78,7 @@
 .brand-name {
 	font-family: var(--font-head);
 	font-weight: 600;
-	font-size: 18px;
+	font-size: 1.125rem;
 	letter-spacing: -0.02em;
 }
 
@@ -98,7 +98,7 @@
 	border-radius: 10px;
 	color: rgb(var(--muted));
 	font-weight: 500;
-	font-size: 13px;
+	font-size: 0.8125rem;
 }
 .role-switch button.on {
 	background: rgb(var(--primary));
@@ -111,7 +111,7 @@
 	gap: 2px;
 }
 .nav-label {
-	font-size: 11px;
+	font-size: 0.6875rem;
 	font-weight: 600;
 	letter-spacing: 0.08em;
 	text-transform: uppercase;
@@ -126,7 +126,7 @@
 	padding: 9px var(--s-3);
 	border-radius: 10px;
 	color: rgb(var(--ink-2));
-	font-size: 14px;
+	font-size: 0.875rem;
 	font-weight: 500;
 	text-decoration: none;
 	border: 0;
@@ -155,7 +155,7 @@
 	margin-left: auto;
 	background: rgb(var(--accent-100));
 	color: rgb(var(--accent-700));
-	font-size: 11px;
+	font-size: 0.6875rem;
 	font-weight: 600;
 	padding: 2px 8px;
 	border-radius: var(--r-pill);
@@ -180,7 +180,7 @@
 	place-items: center;
 	color: rgb(var(--primary-700));
 	font-weight: 600;
-	font-size: 14px;
+	font-size: 0.875rem;
 	flex-shrink: 0;
 }
 .avatar.coach {
@@ -194,10 +194,10 @@
 }
 .user-card .name {
 	font-weight: 600;
-	font-size: 13px;
+	font-size: 0.8125rem;
 }
 .user-card .sub {
-	font-size: 12px;
+	font-size: 0.75rem;
 	color: rgb(var(--muted));
 }
 
@@ -222,7 +222,7 @@
 	display: flex;
 	align-items: center;
 	gap: 6px;
-	font-size: 13px;
+	font-size: 0.8125rem;
 	color: rgb(var(--muted));
 }
 .crumbs .sep {
@@ -282,7 +282,7 @@
 	background: rgb(var(--ink));
 	color: #fff;
 	font-weight: 500;
-	font-size: 14px;
+	font-size: 0.875rem;
 }
 .btn:hover {
 	filter: brightness(1.07);
@@ -316,12 +316,12 @@
 }
 .btn.lg {
 	padding: 13px 20px;
-	font-size: 15px;
+	font-size: 0.9375rem;
 	border-radius: 12px;
 }
 .btn.sm {
 	padding: 6px 11px;
-	font-size: 13px;
+	font-size: 0.8125rem;
 	border-radius: 8px;
 }
 .btn:disabled {
@@ -349,11 +349,11 @@
 	margin-bottom: var(--s-4);
 }
 .card-head h3 {
-	font-size: 17px;
+	font-size: 1.0625rem;
 }
 .card-sub {
 	color: rgb(var(--muted));
-	font-size: 13px;
+	font-size: 0.8125rem;
 }
 
 /* Chips / pills ------------------------------------------------------------ */
@@ -362,7 +362,7 @@
 	align-items: center;
 	gap: 6px;
 	padding: 4px 10px;
-	font-size: 12px;
+	font-size: 0.75rem;
 	font-weight: 500;
 	border-radius: var(--r-pill);
 	background: rgb(var(--line-2));
@@ -419,13 +419,13 @@ label.field {
 	display: flex;
 	flex-direction: column;
 	gap: 6px;
-	font-size: 13px;
+	font-size: 0.8125rem;
 	color: rgb(var(--muted));
 }
 label.field .lab {
 	color: rgb(var(--ink-2));
 	font-weight: 500;
-	font-size: 13px;
+	font-size: 0.8125rem;
 }
 
 /* Toggle ------------------------------------------------------------------- */
@@ -504,7 +504,7 @@ label.field .lab {
 }
 .a11y-panel h4 {
 	font-family: var(--font-head);
-	font-size: 16px;
+	font-size: 1rem;
 	margin-bottom: var(--s-3);
 	display: flex;
 	align-items: center;
@@ -521,12 +521,12 @@ label.field .lab {
 	border: 0;
 }
 .a11y-row .lab {
-	font-size: 13px;
+	font-size: 0.8125rem;
 	color: rgb(var(--ink-2));
 	font-weight: 500;
 }
 .a11y-row .sub {
-	font-size: 11px;
+	font-size: 0.6875rem;
 	color: rgb(var(--muted));
 }
 .seg {
@@ -540,7 +540,7 @@ label.field .lab {
 	border: 0;
 	background: transparent;
 	padding: 5px 10px;
-	font-size: 12px;
+	font-size: 0.75rem;
 	border-radius: 6px;
 	color: rgb(var(--muted));
 	font-weight: 500;
@@ -573,6 +573,35 @@ label.field .lab {
 	gap: var(--s-4);
 }
 
+/* Responsive layouts (WCAG 1.4.10 reflow): side-by-side on wide screens,
+ * stacked below ~960px so nothing scrolls sideways on a phone. */
+.ds-grid-main,
+.ds-grid-side {
+	display: grid;
+	gap: 1.5rem;
+	grid-template-columns: minmax(0, 1fr);
+}
+@media (min-width: 60rem) {
+	.ds-grid-main {
+		grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+	}
+	.ds-grid-side {
+		grid-template-columns: minmax(0, 1fr) 17.5rem;
+	}
+}
+/* KPI tiles: as many per row as fit. */
+.ds-grid-tiles {
+	display: grid;
+	gap: 0.75rem;
+	grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
+}
+/* Cards: never wider than the screen. */
+.ds-grid-cards {
+	display: grid;
+	gap: 1rem;
+	grid-template-columns: repeat(auto-fill, minmax(min(100%, 17.5rem), 1fr));
+}
+
 /* Page heading ------------------------------------------------------------- */
 .page-head {
 	display: flex;
@@ -583,12 +612,12 @@ label.field .lab {
 	flex-wrap: wrap;
 }
 .page-head h1 {
-	font-size: 28px;
+	font-size: 1.75rem;
 }
 .page-head .sub {
 	color: rgb(var(--muted));
 	margin-top: 6px;
-	font-size: 14px;
+	font-size: 0.875rem;
 }
 
 /* Avatar stack ------------------------------------------------------------- */
@@ -600,7 +629,7 @@ label.field .lab {
 	margin-left: -8px;
 	width: 28px;
 	height: 28px;
-	font-size: 11px;
+	font-size: 0.6875rem;
 }
 .av-stack .avatar:first-child {
 	margin-left: 0;
@@ -619,7 +648,7 @@ label.field .lab {
 	border: 1px solid rgb(var(--line));
 	display: grid;
 	place-items: center;
-	font-size: 26px;
+	font-size: 1.625rem;
 	cursor: pointer;
 	transition: all 0.15s;
 }
@@ -643,7 +672,7 @@ label.field .lab {
 	border-radius: 999px;
 	background: rgb(var(--accent));
 	color: #fff;
-	font-size: 10px;
+	font-size: 0.625rem;
 	font-weight: 700;
 	display: grid;
 	place-items: center;

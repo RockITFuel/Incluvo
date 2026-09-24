@@ -39,7 +39,7 @@ export function Tabs(props: TabsProps) {
 		>
 			<KTabs.List
 				aria-label={local["aria-label"]}
-				class="relative flex gap-1 border-line border-b"
+				class="relative flex gap-1 overflow-x-auto border-line border-b"
 			>
 				<For each={local.items}>
 					{(item) => (
