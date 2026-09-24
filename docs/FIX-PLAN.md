@@ -16,7 +16,7 @@ Rough sizing: S ≈ ½ day, M ≈ 1–2 days, L ≈ 3–5 days.
 | D2 | How does a coachplan live over time? | **One living plan + versions** — one current plan per leerling; each share keeps a read-only version; the leerling can start a revision. | 2.1 |
 | D3 | Courses per klas or per leerling? | **Per leerling** — keep one private copy per leerling; drop course forums and group assignments inside courses (general chat stays). | 2.4 |
 | D4 | The **ontwikkelaar**'s job? | **Build courses only** — templates + course builder, no access to any leerling's data. | 1.1, 5 |
-| D5 | Template changes vs. school copies? | **"Create a revision"** — exact meaning still to confirm (see 2.2). | 2.2 |
+| D5 | Template changes vs. school copies? | **Versions, school picks** — a template change creates a new version; a school copy stays on its version, sees that a newer one exists and upgrades when it chooses; filled-in plans keep the version they were made with. | 2.2 |
 
 ---
 
@@ -91,7 +91,13 @@ check tenant + role only; the coach↔leerling link is checked ad hoc.
   through Mailpit/SMTP); existing accounts without an org are refused.
 - *open:* delete any existing tenant-less `member` accounts in production, after
   checking them: `SELECT id, email, created_at FROM "user" WHERE organization_id IS NULL AND role = 'member';`
-- *open:* set `AUTH_IP_HEADER` in production to a header the proxy overwrites.
+- ✅ Production (2026-09-24): `AUTH_IP_HEADER=cf-connecting-ip` (incluvo.d2d-hosting.dev
+  is proxied by Cloudflare) and SMTP via Cloudflare Email Sending
+  (`smtp.mx.cloudflare.net:465`, sender `no-reply@mail.d2d.cloud`, token in
+  1Password `incluvo-smtp`). Takes effect on the next deploy.
+- *open:* the origin (server2.d2d-hosting.dev) is reachable without Cloudflare,
+  where `cf-connecting-ip` can be forged. Restrict the origin to Cloudflare IPs
+  (or use Cloudflare Tunnel) to make the per-IP limit airtight.
 - Rate limit: split — keep strict limits on `sign-in`/`reset`, exempt
   `get-session` (`auth.ts:42`), key by IP+email so one school NAT isn't locked
   out.
