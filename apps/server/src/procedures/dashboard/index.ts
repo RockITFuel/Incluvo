@@ -8,13 +8,13 @@ import {
 	courseSection,
 	formAnswer,
 	formSubmission,
-	learningPreferenceLabel,
 	task,
 	user,
 } from "@incluvo/drizzle/schema";
 import { policies, sameTenant } from "@incluvo/permissions";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
+import { currentLeervoorkeuren, versionForCoach } from "../../coachplan/lifecycle";
 import { reachableLeerlingen, requireLeerlingAccess } from "../../access";
 import {
 	type AuthedContext,
@@ -194,41 +194,15 @@ function planStatusFor(
 /** The leerling, if the actor may see their data (`requireLeerlingAccess`). */
 const assertAssigned = requireLeerlingAccess;
 
-/** Latest submission (any status) for a leerling, with its discuss-flag count. */
+/**
+ * The plan version a coach looks at for a leerling (`versionForCoach`: the
+ * newest handed-in version, else the draft), with its discuss-flag count.
+ */
 async function latestPlan(
 	context: AuthedContext,
 	leerlingId: string,
 ): Promise<z.infer<typeof PlanSummarySchema>> {
-	// Prefer the newest submission the coach can actually review (same status set
-	// as the coachplan inbox); only fall back to the newest draft when none exists.
-	// Without this, a leerling who submits plan A and then revisits the
-	// vragenlijst (startMine spins up a fresh empty draft B) would point the
-	// coach's "Open coachplan" link at that empty draft (regression).
-	const REVIEWABLE_STATUSES = [
-		"submitted",
-		"coach_review",
-		"shared_with_leerling",
-		"completed",
-	] as const;
-	let [sub] = await context.db
-		.select()
-		.from(formSubmission)
-		.where(
-			and(
-				eq(formSubmission.leerlingId, leerlingId),
-				inArray(formSubmission.status, [...REVIEWABLE_STATUSES]),
-			),
-		)
-		.orderBy(desc(formSubmission.updatedAt))
-		.limit(1);
-	if (!sub) {
-		[sub] = await context.db
-			.select()
-			.from(formSubmission)
-			.where(eq(formSubmission.leerlingId, leerlingId))
-			.orderBy(desc(formSubmission.updatedAt))
-			.limit(1);
-	}
+	const sub = await versionForCoach(context.db, leerlingId);
 	let discussCount = 0;
 	if (sub) {
 		const flags = await context.db
@@ -243,7 +217,7 @@ async function latestPlan(
 		discussCount = flags.length;
 	}
 	return {
-		status: planStatusFor(sub),
+		status: planStatusFor(sub ?? undefined),
 		submissionId: sub?.id ?? null,
 		discussCount,
 		submittedAt: sub?.submittedAt ?? null,
@@ -583,19 +557,8 @@ async function leervoorkeurenFor(
 	context: AuthedContext,
 	leerlingId: string,
 ): Promise<string[]> {
-	const subs = await context.db
-		.select({ id: formSubmission.id })
-		.from(formSubmission)
-		.where(eq(formSubmission.leerlingId, leerlingId))
-		.orderBy(desc(formSubmission.updatedAt));
-	for (const s of subs) {
-		const labels = await context.db
-			.select({ label: learningPreferenceLabel.label })
-			.from(learningPreferenceLabel)
-			.where(eq(learningPreferenceLabel.submissionId, s.id));
-		if (labels.length) return labels.map((l) => l.label);
-	}
-	return [];
+	// Same rule as course recommendations: the current (shared) plan.
+	return currentLeervoorkeuren(context.db, leerlingId);
 }
 
 const quickpanel = protectedProcedure

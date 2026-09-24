@@ -21,13 +21,14 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import pg from "pg";
 import { purgeAuditLog } from "../src/retention";
-import { asUser, userId } from "./harness";
+import { asUser, planVersion, userId } from "./harness";
 
 const DRIZZLE_DIR = join(import.meta.dir, "../../../packages/drizzle/drizzle");
 
 describe("coachplan answers", () => {
 	test("20 overlapping autosaves leave exactly one answer", async () => {
 		const leerling = await asUser("leerling");
+		await planVersion(leerling.id, "draft");
 		const draft = await leerling.client.coachplan.startMine();
 		const question = draft.template.questions.find((q) => q.section === "leerling")!;
 		await Promise.all(
@@ -54,6 +55,7 @@ describe("coachplan answers", () => {
 
 	test("a plan can be submitted once, even when submitted twice at the same time", async () => {
 		const leerling = await asUser("leerling");
+		await planVersion(leerling.id, "draft");
 		const draft = await leerling.client.coachplan.startMine();
 		const results = await Promise.allSettled([
 			leerling.client.coachplan.submit({ submissionId: draft.submission.id }),
@@ -149,6 +151,7 @@ describe("audit log", () => {
 
 	test("records which answer columns changed, not the answer", async () => {
 		const leerling = await asUser("leerling");
+		await planVersion(leerling.id, "draft");
 		const draft = await leerling.client.coachplan.startMine();
 		const [question] = await db
 			.select({ id: formQuestion.id })

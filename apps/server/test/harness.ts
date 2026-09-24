@@ -122,3 +122,41 @@ export const expectForbidden = (fn: () => Promise<unknown>) =>
 
 export const expectUnauthorized = (fn: () => Promise<unknown>) =>
 	expectCode(fn, ["UNAUTHORIZED"]);
+
+/**
+ * A new plan version for a leerling in the given status (default submitted),
+ * on their school's default form. Tests use it where filling the wizard in is
+ * not what's under test.
+ */
+export async function planVersion(
+	leerlingId: string,
+	status: "draft" | "submitted" | "coach_review" | "shared_with_leerling" = "submitted",
+) {
+	const { formSubmission, formTemplate, user: userTable } = await import("@incluvo/drizzle/schema");
+	const { createVersion, ensurePlan, transition } = await import("../src/coachplan/lifecycle");
+	const { and } = await import("drizzle-orm");
+	const [leerling] = await db
+		.select({ organizationId: userTable.organizationId })
+		.from(userTable)
+		.where(eq(userTable.id, leerlingId));
+	const [template] = await db
+		.select({ id: formTemplate.id })
+		.from(formTemplate)
+		.where(
+			and(
+				eq(formTemplate.organizationId, leerling!.organizationId!),
+				eq(formTemplate.isSchoolDefault, true),
+			),
+		);
+	const plan = await ensurePlan(db, leerling!.organizationId!, leerlingId);
+	// Close any version still open, so the new one is the latest.
+	await db
+		.update(formSubmission)
+		.set({ status: "shared_with_leerling" })
+		.where(and(eq(formSubmission.coachplanId, plan.id), eq(formSubmission.status, "draft")));
+	let version = await createVersion(db, plan, template!.id);
+	if (status !== "draft") {
+		version = await transition(db, version.id, ["draft"], status, { submittedAt: new Date() });
+	}
+	return version;
+}

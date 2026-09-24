@@ -57,6 +57,13 @@
       "when": 1790232775862,
       "tag": "0007_scrub_audit_content",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1790233160560,
+      "tag": "0008_coachplan_versions",
+      "breakpoints": true
     }
   ]
 }

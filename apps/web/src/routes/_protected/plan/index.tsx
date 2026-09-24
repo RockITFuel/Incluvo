@@ -8,11 +8,14 @@ import {
 	type QuestionDTO,
 	renderAnswerText,
 } from "../../../components/coachplan/question-input";
+import { PlanStatusBadge } from "../../../components/dashboard/plan-status";
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
 import { Card } from "../../../components/ui/card";
 import { Switch } from "../../../components/ui/switch";
 import { toast } from "../../../components/ui/toast";
+import { PlanView } from "../../../components/coachplan/plan-view";
+import { downloadPlanPdf } from "../../../lib/coachplan/pdf";
 import { useMe } from "../../../lib/auth/use-me";
 import { client, orpc } from "../../../lib/orpc";
 
@@ -31,7 +34,7 @@ function PlanEntry() {
 	// its side-effectful `startMine()` RPC.
 	return (
 		<Show when={me.query.data} fallback={<p class="text-muted">Bezig met laden…</p>}>
-			<Show when={me.hasAtLeast("coach")} fallback={<PlanWizard />}>
+			<Show when={me.hasAtLeast("coach")} fallback={<LeerlingPlan />}>
 				<CoachInbox />
 			</Show>
 		</Show>
@@ -77,7 +80,10 @@ function CoachInbox() {
 												{row.discussCount} bespreken
 											</Badge>
 										</Show>
-										<Badge variant="primary">{row.submission.status}</Badge>
+										<Show when={row.submission.version > 1}>
+											<Badge variant="neutral">versie {row.submission.version}</Badge>
+										</Show>
+										<PlanStatusBadge status={row.submission.status} />
 									</div>
 								</Card>
 							</Link>
@@ -89,9 +95,112 @@ function CoachInbox() {
 	);
 }
 
+/**
+ * The leerling's plan (fix plan 2.1): fill it in, wait for the coach, or read
+ * the shared plan and start a new version ("Plan bijwerken").
+ */
+function LeerlingPlan() {
+	const queryClient = useQueryClient();
+	const state = useQuery(() => orpc.coachplan.mine.queryOptions());
+	const [revising, setRevising] = createSignal(false);
+	const [pdfBusy, setPdfBusy] = createSignal(false);
+	const latest = () => state.data?.latest ?? null;
+	const current = () => state.data?.current ?? null;
+	const phase = () => {
+		const l = latest();
+		if (!l || l.status === "draft") return "fill";
+		if (l.status === "submitted" || l.status === "coach_review") return "with_coach";
+		return "shared";
+	};
+	const refresh = () =>
+		queryClient.invalidateQueries({ queryKey: orpc.coachplan.mine.key() });
+
+	const revise = async () => {
+		setRevising(true);
+		try {
+			await client.coachplan.revise();
+			await refresh();
+		} catch (err) {
+			toast({
+				title: "Bijwerken lukte niet",
+				description: (err as { message?: string }).message,
+				tone: "danger",
+			});
+		} finally {
+			setRevising(false);
+		}
+	};
+	const pdf = async (id: string) => {
+		setPdfBusy(true);
+		try {
+			await downloadPlanPdf(id);
+		} catch {
+			toast({ title: "PDF maken lukte niet", tone: "danger" });
+		} finally {
+			setPdfBusy(false);
+		}
+	};
+
+	return (
+		<Show when={state.data} fallback={<p class="text-muted">Bezig met laden…</p>}>
+			<Show when={phase() === "fill"}>
+				<PlanWizard onSubmitted={refresh} />
+			</Show>
+
+			<Show when={phase() === "with_coach"}>
+				<section class="mx-auto flex w-full max-w-3xl flex-col gap-6">
+					<Card class="border-primary bg-primary text-primary-fg">
+						<h1 class="font-head text-h1">Je plan ligt bij je coach</h1>
+						<p class="mt-2 text-body opacity-90">
+							Je coach kijkt ernaar en vult het coachgedeelte in. Daarna deelt je
+							coach het plan met je, en dan zie je het hier.
+						</p>
+					</Card>
+					<Show when={current()}>
+						{(c) => (
+							<>
+								<h2 class="font-head text-h2 text-ink">Je huidige plan</h2>
+								<PlanView submissionId={c().id} />
+							</>
+						)}
+					</Show>
+					<Show when={!current()}>
+						<h2 class="font-head text-h2 text-ink">Wat je hebt ingevuld</h2>
+						<PlanView submissionId={latest()!.id} />
+					</Show>
+				</section>
+			</Show>
+
+			<Show when={phase() === "shared" && current()}>
+				{(c) => (
+					<section class="mx-auto flex w-full max-w-3xl flex-col gap-6">
+						<div class="flex flex-wrap items-end justify-between gap-3">
+							<div>
+								<h1 class="font-head text-h1 text-ink">Mijn plan</h1>
+								<p class="mt-1 text-body text-muted">
+									Versie {c().version}, gedeeld door je coach.
+								</p>
+							</div>
+							<div class="flex gap-2">
+								<Button variant="ghost" disabled={pdfBusy()} onClick={() => pdf(c().id)}>
+									{pdfBusy() ? "Bezig…" : "Download als pdf"}
+								</Button>
+								<Button disabled={revising()} onClick={revise}>
+									Plan bijwerken
+								</Button>
+							</div>
+						</div>
+						<PlanView submissionId={c().id} />
+					</section>
+				)}
+			</Show>
+		</Show>
+	);
+}
+
 type Flags = { discussWithCoach: boolean; deliberatelySkipped: boolean };
 
-function PlanWizard() {
+function PlanWizard(props: { onSubmitted: () => void }) {
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 	const [step, setStep] = createSignal(0);
@@ -184,7 +293,7 @@ function PlanWizard() {
 		setAnswers(q.id, next);
 		// A real answer clears an accidental skip.
 		if (flagFor(q.id).deliberatelySkipped) {
-			setFlags(q.id, "deliberatelySkipped", false);
+			setFlags(q.id, { ...flagFor(q.id), deliberatelySkipped: false });
 			void save(q.id, { ...next, deliberatelySkipped: false }, flashSaved);
 		} else {
 			void save(q.id, next, flashSaved);
@@ -192,7 +301,7 @@ function PlanWizard() {
 	};
 
 	const toggleDiscuss = (q: QuestionDTO, on: boolean) => {
-		setFlags(q.id, "discussWithCoach", on);
+		setFlags(q.id, { ...flagFor(q.id), discussWithCoach: on });
 		void save(q.id, { discussWithCoach: on }, () =>
 			toast({
 				title: on ? "Gemarkeerd om te bespreken" : "Markering verwijderd",
@@ -208,7 +317,9 @@ function PlanWizard() {
 	};
 	const prev = () => setStep(Math.max(0, step() - 1));
 	const skip = (q: QuestionDTO) => {
-		setFlags(q.id, "deliberatelySkipped", true);
+		// Set the whole entry: a question without a saved answer has none yet, and
+		// a path-set on a missing entry throws before `next()` runs.
+		setFlags(q.id, { ...flagFor(q.id), deliberatelySkipped: true });
 		void save(q.id, { deliberatelySkipped: true }, () =>
 			toast({ title: "Vraag overgeslagen", tone: "success", duration: 2000 }),
 		);
@@ -222,7 +333,8 @@ function PlanWizard() {
 			await client.coachplan.submit({ submissionId: sub });
 			setSubmitted(true);
 			queryClient.invalidateQueries({ queryKey: orpc.coachplan.listMine.key() });
-			toast({ title: "Verstuurd naar je coach", tone: "success" });
+			toast({ title: "Mooi gedaan! Verstuurd naar je coach", tone: "success" });
+			props.onSubmitted();
 		} catch (err) {
 			toast({
 				title: "Versturen lukte niet",

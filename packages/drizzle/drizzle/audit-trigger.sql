@@ -92,7 +92,7 @@ DECLARE
 		'organization', 'full', 'membership', 'full', 'coach_assignment', 'full',
 		-- Coachplan / formulieren (#8–#21)
 		'form_template', 'full', 'form_question', 'full', 'form_assignment', 'full',
-		'form_submission', 'full',
+		'coachplan', 'full', 'form_submission', 'full',
 		'form_answer', 'keys_only', 'answer_coach_mapping', 'keys_only',
 		'learning_preference_label', 'keys_only', 'transcription', 'keys_only',
 		-- Online cursus (#23–#36, #61)

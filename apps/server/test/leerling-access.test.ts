@@ -11,14 +11,10 @@
  * demo leerling (leerling@incluvo.local).
  */
 import { db } from "@incluvo/drizzle";
-import {
-	assignmentSubmission,
-	formSubmission,
-	formTemplate,
-} from "@incluvo/drizzle/schema";
+import { assignmentSubmission } from "@incluvo/drizzle/schema";
 import { beforeAll, describe, expect, test } from "bun:test";
-import { and, eq } from "drizzle-orm";
-import { type DemoUser, type TestUser, asUser, expectForbidden, userId } from "./harness";
+import { eq } from "drizzle-orm";
+import { type DemoUser, type TestUser, asUser, expectForbidden, userId, planVersion } from "./harness";
 
 const ALLOWED: DemoUser[] = ["coach", "keyuser", "superadmin"];
 const DENIED: DemoUser[] = [
@@ -87,21 +83,7 @@ beforeAll(async () => {
 	f.proposalId = proposal.id;
 
 	// A submitted coachplan, inserted directly (filling it in is not under test).
-	const [template] = await db
-		.select({ id: formTemplate.id, organizationId: formTemplate.organizationId })
-		.from(formTemplate)
-		.where(and(eq(formTemplate.scope, "school"), eq(formTemplate.isSchoolDefault, true)));
-	if (!template?.organizationId) throw new Error("seed has no default school template");
-	const [plan] = await db
-		.insert(formSubmission)
-		.values({
-			templateId: template.id,
-			organizationId: template.organizationId,
-			leerlingId: f.leerlingId,
-			status: "submitted",
-			submittedAt: new Date(),
-		})
-		.returning({ id: formSubmission.id });
+	const plan = await planVersion(f.leerlingId);
 	f.coachplanSubmissionId = plan!.id;
 });
 

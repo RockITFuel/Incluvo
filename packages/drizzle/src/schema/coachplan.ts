@@ -1,5 +1,6 @@
 import { relations, sql } from "drizzle-orm";
 import {
+	type AnyPgColumn,
 	boolean,
 	index,
 	uniqueIndex,
@@ -125,17 +126,49 @@ export const formAssignment = pgTable("form_assignment", {
 	uniqueIndex("form_assignment_leerling_uq").on(t.organizationId, t.leerlingId),
 ]);
 
-/** A leerling's submission lifecycle. */
+/**
+ * A leerling's coachplan (D2: one living plan). Every `form_submission` is a
+ * version of it; `currentVersionId` points at the version the coach last
+ * shared — the one courses, dashboard and AI treat as "the plan".
+ */
+export const coachplan = pgTable("coachplan", {
+	id: uuid("id").primaryKey().defaultRandom(),
+	organizationId: uuid("organization_id")
+		.notNull()
+		.references(() => organization.id, { onDelete: "cascade" }),
+	leerlingId: text("leerling_id")
+		.notNull()
+		.references(() => user.id, { onDelete: "cascade" }),
+	currentVersionId: uuid("current_version_id").references(
+		(): AnyPgColumn => formSubmission.id,
+		{ onDelete: "set null" },
+	),
+	createdAt: timestamp("created_at").notNull().defaultNow(),
+	updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+	uniqueIndex("coachplan_leerling_uq").on(t.organizationId, t.leerlingId),
+]);
+
+/**
+ * A version's lifecycle (see apps/server/src/coachplan/lifecycle.ts):
+ *   draft → submitted → coach_review → shared_with_leerling
+ * A shared version is read-only; revising the plan starts a new draft version.
+ */
 export const submissionStatus = pgEnum("submission_status", [
 	"draft", // wizard in progress, autosaved (#11)
 	"submitted", // sent to coach (#11/#15)
 	"coach_review", // coach filling in coach-gedeelte (#17)
-	"shared_with_leerling", // coach offered the result back (#17)
-	"completed",
+	"shared_with_leerling", // coach offered the result back (#17); read-only
+	"completed", // legacy, never set; treated like shared_with_leerling
 ]);
 
 export const formSubmission = pgTable("form_submission", {
 	id: uuid("id").primaryKey().defaultRandom(),
+	coachplanId: uuid("coachplan_id")
+		.notNull()
+		.references(() => coachplan.id, { onDelete: "cascade" }),
+	/** 1, 2, 3 … within the coachplan. */
+	version: integer("version").notNull(),
 	templateId: uuid("template_id")
 		.notNull()
 		.references(() => formTemplate.id, { onDelete: "restrict" }),
@@ -155,6 +188,7 @@ export const formSubmission = pgTable("form_submission", {
 }, (t) => [
 	// Hot path: a leerling's coachplan submissions.
 	index("form_submission_leerling_idx").on(t.leerlingId),
+	uniqueIndex("form_submission_version_uq").on(t.coachplanId, t.version),
 ]);
 
 export const formAnswer = pgTable("form_answer", {
@@ -317,6 +351,10 @@ export const formSubmissionRelations = relations(
 			fields: [formSubmission.coachId],
 			references: [user.id],
 			relationName: "submissionCoach",
+		}),
+		coachplan: one(coachplan, {
+			fields: [formSubmission.coachplanId],
+			references: [coachplan.id],
 		}),
 		answers: many(formAnswer),
 		mappings: many(answerCoachMapping),
