@@ -184,9 +184,9 @@ export function ChatPanel(props: {
 							"margin-bottom": "10px",
 						}}
 					>
-						<h2 class="font-head text-ink" style={{ "font-size": "17px" }}>
+						<h1 class="font-head text-ink" style={{ "font-size": "1.0625rem" }}>
 							Chat
-						</h2>
+						</h1>
 						{/* Decorative — starting a new chat happens via the list below. */}
 						<button
 							type="button"
@@ -221,7 +221,7 @@ export function ChatPanel(props: {
 								background: "transparent",
 								outline: "none",
 								flex: "1",
-								"font-size": "13px",
+								"font-size": "0.8125rem",
 							}}
 							placeholder="Zoek in berichten…"
 							value={query()}
@@ -278,7 +278,7 @@ export function ChatPanel(props: {
 											>
 												<div
 													class="avatar shrink-0"
-													style={{ width: "28px", height: "28px", "font-size": "11px" }}
+													style={{ width: "28px", height: "28px", "font-size": "0.6875rem" }}
 												>
 													{initials(p.name)}
 												</div>
@@ -334,7 +334,7 @@ function ConversationButton(props: {
 				style={{
 					width: "40px",
 					height: "40px",
-					"font-size": "14px",
+					"font-size": "0.875rem",
 					background: isGroup() ? "linear-gradient(135deg, #E0D6C5, #B8AB94)" : undefined,
 				}}
 			>
@@ -355,7 +355,7 @@ function ConversationButton(props: {
 				<Show when={c().supervised}>
 					<span
 						class="chip"
-						style={{ "margin-top": "4px", "font-size": "10px", padding: "2px 6px" }}
+						style={{ "margin-top": "4px", "font-size": "0.625rem", padding: "2px 6px" }}
 					>
 						<Eye size={10} aria-hidden="true" /> Coach kijkt mee
 					</span>
@@ -445,7 +445,7 @@ function ChatThread(props: { conversation: Conversation }) {
 					style={{
 						width: "36px",
 						height: "36px",
-						"font-size": "13px",
+						"font-size": "0.8125rem",
 						background: isGroup() ? "linear-gradient(135deg, #E0D6C5, #B8AB94)" : undefined,
 					}}
 				>
@@ -476,7 +476,7 @@ function ChatThread(props: { conversation: Conversation }) {
 						padding: "10px 20px",
 						background: "rgb(var(--warning-100))",
 						color: "rgb(var(--warning))",
-						"font-size": "12.5px",
+						"font-size": "0.7812rem",
 						display: "flex",
 						"align-items": "center",
 						gap: "8px",
@@ -516,7 +516,7 @@ function ChatThread(props: { conversation: Conversation }) {
 								return (
 									<li style={{ "align-self": mine() ? "flex-end" : "flex-start", "max-width": "70%" }}>
 										<Show when={!mine()}>
-											<p style={{ margin: "0 0 2px 2px", "font-size": "11px", color: "rgb(var(--muted))" }}>
+											<p style={{ margin: "0 0 2px 2px", "font-size": "0.6875rem", color: "rgb(var(--muted))" }}>
 												{m.senderName}
 											</p>
 										</Show>
@@ -527,7 +527,7 @@ function ChatThread(props: { conversation: Conversation }) {
 												background: mine() ? "rgb(var(--primary))" : "rgb(var(--surface))",
 												color: mine() ? "#fff" : "rgb(var(--ink))",
 												border: mine() ? "none" : "1px solid rgb(var(--line))",
-												"font-size": "14px",
+												"font-size": "0.875rem",
 												"line-height": "1.4",
 											}}
 										>
@@ -543,7 +543,7 @@ function ChatThread(props: { conversation: Conversation }) {
 													border: "1px solid rgb(var(--line))",
 													"border-left": "3px solid rgb(var(--accent))",
 													"border-radius": "10px",
-													"font-size": "13px",
+													"font-size": "0.8125rem",
 													display: "flex",
 													"align-items": "center",
 													gap: "10px",
@@ -560,7 +560,7 @@ function ChatThread(props: { conversation: Conversation }) {
 										</Show>
 										<p
 											style={{
-												"font-size": "11px",
+												"font-size": "0.6875rem",
 												color: "rgb(var(--muted))",
 												"margin-top": "4px",
 												"text-align": mine() ? "right" : "left",

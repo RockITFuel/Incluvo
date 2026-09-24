@@ -200,14 +200,7 @@ function DashboardPage() {
 
 			<Show when={rows().length > 0}>
 				{/* KPI row */}
-				<div
-					class="ds-grid"
-					style={{
-						"grid-template-columns": "repeat(4, 1fr)",
-						gap: "16px",
-						"margin-bottom": "24px",
-					}}
-				>
+				<div class="ds-grid-tiles" style={{ "margin-bottom": "24px" }}>
 					<KPI
 						label="Plannen klaar"
 						value={`${kpis().klaar}/${kpis().total}`}
@@ -255,7 +248,7 @@ function DashboardPage() {
 						"flex-wrap": "wrap",
 					}}
 				>
-					<div class="seg" role="tablist" aria-label="Filter leerlingen">
+					<div class="seg" role="group" aria-label="Filter leerlingen">
 						<button
 							type="button"
 							class={filter() === "all" ? "on" : ""}
@@ -304,7 +297,7 @@ function DashboardPage() {
 								border: "0",
 								background: "transparent",
 								outline: "none",
-								"font-size": "13px",
+								"font-size": "0.8125rem",
 								color: "rgb(var(--ink))",
 							}}
 							placeholder="Zoek leerling…"
@@ -316,35 +309,40 @@ function DashboardPage() {
 				{/* Table */}
 				<div class="card" style={{ padding: "0", overflow: "hidden" }}>
 					<div style={{ "overflow-x": "auto" }}>
-						<div style={{ "min-width": "720px" }}>
+						<div style={{ "min-width": "720px" }} role="table" aria-label="Leerlingen">
 							{/* Header */}
 							<div
+								role="row"
 								style={{
 									display: "grid",
 									"grid-template-columns": colTemplate,
 									padding: "12px 20px",
 									background: "rgb(var(--bg-2))",
 									"border-bottom": "1px solid rgb(var(--line))",
-									"font-size": "12px",
+									"font-size": "0.75rem",
 									"font-weight": "600",
 									color: "rgb(var(--muted))",
 									"text-transform": "uppercase",
 									"letter-spacing": "0.04em",
 								}}
 							>
-								<div>Leerling</div>
-								<div>Mood</div>
-								<div>Coachplan</div>
-								<div>Voortgang</div>
-								<div>Laatst actief</div>
-								<div />
+								<div role="columnheader">Leerling</div>
+								<div role="columnheader">Mood</div>
+								<div role="columnheader">Coachplan</div>
+								<div role="columnheader">Voortgang</div>
+								<div role="columnheader">Laatst actief</div>
+								<div role="columnheader">
+									<span class="sr-only">Acties</span>
+								</div>
 							</div>
 
 							<For each={filtered()}>
 								{(row) => (
+									// The row is clickable for mouse users; keyboard and screen-reader
+									// users open the snelpanel with the name button (no nested
+									// interactive content, WCAG 4.1.2).
 									<div
-										role="button"
-										tabindex="0"
+										role="row"
 										style={{
 											display: "grid",
 											"grid-template-columns": colTemplate,
@@ -364,42 +362,44 @@ function DashboardPage() {
 												row.snelacties.conversationId,
 											)
 										}
-										onKeyDown={(e) => {
-											if (e.key === "Enter" || e.key === " ") {
-												e.preventDefault();
-												openQuickpanel(
-													row.leerling.id,
-													row.snelacties.planSubmissionId,
-													row.snelacties.conversationId,
-												);
-											}
-										}}
 									>
 										{/* Leerling */}
-										<div class="ds-row" style={{ "min-width": "0" }}>
+										<div role="cell" class="ds-row" style={{ "min-width": "0" }}>
 											<div
 												class="avatar"
 												style={{
 													width: "34px",
 													height: "34px",
-													"font-size": "12px",
+													"font-size": "0.75rem",
 												}}
 												aria-hidden="true"
 											>
 												{initials(row.leerling.name)}
 											</div>
 											<div style={{ "min-width": "0" }}>
-												<div
+												<button
+													type="button"
+													class="text-left"
+													aria-label={`Snelpanel van ${row.leerling.name}`}
+													aria-expanded={openLeerling() === row.leerling.id}
+													onClick={(e) => {
+														e.stopPropagation();
+														openQuickpanel(
+															row.leerling.id,
+															row.snelacties.planSubmissionId,
+															row.snelacties.conversationId,
+														);
+													}}
 													style={{
 														"font-weight": "500",
-														"font-size": "14px",
+														"font-size": "0.875rem",
 													}}
 												>
 													{row.leerling.name}
-												</div>
+												</button>
 												<div
 													style={{
-														"font-size": "12px",
+														"font-size": "0.75rem",
 														color: "rgb(var(--muted))",
 														overflow: "hidden",
 														"text-overflow": "ellipsis",
@@ -412,7 +412,7 @@ function DashboardPage() {
 											<Show when={row.aandacht}>
 												<span
 													class="chip danger"
-													style={{ "font-size": "11px" }}
+													style={{ "font-size": "0.6875rem" }}
 												>
 													<Flag class="size-3" aria-hidden="true" /> Aandacht
 												</span>
@@ -423,35 +423,41 @@ function DashboardPage() {
 										<Show
 											when={moodByLeerling().has(row.leerling.id)}
 											fallback={
-												<div
-													style={{
-														"font-size": "14px",
-														color: "rgb(var(--muted))",
-													}}
-													title="Nog geen mood gedeeld"
-													aria-label="Mood: onbekend"
-												>
-													—
+												<div role="cell">
+													<span
+														role="img"
+														style={{
+															"font-size": "0.875rem",
+															color: "rgb(var(--muted))",
+														}}
+														title="Nog geen mood gedeeld"
+														aria-label="Mood: nog niet gedeeld"
+													>
+														—
+													</span>
 												</div>
 											}
 										>
-											<div
-												style={{ "font-size": "22px", "line-height": "1" }}
-												title={moodMeta(moodByLeerling().get(row.leerling.id) as number).label}
-												aria-label={`Mood: ${moodMeta(moodByLeerling().get(row.leerling.id) as number).label}`}
-											>
-												{moodMeta(moodByLeerling().get(row.leerling.id) as number).e}
+											<div role="cell">
+												<span
+													role="img"
+													style={{ "font-size": "1.375rem", "line-height": "1" }}
+													title={moodMeta(moodByLeerling().get(row.leerling.id) as number).label}
+													aria-label={`Mood: ${moodMeta(moodByLeerling().get(row.leerling.id) as number).label}`}
+												>
+													{moodMeta(moodByLeerling().get(row.leerling.id) as number).e}
+												</span>
 											</div>
 										</Show>
 
 										{/* Coachplan */}
-										<div>
+										<div role="cell">
 											<span style={{ display: "inline-flex" }}>
 												<PlanStatusBadge status={row.plan.status} />
 											</span>
 											<div
 												style={{
-													"font-size": "11px",
+													"font-size": "0.6875rem",
 													color: "rgb(var(--muted))",
 													"margin-top": "3px",
 												}}
@@ -461,13 +467,13 @@ function DashboardPage() {
 										</div>
 
 										{/* Voortgang */}
-										<div>
+										<div role="cell">
 											<div class="progress" style={{ "margin-bottom": "4px" }}>
 												<span style={{ width: `${voortgang(row)}%` }} />
 											</div>
 											<div
 												style={{
-													"font-size": "11px",
+													"font-size": "0.6875rem",
 													color: "rgb(var(--muted))",
 												}}
 											>
@@ -477,8 +483,9 @@ function DashboardPage() {
 
 										{/* Laatst actief */}
 										<div
+											role="cell"
 											style={{
-												"font-size": "13px",
+												"font-size": "0.8125rem",
 												color: "rgb(var(--muted))",
 											}}
 										>
@@ -487,6 +494,7 @@ function DashboardPage() {
 
 										{/* Snelacties */}
 										<div
+											role="cell"
 											class="ds-row"
 											style={{ gap: "4px", "justify-content": "flex-end" }}
 										>
@@ -523,14 +531,17 @@ function DashboardPage() {
 							</For>
 
 							<Show when={filtered().length === 0}>
-								<div
-									style={{
-										padding: "24px 20px",
-										"font-size": "13px",
-										color: "rgb(var(--muted))",
-									}}
-								>
-									Geen leerlingen gevonden.
+								<div role="row">
+									<div
+										role="cell"
+										style={{
+											padding: "24px 20px",
+											"font-size": "0.8125rem",
+											color: "rgb(var(--muted))",
+										}}
+									>
+										Geen leerlingen gevonden.
+									</div>
 								</div>
 							</Show>
 						</div>
@@ -576,7 +587,7 @@ function KPI(props: {
 			<div class="ds-row ds-between" style={{ "margin-bottom": "8px" }}>
 				<div
 					style={{
-						"font-size": "12px",
+						"font-size": "0.75rem",
 						color: "rgb(var(--muted))",
 						"font-weight": "600",
 						"text-transform": "uppercase",
@@ -603,7 +614,7 @@ function KPI(props: {
 			<div
 				style={{
 					"font-family": "var(--font-head)",
-					"font-size": "28px",
+					"font-size": "1.75rem",
 					"font-weight": "600",
 					"line-height": "1",
 				}}
@@ -612,7 +623,7 @@ function KPI(props: {
 			</div>
 			<div
 				style={{
-					"font-size": "12px",
+					"font-size": "0.75rem",
 					color: "rgb(var(--muted))",
 					"margin-top": "6px",
 				}}

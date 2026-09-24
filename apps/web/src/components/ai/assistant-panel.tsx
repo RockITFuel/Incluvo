@@ -82,14 +82,14 @@ export function AssistantPanel(props: {
 	return (
 		<section class="card" aria-label="AI-advies over interventies">
 			<div class="card-head">
-				<h3 style={{ "font-size": "15px" }}>{props.title ?? "AI-advies"}</h3>
+				<h2 style={{ "font-size": "0.9375rem" }}>{props.title ?? "AI-advies"}</h2>
 				<span class="chip primary">
 					<Sparkles class="size-3" aria-hidden="true" /> Wens
 				</span>
 			</div>
 			<div
 				style={{
-					"font-size": "13px",
+					"font-size": "0.8125rem",
 					color: "rgb(var(--muted))",
 					"margin-bottom": "12px",
 				}}
@@ -111,7 +111,7 @@ export function AssistantPanel(props: {
 						description="Het advies wordt opgesteld op basis van de antwoorden in dit coachformulier."
 					/>
 					<Show when={!inboxQuery.isPending && submissionOptions().length === 0}>
-						<p style={{ "font-size": "12px", color: "rgb(var(--muted))", "margin-top": "6px" }}>
+						<p style={{ "font-size": "0.75rem", color: "rgb(var(--muted))", "margin-top": "6px" }}>
 							Er staan nog geen ingediende coachplannen klaar om te bespreken.
 						</p>
 					</Show>
@@ -137,7 +137,7 @@ export function AssistantPanel(props: {
 											padding: "10px 12px",
 											background: "rgb(var(--bg-2))",
 											"border-radius": "10px",
-											"font-size": "13px",
+											"font-size": "0.8125rem",
 											"font-weight": "500",
 											"text-align": "left",
 											border: "0",
@@ -171,7 +171,7 @@ export function AssistantPanel(props: {
 										style={{
 											padding: "10px 12px",
 											"border-radius": "10px",
-											"font-size": "13px",
+											"font-size": "0.8125rem",
 											"line-height": "1.5",
 											"white-space": "pre-wrap",
 											background:
@@ -207,7 +207,7 @@ export function AssistantPanel(props: {
 						style={{
 							"margin-top": "10px",
 							color: "rgb(var(--danger))",
-							"font-size": "12px",
+							"font-size": "0.75rem",
 						}}
 					>
 						{assistant.error()}
@@ -243,7 +243,7 @@ export function AssistantPanel(props: {
 				<textarea
 					id="assistant-composer"
 					class="textarea"
-					style={{ "min-height": "44px", "font-size": "13px", resize: "none", flex: "1" }}
+					style={{ "min-height": "44px", "font-size": "0.8125rem", resize: "none", flex: "1" }}
 					placeholder={
 						effectiveId()
 							? "Stel een vraag over interventies…"

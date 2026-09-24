@@ -21,6 +21,7 @@ import { toast } from "../../../components/ui/toast";
 import { requireRole } from "../../../lib/auth/require-role";
 import { RequireRole } from "../../../lib/auth/role-guard";
 import { moodMeta } from "../../../lib/mood";
+import { downloadPlanPdf } from "../../../lib/coachplan/pdf";
 import { client, orpc } from "../../../lib/orpc";
 
 /**
@@ -64,6 +65,8 @@ const initials = (name: string): string =>
 
 /** Day letters for the mood-strip: Ma..Zo (M D W D V Z Z). */
 const WEEK_LETTERS = ["M", "D", "W", "D", "V", "Z", "Z"];
+// Screen readers get the full name: "D" and "Z" are ambiguous.
+const WEEK_DAYS = ["maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag", "zondag"];
 
 /** The 7 dates (Ma..Zo) of the current week as "YYYY-MM-DD" (server-local). */
 function weekDates(): string[] {
@@ -184,7 +187,7 @@ function ProfilePage() {
 									style={{
 										width: "88px",
 										height: "88px",
-										"font-size": "28px",
+										"font-size": "1.75rem",
 										border: "4px solid rgb(var(--surface))",
 									}}
 									aria-hidden="true"
@@ -197,18 +200,18 @@ function ProfilePage() {
 								>
 									<h1
 										class="ds-row"
-										style={{ "font-size": "26px", gap: "8px" }}
+										style={{ "font-size": "1.625rem", gap: "8px" }}
 									>
 										{data().leerling.name}
 										<Show when={data().aandacht}>
-											<span class="chip danger" style={{ "font-size": "11px" }}>
+											<span class="chip danger" style={{ "font-size": "0.6875rem" }}>
 												<Flag class="size-3" aria-hidden="true" /> Aandacht
 											</span>
 										</Show>
 									</h1>
 									<div
 										style={{
-											"font-size": "14px",
+											"font-size": "0.875rem",
 											color: "rgb(var(--muted))",
 										}}
 									>
@@ -219,7 +222,7 @@ function ProfilePage() {
 									>
 										<div
 											style={{
-												"font-size": "13px",
+												"font-size": "0.8125rem",
 												color: "rgb(var(--ink-2))",
 												"margin-top": "4px",
 											}}
@@ -253,16 +256,13 @@ function ProfilePage() {
 						</div>
 
 						{/* Body */}
-						<div
-							class="ds-grid"
-							style={{ "grid-template-columns": "2fr 1fr", gap: "24px" }}
-						>
+						<div class="ds-grid-main">
 							{/* Left */}
 							<div class="ds-col" style={{ gap: "24px" }}>
 								{/* Coachplan */}
 								<div class="card">
 									<div class="card-head">
-										<h3>Coachplan</h3>
+										<h2>Coachplan</h2>
 										<PlanStatusBadge status={data().plan.status} />
 									</div>
 									<div class="ds-col" style={{ gap: "14px" }}>
@@ -290,19 +290,39 @@ function ProfilePage() {
 									</div>
 									<div
 										class="ds-row"
-										style={{ "margin-top": "16px", gap: "8px" }}
+										style={{ "margin-top": "16px", gap: "8px", "flex-wrap": "wrap" }}
 									>
-										<button type="button" class="btn ghost sm">
-											<FileText class="size-3.5" aria-hidden="true" /> PDF
-										</button>
-										<button type="button" class="btn ghost sm">
-											<Sparkles class="size-3.5" aria-hidden="true" /> AI-advies
-										</button>
+										<Show when={submissionId()}>
+											{(id) => (
+												<>
+													<button
+														type="button"
+														class="btn ghost sm"
+														onClick={async () => {
+															try {
+																await downloadPlanPdf(id());
+															} catch {
+																toast({ title: "PDF maken lukte niet", tone: "danger" });
+															}
+														}}
+													>
+														<FileText class="size-3.5" aria-hidden="true" /> PDF
+													</button>
+													<Link
+														to="/plan/$submissionId"
+														params={{ submissionId: id() }}
+														class="btn ghost sm"
+													>
+														<Sparkles class="size-3.5" aria-hidden="true" /> AI-advies
+													</Link>
+												</>
+											)}
+										</Show>
 										<div class="ds-grow" />
 										<Show when={submissionId()}>
 											<label
 												class="ds-row"
-												style={{ gap: "8px", "font-size": "13px" }}
+												style={{ gap: "8px", "font-size": "0.8125rem" }}
 											>
 												<span class="toggle">
 													<input
@@ -327,7 +347,7 @@ function ProfilePage() {
 								{/* Activiteit — derived from live signals */}
 								<div class="card">
 									<div class="card-head">
-										<h3>Activiteit</h3>
+										<h2>Activiteit</h2>
 										<span class="chip">Laatste 7 dagen</span>
 									</div>
 									<Show
@@ -339,7 +359,7 @@ function ProfilePage() {
 										fallback={
 											<p
 												style={{
-													"font-size": "13px",
+													"font-size": "0.8125rem",
 													color: "rgb(var(--muted))",
 												}}
 											>
@@ -387,14 +407,14 @@ function ProfilePage() {
 								{/* Recente inzendingen */}
 								<div class="card">
 									<div class="card-head">
-										<h3>Recente inzendingen</h3>
+										<h2>Recente inzendingen</h2>
 									</div>
 									<Show
 										when={data().recentSubmissions.length > 0}
 										fallback={
 											<p
 												style={{
-													"font-size": "13px",
+													"font-size": "0.8125rem",
 													color: "rgb(var(--muted))",
 												}}
 											>
@@ -417,7 +437,7 @@ function ProfilePage() {
 														<div style={{ "min-width": "0" }}>
 															<div
 																style={{
-																	"font-size": "13px",
+																	"font-size": "0.8125rem",
 																	"font-weight": "500",
 																}}
 															>
@@ -425,7 +445,7 @@ function ProfilePage() {
 															</div>
 															<div
 																style={{
-																	"font-size": "11px",
+																	"font-size": "0.6875rem",
 																	color: "rgb(var(--muted))",
 																}}
 															>
@@ -456,14 +476,14 @@ function ProfilePage() {
 								{/* Actieve cursussen */}
 								<div class="card">
 									<div class="card-head">
-										<h3>Actieve cursussen</h3>
+										<h2>Actieve cursussen</h2>
 									</div>
 									<Show
 										when={data().courses.length > 0}
 										fallback={
 											<p
 												style={{
-													"font-size": "13px",
+													"font-size": "0.8125rem",
 													color: "rgb(var(--muted))",
 												}}
 											>
@@ -485,7 +505,7 @@ function ProfilePage() {
 													>
 														<div
 															style={{
-																"font-size": "13px",
+																"font-size": "0.8125rem",
 																"font-weight": "500",
 																flex: "1",
 																"min-width": "0",
@@ -510,7 +530,7 @@ function ProfilePage() {
 														</div>
 														<div
 															style={{
-																"font-size": "12px",
+																"font-size": "0.75rem",
 																color: "rgb(var(--muted))",
 																width: "32px",
 																"text-align": "right",
@@ -531,14 +551,14 @@ function ProfilePage() {
 								{/* Leervoorkeuren */}
 								<div class="card">
 									<div class="card-head">
-										<h3>Leervoorkeuren</h3>
+										<h2>Leervoorkeuren</h2>
 									</div>
 									<Show
 										when={data().leervoorkeuren.length > 0}
 										fallback={
 											<p
 												style={{
-													"font-size": "13px",
+													"font-size": "0.8125rem",
 													color: "rgb(var(--muted))",
 												}}
 											>
@@ -560,14 +580,14 @@ function ProfilePage() {
 								{/* Mood deze week — alleen gedeelde moods; anders eerlijke lege staat. */}
 								<div class="card">
 									<div class="card-head">
-										<h3>Mood deze week</h3>
+										<h2>Mood deze week</h2>
 									</div>
 									<Show
 										when={(week.data?.length ?? 0) > 0}
 										fallback={
 											<p
 												style={{
-													"font-size": "13px",
+													"font-size": "0.8125rem",
 													color: "rgb(var(--muted))",
 												}}
 											>
@@ -588,20 +608,24 @@ function ProfilePage() {
 												{(iso, i) => (
 													<div>
 														<div
+															aria-hidden="true"
 															style={{
-																"font-size": "11px",
+																"font-size": "0.6875rem",
 																color: "rgb(var(--muted))",
 																"margin-bottom": "6px",
 															}}
 														>
 															{WEEK_LETTERS[i()]}
 														</div>
+														<span class="sr-only">{WEEK_DAYS[i()]}: </span>
 														<Show
 															when={moodByDate().has(iso)}
 															fallback={
 																<div
+																	role="img"
+																	aria-label="niet gedeeld"
 																	style={{
-																		"font-size": "18px",
+																		"font-size": "1.125rem",
 																		color: "rgb(var(--muted))",
 																	}}
 																>
@@ -610,7 +634,8 @@ function ProfilePage() {
 															}
 														>
 															<div
-																style={{ "font-size": "22px", "line-height": "1" }}
+																role="img"
+																style={{ "font-size": "1.375rem", "line-height": "1" }}
 																title={
 																	moodMeta(moodByDate().get(iso) as number).label
 																}
@@ -631,7 +656,7 @@ function ProfilePage() {
 								{/* Taken */}
 								<div class="card">
 									<div class="card-head">
-										<h3>Taken</h3>
+										<h2>Taken</h2>
 									</div>
 									<div class="ds-row" style={{ gap: "24px" }}>
 										<Stat label="Open" value={data().tasks.open} />
@@ -646,7 +671,7 @@ function ProfilePage() {
 										<div style={{ "margin-top": "16px" }}>
 											<div
 												style={{
-													"font-size": "11px",
+													"font-size": "0.6875rem",
 													color: "rgb(var(--muted))",
 													"text-transform": "uppercase",
 													"letter-spacing": "0.04em",
@@ -665,7 +690,7 @@ function ProfilePage() {
 																background: "rgb(var(--bg-2))",
 																"border-radius": "8px",
 																gap: "8px",
-																"font-size": "13px",
+																"font-size": "0.8125rem",
 															}}
 														>
 															<span
@@ -692,14 +717,14 @@ function ProfilePage() {
 								{/* Begeleiding */}
 								<div class="card">
 									<div class="card-head">
-										<h3>Begeleiding</h3>
+										<h2>Begeleiding</h2>
 									</div>
 									<Show
 										when={data().assignments.length > 0}
 										fallback={
 											<p
 												style={{
-													"font-size": "13px",
+													"font-size": "0.8125rem",
 													color: "rgb(var(--muted))",
 												}}
 											>
@@ -716,7 +741,7 @@ function ProfilePage() {
 															style={{
 																width: "34px",
 																height: "34px",
-																"font-size": "12px",
+																"font-size": "0.75rem",
 															}}
 															aria-hidden="true"
 														>
@@ -726,14 +751,14 @@ function ProfilePage() {
 															<div
 																style={{
 																	"font-weight": "500",
-																	"font-size": "13px",
+																	"font-size": "0.8125rem",
 																}}
 															>
 																{a.coachName}
 															</div>
 															<div
 																style={{
-																	"font-size": "12px",
+																	"font-size": "0.75rem",
 																	color: "rgb(var(--muted))",
 																}}
 															>
@@ -750,11 +775,11 @@ function ProfilePage() {
 								{/* Ouders — geen ouder-koppeling in het systeem; eerlijke lege staat. */}
 								<div class="card">
 									<div class="card-head">
-										<h3>Ouders</h3>
+										<h2>Ouders</h2>
 									</div>
 									<p
 										style={{
-											"font-size": "13px",
+											"font-size": "0.8125rem",
 											color: "rgb(var(--muted))",
 										}}
 									>
@@ -781,7 +806,7 @@ function Field(props: {
 			<div
 				class="ds-row"
 				style={{
-					"font-size": "12px",
+					"font-size": "0.75rem",
 					color: "rgb(var(--muted))",
 					"margin-bottom": "4px",
 					"font-weight": "500",
@@ -790,14 +815,14 @@ function Field(props: {
 			>
 				{props.label}
 				<Show when={props.flag}>
-					<span class="chip accent" style={{ "font-size": "10px" }}>
+					<span class="chip accent" style={{ "font-size": "0.625rem" }}>
 						<Flag class="size-3" aria-hidden="true" /> Bespreken
 					</span>
 				</Show>
 			</div>
 			<Show
 				when={props.chips}
-				fallback={<div style={{ "font-size": "14px" }}>{props.val}</div>}
+				fallback={<div style={{ "font-size": "0.875rem" }}>{props.val}</div>}
 			>
 				<div class="ds-row" style={{ "flex-wrap": "wrap", gap: "6px" }}>
 					<For each={props.chips}>
@@ -855,8 +880,8 @@ function ActivityRow(props: {
 				<props.icon class="size-4" aria-hidden="true" />
 			</div>
 			<div class="ds-grow" style={{ "min-width": "0" }}>
-				<div style={{ "font-size": "13.5px" }}>{props.text}</div>
-				<div style={{ "font-size": "11px", color: "rgb(var(--muted))" }}>
+				<div style={{ "font-size": "0.8438rem" }}>{props.text}</div>
+				<div style={{ "font-size": "0.6875rem", color: "rgb(var(--muted))" }}>
 					{props.when}
 				</div>
 			</div>
@@ -870,7 +895,7 @@ function Stat(props: { label: string; value: number; tone?: "danger" }) {
 			<div
 				style={{
 					"font-family": "var(--font-head)",
-					"font-size": "24px",
+					"font-size": "1.5rem",
 					"font-weight": "600",
 					color:
 						props.tone === "danger"
@@ -880,7 +905,7 @@ function Stat(props: { label: string; value: number; tone?: "danger" }) {
 			>
 				{props.value}
 			</div>
-			<div style={{ "font-size": "11px", color: "rgb(var(--muted))" }}>
+			<div style={{ "font-size": "0.6875rem", color: "rgb(var(--muted))" }}>
 				{props.label}
 			</div>
 		</div>

@@ -10,7 +10,8 @@
 		"seed:courses": "BETTER_AUTH_URL=http://localhost:3200 bun --env-file=../../.env src/seed-courses.ts",
 		"seed:kennis": "BETTER_AUTH_URL=http://localhost:3200 bun --env-file=../../.env src/seed-kennis.ts",
 		"check-types": "tsc --noEmit",
-		"test": "bun test"
+		"test": "bun test",
+		"setup-db": "bun src/setup-db.ts"
 	},
 	"dependencies": {
 		"@incluvo/drizzle": "workspace:*",

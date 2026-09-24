@@ -15,7 +15,7 @@
 		"build": "turbo build",
 		"check-types": "turbo check-types",
 		"test": "turbo test",
-		"lint": "oxlint -c .oxlintrc.json apps/*/src packages",
+		"lint": "oxlint -c .oxlintrc.json apps/*/src packages && bun scripts/no-px-fonts.ts",
 		"format": "oxfmt --write .",
 		"format:check": "oxfmt --check .",
 		"db:pgvector": "bun run --cwd packages/drizzle pgvector",
@@ -30,5 +30,8 @@
 		"oxlint": "^1.61.0",
 		"turbo": "^2.9.6"
 	},
-	"packageManager": "bun@1.2.21"
+	"packageManager": "bun@1.2.21",
+	"overrides": {
+		"solid-js": "1.9.12"
+	}
 }

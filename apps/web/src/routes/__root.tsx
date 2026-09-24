@@ -8,6 +8,7 @@ import {
 import { Suspense } from "solid-js";
 import { HydrationScript } from "solid-js/web";
 import { Toaster } from "../components/ui/toast";
+import { RouteAnnouncer } from "../lib/a11y/route-announcer";
 // Importing the store creates it and starts the effect that mirrors the
 // persisted a11y settings onto <html data-*> for the whole app.
 import "../lib/a11y/store";
@@ -61,6 +62,7 @@ function RootComponent() {
 							<Outlet />
 						</Suspense>
 						<Toaster />
+						<RouteAnnouncer />
 					</OrpcQueryProvider>
 				</div>
 				<Scripts />

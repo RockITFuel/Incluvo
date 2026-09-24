@@ -336,15 +336,15 @@ function CoachReview() {
 					<div class="ds-row" style={{ gap: "10px" }}>
 						<div
 							class="avatar"
-							style={{ width: "32px", height: "32px", "font-size": "11px" }}
+							style={{ width: "32px", height: "32px", "font-size": "0.6875rem" }}
 						>
 							{initials(leerlingName())}
 						</div>
 						<div>
-							<div style={{ "font-weight": "600", "font-size": "14px" }}>
+							<div style={{ "font-weight": "600", "font-size": "0.875rem" }}>
 								Coachplan · {leerlingName()}
 							</div>
-							<div style={{ "font-size": "12px", color: "rgb(var(--muted))" }}>
+							<div style={{ "font-size": "0.75rem", color: "rgb(var(--muted))" }}>
 								{templateName()} · versie {submissionQuery.data?.submission.version} ·
 								Bron: leerlingvragenlijst van{" "}
 								{relativeDay(submissionQuery.data?.submission.submittedAt)}
@@ -383,10 +383,7 @@ function CoachReview() {
 					</div>
 				</Show>
 
-				<div
-					class="ds-grid"
-					style={{ "grid-template-columns": "2fr 1fr", gap: "24px" }}
-				>
+				<div class="ds-grid-main">
 					{/* LEFT — wizard */}
 					<div class="ds-col" style={{ gap: "16px" }}>
 						<div class="ds-row ds-between">
@@ -434,7 +431,7 @@ function CoachReview() {
 											<>
 												<h2
 													style={{
-														"font-size": "22px",
+														"font-size": "1.375rem",
 														"margin-bottom": "8px",
 														"text-wrap": "balance",
 													}}
@@ -459,12 +456,12 @@ function CoachReview() {
 																border: "1px solid rgb(var(--primary-100))",
 																"border-radius": "10px",
 																"margin-bottom": "14px",
-																"font-size": "13px",
+																"font-size": "0.8125rem",
 															}}
 														>
 															<div
 																style={{
-																	"font-size": "11px",
+																	"font-size": "0.6875rem",
 																	"font-weight": "600",
 																	color: "rgb(var(--primary-700))",
 																	"text-transform": "uppercase",
@@ -513,7 +510,7 @@ function CoachReview() {
 													>
 														<textarea
 															class="textarea"
-															style={{ "min-height": "140px", "font-size": "14px" }}
+															style={{ "min-height": "140px", "font-size": "0.875rem" }}
 															aria-label={s.q.label}
 															placeholder="Schrijf hier je observatie. Antwoorden worden tussentijds opgeslagen."
 															value={coachAnswers[s.q.id] ?? ""}
@@ -545,7 +542,7 @@ function CoachReview() {
 								<Match when={cur()?.kind === "leervoorkeuren"}>
 									<h2
 										style={{
-											"font-size": "22px",
+											"font-size": "1.375rem",
 											"margin-bottom": "8px",
 											"text-wrap": "balance",
 										}}
@@ -566,12 +563,12 @@ function CoachReview() {
 													border: "1px solid rgb(var(--primary-100))",
 													"border-radius": "10px",
 													"margin-bottom": "14px",
-													"font-size": "13px",
+													"font-size": "0.8125rem",
 												}}
 											>
 												<div
 													style={{
-														"font-size": "11px",
+														"font-size": "0.6875rem",
 														"font-weight": "600",
 														color: "rgb(var(--primary-700))",
 														"text-transform": "uppercase",
@@ -620,7 +617,7 @@ function CoachReview() {
 														class={`chip ${on() ? "primary" : "outline"}`}
 														style={{
 															padding: "8px 14px",
-															"font-size": "13px",
+															"font-size": "0.8125rem",
 															cursor: "pointer",
 														}}
 														aria-pressed={on()}
@@ -643,7 +640,7 @@ function CoachReview() {
 							<button type="button" class="btn ghost" onClick={saveCurrent}>
 								<Save class="size-3.5" aria-hidden="true" /> Tussentijds opslaan
 							</button>
-							<label class="ds-row" style={{ gap: "8px", "font-size": "13px" }}>
+							<label class="ds-row" style={{ gap: "8px", "font-size": "0.8125rem" }}>
 								<span class="toggle">
 									<input
 										type="checkbox"
@@ -668,7 +665,7 @@ function CoachReview() {
 						<AssistantPanel submissionId={id()} title="AI-advies" />
 						<div class="card">
 							<div class="card-head">
-								<h3 style={{ "font-size": "15px" }}>Voortgang plan</h3>
+								<h3 style={{ "font-size": "0.9375rem" }}>Voortgang plan</h3>
 							</div>
 							<div class="progress" style={{ "margin-bottom": "8px" }}>
 								<span
@@ -677,7 +674,7 @@ function CoachReview() {
 									}}
 								/>
 							</div>
-							<div style={{ "font-size": "12px", color: "rgb(var(--muted))" }}>
+							<div style={{ "font-size": "0.75rem", color: "rgb(var(--muted))" }}>
 								{filledCount()} van {total()} vragen ingevuld
 							</div>
 						</div>

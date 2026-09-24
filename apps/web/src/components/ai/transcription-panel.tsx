@@ -163,12 +163,12 @@ export function TranscriptionPanel(props: { submissionId?: string }) {
 			}}
 		>
 			<div class="card-head">
-				<h3 style={{ "font-size": "15px" }}>Transcriptietool</h3>
+				<h3 style={{ "font-size": "0.9375rem" }}>Transcriptietool</h3>
 				<span class="chip">Beta</span>
 			</div>
 			<div
 				style={{
-					"font-size": "13px",
+					"font-size": "0.8125rem",
 					color: "rgb(var(--muted))",
 					"margin-bottom": "12px",
 				}}
@@ -196,7 +196,7 @@ export function TranscriptionPanel(props: { submissionId?: string }) {
 				<Show
 					when={recorder.supported()}
 					fallback={
-						<span style={{ "font-size": "12px", color: "rgb(var(--muted))" }}>
+						<span style={{ "font-size": "0.75rem", color: "rgb(var(--muted))" }}>
 							Opnemen niet beschikbaar — importeer of plak een transcript.
 						</span>
 					}
@@ -247,13 +247,13 @@ export function TranscriptionPanel(props: { submissionId?: string }) {
 				<Show when={uploadName()}>
 					<span
 						class="ds-row"
-						style={{ "font-size": "12px", color: "rgb(var(--muted))", gap: "6px" }}
+						style={{ "font-size": "0.75rem", color: "rgb(var(--muted))", gap: "6px" }}
 					>
 						<Upload class="size-3.5" aria-hidden="true" /> {uploadName()}
 					</span>
 				</Show>
 				<Show when={recorder.error()}>
-					<p role="alert" style={{ color: "rgb(var(--danger))", "font-size": "12px" }}>
+					<p role="alert" style={{ color: "rgb(var(--danger))", "font-size": "0.75rem" }}>
 						{recorder.error()}
 					</p>
 				</Show>
@@ -265,7 +265,7 @@ export function TranscriptionPanel(props: { submissionId?: string }) {
 					class="lab"
 					style={{
 						display: "block",
-						"font-size": "12px",
+						"font-size": "0.75rem",
 						"font-weight": "500",
 						color: "rgb(var(--ink-2))",
 						"margin-bottom": "6px",
@@ -277,7 +277,7 @@ export function TranscriptionPanel(props: { submissionId?: string }) {
 				<textarea
 					id="transcript-standin"
 					class="textarea"
-					style={{ "min-height": "70px", "font-size": "13px" }}
+					style={{ "min-height": "70px", "font-size": "0.8125rem" }}
 					placeholder="Plak hier de tekst van het gesprek…"
 					value={textStandIn()}
 					onInput={(e) => setTextStandIn(e.currentTarget.value)}
@@ -304,14 +304,14 @@ export function TranscriptionPanel(props: { submissionId?: string }) {
 					class="ds-row ds-between"
 					style={{ "margin-top": "14px", "margin-bottom": "6px", gap: "8px" }}
 				>
-					<div style={{ "font-size": "13px", "font-weight": "600" }}>Transcript</div>
+					<div style={{ "font-size": "0.8125rem", "font-weight": "600" }}>Transcript</div>
 					<Show when={transcriptionId() && hasAudio() && !audioCleared()}>
 						<button type="button" class="btn ghost sm" onClick={deleteAudio}>
 							<Trash2 class="size-3.5" aria-hidden="true" /> Verwijder audio
 						</button>
 					</Show>
 					<Show when={audioCleared()}>
-						<span style={{ "font-size": "11px", color: "rgb(var(--success))" }}>
+						<span style={{ "font-size": "0.6875rem", color: "rgb(var(--success))" }}>
 							Audio verwijderd ✓
 						</span>
 					</Show>
@@ -321,7 +321,7 @@ export function TranscriptionPanel(props: { submissionId?: string }) {
 						padding: "10px 12px",
 						background: "rgb(var(--bg-2))",
 						"border-radius": "10px",
-						"font-size": "13px",
+						"font-size": "0.8125rem",
 						"font-style": "italic",
 						"border-left": "3px solid rgb(var(--accent))",
 						"white-space": "pre-wrap",
@@ -336,7 +336,7 @@ export function TranscriptionPanel(props: { submissionId?: string }) {
 				<div style={{ "margin-top": "14px" }}>
 					<div
 						style={{
-							"font-size": "13px",
+							"font-size": "0.8125rem",
 							"font-weight": "600",
 							"margin-bottom": "4px",
 						}}
@@ -345,7 +345,7 @@ export function TranscriptionPanel(props: { submissionId?: string }) {
 					</div>
 					<p
 						style={{
-							"font-size": "12px",
+							"font-size": "0.75rem",
 							color: "rgb(var(--muted))",
 							"margin-bottom": "10px",
 						}}
@@ -360,7 +360,7 @@ export function TranscriptionPanel(props: { submissionId?: string }) {
 										class="lab"
 										style={{
 											display: "block",
-											"font-size": "12px",
+											"font-size": "0.75rem",
 											"font-weight": "500",
 											color: "rgb(var(--ink-2))",
 											"margin-bottom": "4px",
@@ -372,7 +372,7 @@ export function TranscriptionPanel(props: { submissionId?: string }) {
 									<Show when={p().helpText}>
 										<p
 											style={{
-												"font-size": "11px",
+												"font-size": "0.6875rem",
 												color: "rgb(var(--muted))",
 												"margin-bottom": "4px",
 											}}
@@ -383,7 +383,7 @@ export function TranscriptionPanel(props: { submissionId?: string }) {
 									<textarea
 										id={`proposal-${p().questionId}`}
 										class="textarea"
-										style={{ "min-height": "56px", "font-size": "13px" }}
+										style={{ "min-height": "56px", "font-size": "0.8125rem" }}
 										value={p().value}
 										onInput={(e) =>
 											updateProposal(p().questionId, e.currentTarget.value)
@@ -408,7 +408,7 @@ export function TranscriptionPanel(props: { submissionId?: string }) {
 										</button>
 										<Show when={acceptedIds().has(p().questionId)}>
 											<span
-												style={{ "font-size": "11px", color: "rgb(var(--success))" }}
+												style={{ "font-size": "0.6875rem", color: "rgb(var(--success))" }}
 											>
 												Overgenomen ✓
 											</span>

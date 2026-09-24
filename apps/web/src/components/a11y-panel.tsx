@@ -1,9 +1,8 @@
 import { Popover } from "@kobalte/core/popover";
 import { Accessibility, X } from "lucide-solid";
 import { Show, type JSX } from "solid-js";
-import { TRANSLATE_OPTIONS, a11y } from "../lib/a11y/store";
+import { a11y } from "../lib/a11y/store";
 import { SegmentedControl } from "./ui/segmented-control";
-import { Select } from "./ui/select";
 import { Switch } from "./ui/switch";
 
 function Row(props: {
@@ -131,31 +130,9 @@ export function A11yPanel() {
 						}
 					/>
 
-					<Row
-						label="Voorlezen"
-						hint="Tekst hardop laten lezen (binnenkort)"
-						control={
-							<Switch
-								aria-label="Voorlezen"
-								checked={s.readAloud}
-								onChange={(v) => a11y.set("readAloud", v)}
-							/>
-						}
-					/>
-
-					<Row
-						label="Taal / vertaling"
-						hint="AI-vertaling voor leerling & ouders"
-						control={
-							<Select
-								aria-label="Taal"
-								value={s.language}
-								onChange={(v) => a11y.set("language", v ?? "nl")}
-								options={[...TRANSLATE_OPTIONS]}
-								triggerClass="w-auto min-w-32"
-							/>
-						}
-					/>
+					{/* "Voorlezen" and "Taal / vertaling" come back when they work:
+					    showing settings that do nothing misleads (fix plan 4.5). The
+					    store keeps their values. */}
 				</Popover.Content>
 			</Popover.Portal>
 		</Popover>

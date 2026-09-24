@@ -180,13 +180,13 @@ export function TaskBoard(props: {
 					style={{ "margin-bottom": "10px", "align-items": "flex-start" }}
 				>
 					<div>
-						<div style={{ "font-size": "13px", color: "rgb(var(--muted))" }}>
+						<div style={{ "font-size": "0.8125rem", color: "rgb(var(--muted))" }}>
 							Voortgang vandaag
 						</div>
 						<div
 							style={{
 								"font-family": "var(--font-head)",
-								"font-size": "24px",
+								"font-size": "1.5rem",
 								"font-weight": "600",
 							}}
 						>
@@ -195,7 +195,7 @@ export function TaskBoard(props: {
 								style={{
 									color: "rgb(var(--muted))",
 									"font-weight": "400",
-									"font-size": "18px",
+									"font-size": "1.125rem",
 								}}
 							>
 								/ {totalToday()} klaar
@@ -384,7 +384,7 @@ function TabButton(props: {
 				"border-bottom": props.on ? "2px solid rgb(var(--primary))" : "2px solid transparent",
 				color: props.on ? "rgb(var(--ink))" : "rgb(var(--muted))",
 				"font-weight": props.on ? "600" : "500",
-				"font-size": "14px",
+				"font-size": "0.875rem",
 				"margin-bottom": "-1px",
 			}}
 		>
@@ -460,8 +460,8 @@ function BigTask(props: { task: TaskRow; canManage: boolean; onToggle: () => voi
 					color: props.task.done ? "rgb(var(--muted))" : "rgb(var(--ink))",
 				}}
 			>
-				<div style={{ "font-weight": "500", "font-size": "15px" }}>{props.task.title}</div>
-				<div style={{ "font-size": "13px", color: "rgb(var(--muted))", "margin-top": "2px" }}>
+				<div style={{ "font-weight": "500", "font-size": "0.9375rem" }}>{props.task.title}</div>
+				<div style={{ "font-size": "0.8125rem", color: "rgb(var(--muted))", "margin-top": "2px" }}>
 					{sub()}
 				</div>
 			</div>
@@ -493,7 +493,7 @@ function FutureGroup(props: {
 				<div
 					style={{
 						"font-family": "var(--font-head)",
-						"font-size": "14px",
+						"font-size": "0.875rem",
 						"font-weight": "600",
 						color: "rgb(var(--muted))",
 						"text-transform": "uppercase",
@@ -518,8 +518,8 @@ function FutureGroup(props: {
 						>
 							<Clock class="size-4" aria-hidden="true" />
 							<div class="ds-grow" style={{ "min-width": "0" }}>
-								<div style={{ "font-weight": "500", "font-size": "14px" }}>{t.title}</div>
-								<div style={{ "font-size": "12px", color: "rgb(var(--muted))" }}>
+								<div style={{ "font-weight": "500", "font-size": "0.875rem" }}>{t.title}</div>
+								<div style={{ "font-size": "0.75rem", color: "rgb(var(--muted))" }}>
 									{subLine(t.description, formatDue(t.dueAt), t.source)}
 								</div>
 							</div>
@@ -541,7 +541,7 @@ function FutureGroup(props: {
 					)}
 				</For>
 				<Show when={props.tasks.length === 0}>
-					<div style={{ padding: "12px 14px", "font-size": "13px", color: "rgb(var(--muted))" }}>
+					<div style={{ padding: "12px 14px", "font-size": "0.8125rem", color: "rgb(var(--muted))" }}>
 						Geen taken.
 					</div>
 				</Show>

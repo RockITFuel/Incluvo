@@ -76,7 +76,7 @@ export function Quickpanel(props: {
 						>
 							<div
 								class="avatar"
-								style={{ width: "48px", height: "48px", "font-size": "16px" }}
+								style={{ width: "48px", height: "48px", "font-size": "1rem" }}
 								aria-hidden="true"
 							>
 								{initials(query.data?.leerling.name ?? "…")}
@@ -86,7 +86,7 @@ export function Quickpanel(props: {
 									style={{
 										"font-family": "var(--font-head)",
 										"font-weight": "600",
-										"font-size": "18px",
+										"font-size": "1.125rem",
 										overflow: "hidden",
 										"text-overflow": "ellipsis",
 										"white-space": "nowrap",
@@ -96,7 +96,7 @@ export function Quickpanel(props: {
 								</KDialog.Title>
 								<KDialog.Description
 									style={{
-										"font-size": "13px",
+										"font-size": "0.8125rem",
 										color: "rgb(var(--muted))",
 										overflow: "hidden",
 										"text-overflow": "ellipsis",
@@ -150,7 +150,7 @@ export function Quickpanel(props: {
 										fallback={
 											<p
 												style={{
-													"font-size": "13px",
+													"font-size": "0.8125rem",
 													color: "rgb(var(--muted))",
 												}}
 											>
@@ -178,7 +178,7 @@ export function Quickpanel(props: {
 										<SectionLabel noMargin>Open taken</SectionLabel>
 										<span
 											style={{
-												"font-size": "12px",
+												"font-size": "0.75rem",
 												color: "rgb(var(--muted))",
 											}}
 										>
@@ -190,7 +190,7 @@ export function Quickpanel(props: {
 										fallback={
 											<p
 												style={{
-													"font-size": "13px",
+													"font-size": "0.8125rem",
 													color: "rgb(var(--muted))",
 												}}
 											>
@@ -207,7 +207,7 @@ export function Quickpanel(props: {
 															padding: "10px 12px",
 															background: "rgb(var(--bg-2))",
 															"border-radius": "8px",
-															"font-size": "13px",
+															"font-size": "0.8125rem",
 															gap: "8px",
 														}}
 													>
@@ -251,7 +251,7 @@ export function Quickpanel(props: {
 										fallback={
 											<p
 												style={{
-													"font-size": "13px",
+													"font-size": "0.8125rem",
 													color: "rgb(var(--muted))",
 												}}
 											>
@@ -273,7 +273,7 @@ export function Quickpanel(props: {
 													>
 														<div
 															style={{
-																"font-size": "13px",
+																"font-size": "0.8125rem",
 																"font-weight": "500",
 																flex: "1",
 																"min-width": "0",
@@ -298,7 +298,7 @@ export function Quickpanel(props: {
 														</div>
 														<div
 															style={{
-																"font-size": "12px",
+																"font-size": "0.75rem",
 																color: "rgb(var(--muted))",
 																width: "32px",
 																"text-align": "right",
@@ -392,7 +392,7 @@ function SectionLabel(props: { children: JSX.Element; noMargin?: boolean }) {
 	return (
 		<h3
 			style={{
-				"font-size": "12px",
+				"font-size": "0.75rem",
 				"font-weight": "600",
 				color: "rgb(var(--muted))",
 				"text-transform": "uppercase",

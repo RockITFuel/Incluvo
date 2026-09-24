@@ -303,7 +303,7 @@ function WelkomPage() {
 
 	return (
 		<>
-			<div class="page-head">
+			<div class="page-head" data-page-title="Welkom">
 				<div>
 					<h1>{greeting()}</h1>
 					<div class="sub">{dateSubline(new Date())}</div>
@@ -324,12 +324,12 @@ function WelkomPage() {
 				</div>
 			</div>
 
-			<div class="ds-grid" style={{ "grid-template-columns": "2fr 1fr", gap: "24px" }}>
+			<div class="ds-grid-main">
 				<div class="ds-col" style={{ gap: "24px" }}>
 					<div class="card">
 						<div class="card-head">
 							<div>
-								<h3>Hoe zit je erbij vandaag?</h3>
+								<h2>Hoe zit je erbij vandaag?</h2>
 								<div class="card-sub">Je coach ziet dit alleen als je het deelt.</div>
 							</div>
 							<Show when={!moodSkipped()}>
@@ -341,7 +341,7 @@ function WelkomPage() {
 						<Show
 							when={!moodSkipped()}
 							fallback={
-								<div class="ds-row ds-between" style={{ "font-size": "13px", color: "rgb(var(--muted))" }}>
+								<div class="ds-row ds-between" style={{ "font-size": "0.8125rem", color: "rgb(var(--muted))" }}>
 									<span>Prima — morgen vragen we het gewoon weer.</span>
 									<button
 										type="button"
@@ -377,7 +377,7 @@ function WelkomPage() {
 								style={{
 									gap: "10px",
 									"margin-top": "16px",
-									"font-size": "13px",
+									"font-size": "0.8125rem",
 									"align-items": "center",
 								}}
 							>
@@ -404,7 +404,7 @@ function WelkomPage() {
 										padding: "12px 14px",
 										background: "rgb(var(--primary-50))",
 										"border-radius": "12px",
-										"font-size": "13px",
+										"font-size": "0.8125rem",
 										color: "rgb(var(--primary-700))",
 									}}
 								>
@@ -417,14 +417,14 @@ function WelkomPage() {
 					<div class="card">
 						<div class="card-head">
 							<div>
-								<h3>Vandaag</h3>
+								<h2>Vandaag</h2>
 								<div class="card-sub">Een rustig overzicht — je taken staan op één plek</div>
 							</div>
 						</div>
 						<div class="ds-row" style={{ gap: "16px", "align-items": "center" }}>
 							<div
 								style={{
-									"font-size": "40px",
+									"font-size": "2.5rem",
 									"font-weight": "600",
 									color: "rgb(var(--primary-700))",
 									"line-height": "1",
@@ -433,10 +433,10 @@ function WelkomPage() {
 								{openToday()}
 							</div>
 							<div class="ds-grow">
-								<div style={{ "font-weight": "500", "font-size": "15px" }}>
+								<div style={{ "font-weight": "500", "font-size": "0.9375rem" }}>
 									taken voor vandaag
 								</div>
-								<div style={{ "font-size": "13px", color: "rgb(var(--muted))" }}>
+								<div style={{ "font-size": "0.8125rem", color: "rgb(var(--muted))" }}>
 									{taskCountLabel()}
 								</div>
 							</div>
@@ -454,20 +454,20 @@ function WelkomPage() {
 						style={{
 							background: "rgb(var(--primary))",
 							"border-color": "rgb(var(--primary))",
-							color: "#fff",
+							color: "rgb(var(--primary-fg))",
 						}}
 					>
-						<div style={{ "font-size": "13px", opacity: "0.85", "font-weight": "500", "margin-bottom": "6px" }}>
+						<div style={{ "font-size": "0.8125rem", opacity: "0.85", "font-weight": "500", "margin-bottom": "6px" }}>
 							Volgende deadline
 						</div>
 						<Show
 							when={nextDeadline()}
 							fallback={
 								<>
-									<h3 style={{ color: "#fff", "font-size": "20px" }}>
+									<h2 style={{ color: "rgb(var(--primary-fg))", "font-size": "1.25rem" }}>
 										Niets met een deadline
-									</h3>
-									<div style={{ "font-size": "14px", opacity: "0.85", "margin-top": "6px" }}>
+									</h2>
+									<div style={{ "font-size": "0.875rem", opacity: "0.85", "margin-top": "6px" }}>
 										Er staat nu niets gepland. Je coach is één berichtje verwijderd.
 									</div>
 								</>
@@ -475,8 +475,8 @@ function WelkomPage() {
 						>
 							{(t) => (
 								<>
-									<h3 style={{ color: "#fff", "font-size": "20px" }}>{t().title}</h3>
-									<div style={{ "font-size": "14px", opacity: "0.85", "margin-top": "6px" }}>
+									<h2 style={{ color: "rgb(var(--primary-fg))", "font-size": "1.25rem" }}>{t().title}</h2>
+									<div style={{ "font-size": "0.875rem", opacity: "0.85", "margin-top": "6px" }}>
 										<Clock
 											class="size-3.5"
 											aria-hidden="true"
@@ -491,7 +491,7 @@ function WelkomPage() {
 							<button
 								type="button"
 								class="btn"
-								style={{ background: "rgb(255 255 255 / 0.18)", color: "#fff" }}
+								style={{ background: "rgb(var(--primary-fg) / 0.18)", color: "rgb(var(--primary-fg))" }}
 								onClick={() => navigate({ to: "/chat" })}
 							>
 								<MessageSquare class="size-3.5" aria-hidden="true" /> Bericht
@@ -500,7 +500,7 @@ function WelkomPage() {
 								<button
 									type="button"
 									class="btn"
-									style={{ background: "#fff", color: "rgb(var(--primary-700))" }}
+									style={{ background: "rgb(var(--primary-fg))", color: "rgb(var(--primary-700))" }}
 									onClick={() => navigate({ to: "/taken" })}
 								>
 									Naar taak
@@ -511,7 +511,7 @@ function WelkomPage() {
 
 					<div class="card">
 						<div class="card-head">
-							<h3>Successen</h3>
+							<h2>Successen</h2>
 							<div class="ds-row" style={{ gap: "8px" }}>
 								<Show when={showSuccess() && successenWeek() > 0}>
 									<span class="chip success">+{successenWeek()} deze week</span>
@@ -529,7 +529,7 @@ function WelkomPage() {
 						<Show
 							when={showSuccess()}
 							fallback={
-								<div style={{ "font-size": "13px", color: "rgb(var(--muted))" }}>
+								<div style={{ "font-size": "0.8125rem", color: "rgb(var(--muted))" }}>
 									Successen staan even uit.
 								</div>
 							}
@@ -537,7 +537,7 @@ function WelkomPage() {
 							<Show
 								when={alleSuccessen().length > 0}
 								fallback={
-									<div style={{ "font-size": "13px", color: "rgb(var(--muted))" }}>
+									<div style={{ "font-size": "0.8125rem", color: "rgb(var(--muted))" }}>
 										Nog geen successen — vink je eerste taak af en hij verschijnt hier. 💪
 									</div>
 								}
@@ -560,7 +560,7 @@ function WelkomPage() {
 
 					<div class="card">
 						<div class="card-head">
-							<h3>Sociaal</h3>
+							<h2>Sociaal</h2>
 							<Show when={me.organization()?.name}>
 								<span class="chip">{me.organization()?.name}</span>
 							</Show>
@@ -569,7 +569,7 @@ function WelkomPage() {
 							when={gesprekken().length > 0}
 							fallback={
 								<div class="ds-col" style={{ gap: "10px" }}>
-									<div style={{ "font-size": "13px", color: "rgb(var(--muted))" }}>
+									<div style={{ "font-size": "0.8125rem", color: "rgb(var(--muted))" }}>
 										Nog geen gesprekken.
 									</div>
 									<button
@@ -640,8 +640,8 @@ function SuccessRow(props: {
 				<props.icon class="size-4" aria-hidden="true" />
 			</div>
 			<div class="ds-grow" style={{ "min-width": "0" }}>
-				<div style={{ "font-weight": "500", "font-size": "13.5px" }}>{props.title}</div>
-				<div style={{ "font-size": "12px", color: "rgb(var(--muted))" }}>{props.when}</div>
+				<div style={{ "font-weight": "500", "font-size": "0.8438rem" }}>{props.title}</div>
+				<div style={{ "font-size": "0.75rem", color: "rgb(var(--muted))" }}>{props.when}</div>
 			</div>
 		</div>
 	);
@@ -673,17 +673,17 @@ function SocialRow(props: {
 			}}
 			onClick={props.onOpen}
 		>
-			<div class="avatar" style={{ width: "32px", height: "32px", "font-size": "12px" }}>
+			<div class="avatar" style={{ width: "32px", height: "32px", "font-size": "0.75rem" }}>
 				{initials()}
 			</div>
 			<div class="ds-grow" style={{ "min-width": "0" }}>
 				<div class="ds-row ds-between">
-					<div style={{ "font-weight": "500", "font-size": "13px" }}>{props.name}</div>
-					<div style={{ "font-size": "11px", color: "rgb(var(--muted))" }}>{props.time}</div>
+					<div style={{ "font-weight": "500", "font-size": "0.8125rem" }}>{props.name}</div>
+					<div style={{ "font-size": "0.6875rem", color: "rgb(var(--muted))" }}>{props.time}</div>
 				</div>
 				<div
 					style={{
-						"font-size": "12px",
+						"font-size": "0.75rem",
 						color: "rgb(var(--muted))",
 						overflow: "hidden",
 						"text-overflow": "ellipsis",
