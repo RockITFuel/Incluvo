@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/solid-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/solid-router";
 import { useQuery, useQueryClient } from "@tanstack/solid-query";
 import {
 	ArrowLeft,
@@ -82,6 +82,7 @@ function CourseDetail() {
 	};
 
 	const canComplete = () => me.is("leerling") || me.hasAtLeast("coach");
+	const navigate = useNavigate();
 	// Templates are built by course builders; a leerling's own copy may be
 	// adapted by someone coaching them (the server checks the leerling rule).
 	const canBuild = () =>
@@ -136,6 +137,40 @@ function CourseDetail() {
 					)}
 				</Show>
 			</div>
+
+			<Show when={treeQuery.data?.sourceChanged && canBuild() && treeQuery.data}>
+				{(data) => (
+					<Card class="flex flex-wrap items-center justify-between gap-3 border-accent-100 bg-accent-100/30">
+						<p class="text-small text-ink-2">
+							De Ondivera-cursus waar deze kopie van is gemaakt, is sindsdien
+							gewijzigd. Maak een nieuwe kopie om de wijzigingen over te nemen;
+							deze cursus blijft zoals hij is.
+						</p>
+						<Button
+							size="sm"
+							onClick={async () => {
+								try {
+									const copy = await client.courses.derive({
+										id: data().course.parentCourseId!,
+										kind: "school_template",
+										title: data().course.title,
+									});
+									toast({ title: "Nieuwe kopie gemaakt", tone: "success" });
+									navigate({ to: "/cursussen/$courseId", params: { courseId: copy.id } });
+								} catch (err) {
+									toast({
+										title: "Kopiëren lukte niet",
+										description: (err as Error).message,
+										tone: "danger",
+									});
+								}
+							}}
+						>
+							Nieuwe kopie maken
+						</Button>
+					</Card>
+				)}
+			</Show>
 
 			<Show when={treeQuery.isLoading}>
 				<p class="text-muted">Laden…</p>

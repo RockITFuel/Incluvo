@@ -52,3 +52,30 @@ describe("course forums (D3)", () => {
 		});
 	});
 });
+
+describe("school copy of an Ondivera course (D5)", () => {
+	test("shows that its source changed, until the school makes a fresh copy", async () => {
+		const superadmin = await asUser("superadmin");
+		const builder = await asUser("ontwikkelaar");
+		const schoolCopy = (await builder.client.courses.list({ kind: "school_template" })).find(
+			(c) => c.parentCourseId,
+		)!;
+		expect((await builder.client.courses.tree({ id: schoolCopy.id })).sourceChanged).toBe(false);
+
+		const source = await superadmin.client.courses.tree({ id: schoolCopy.parentCourseId! });
+		await superadmin.client.courses.addBlock({
+			sectionId: source.sections[0]!.id,
+			type: "pagina",
+			title: "Nieuw in de bron",
+		});
+		expect((await builder.client.courses.tree({ id: schoolCopy.id })).sourceChanged).toBe(true);
+
+		const fresh = await builder.client.courses.derive({
+			id: schoolCopy.parentCourseId!,
+			kind: "school_template",
+		});
+		const freshTree = await builder.client.courses.tree({ id: fresh.id });
+		expect(freshTree.sourceChanged).toBe(false);
+		expect(freshTree.sections.flatMap((s) => s.blocks).map((b) => b.title)).toContain("Nieuw in de bron");
+	});
+});

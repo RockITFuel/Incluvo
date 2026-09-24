@@ -130,7 +130,7 @@ list has a failing-then-passing test.
 
 ---
 
-## Phase 2 — Coachplan lifecycle & core domain (L)
+## Phase 2 — Coachplan lifecycle & core domain (L) ✅ done 2026-09-24
 
 ### 2.1 A real plan lifecycle ✅ done 2026-09-24
 Today "the plan" = newest submission; a new draft appears after every submit.
@@ -186,8 +186,10 @@ Today "the plan" = newest submission; a new draft appears after every submit.
 - *open:* a new Ondivera version is offered to schools as soon as it exists,
   also while the superadmin is still editing it. Add a "publiceren" step if
   that matters.
-- *open (2.2c):* courses — show a school copy when its source course changed
-  since it was copied.
+- ✅ (2.2c) courses: `course.contentUpdatedAt` is bumped by every builder
+  change; a copy stores its source's value (`sourceContentAt`, migration
+  0013). A school's copy of an Ondivera course shows "de bron is gewijzigd"
+  with "Nieuwe kopie maken"; the existing copy stays as it is.
 
 ### 2.3 Course completion ✅ done 2026-09-24
 - One source of truth for "done": `assignment_submission.status` drives the task

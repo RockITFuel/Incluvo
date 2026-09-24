@@ -59,6 +59,14 @@ export const course = pgTable("course", {
 	createdById: text("created_by_id").references(() => user.id, {
 		onDelete: "set null",
 	}),
+	/**
+	 * When the course's content (title, sections, blocks) last changed. A copy
+	 * stores its source's value at copy time in `sourceContentAt`, so it can
+	 * tell that its source has changed since (D5: the school decides whether
+	 * to make a fresh copy).
+	 */
+	contentUpdatedAt: timestamp("content_updated_at").notNull().defaultNow(),
+	sourceContentAt: timestamp("source_content_at"),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 	updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
