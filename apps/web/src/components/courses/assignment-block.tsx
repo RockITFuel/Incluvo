@@ -56,9 +56,12 @@ export function AssignmentBlock(props: {
 			toast({ title: "Opdracht ingeleverd", tone: "success" });
 			setText("");
 			setFiles([]);
-			await queryClient.invalidateQueries({
-				queryKey: orpc.courses.listSubmissions.key(),
-			});
+			// Handing in completes the block and its takenlijst task (fix plan 2.3).
+			await Promise.all([
+				queryClient.invalidateQueries({ queryKey: orpc.courses.listSubmissions.key() }),
+				queryClient.invalidateQueries({ queryKey: orpc.courses.tree.key() }),
+				queryClient.invalidateQueries({ queryKey: orpc.tasks.list.key() }),
+			]);
 		} catch (err) {
 			toast({
 				title: "Inleveren mislukt",

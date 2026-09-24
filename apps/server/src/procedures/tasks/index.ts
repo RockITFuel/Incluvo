@@ -301,6 +301,12 @@ const setDone = protectedProcedure
 	.output(TaskSchema)
 	.handler(async ({ input, context }) => {
 		const existing = await loadManageable(context, input.id);
+		// A task for an opdracht follows the hand-in (courses.submitAssignment).
+		if (existing.source === "assignment") {
+			throw new ORPCError("BAD_REQUEST", {
+				message: "Deze taak is klaar zodra de opdracht is ingeleverd",
+			});
+		}
 		const [row] = await context.db
 			.update(task)
 			.set({

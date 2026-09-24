@@ -60,7 +60,8 @@ beforeAll(async () => {
 	const opdracht = blocks.find((b) => b.assignment);
 	if (!opdracht?.assignment) throw new Error("seed course lacks an opdracht");
 	f.assignmentId = opdracht.assignment.id;
-	f.blockId = opdracht.id;
+	// A block ticked done by hand (an opdracht is done by handing it in).
+	f.blockId = blocks.find((b) => b.type === "pagina")!.id;
 
 	// A legacy course forum (no longer created, D3) the leerling is in.
 	const [forum] = await db
