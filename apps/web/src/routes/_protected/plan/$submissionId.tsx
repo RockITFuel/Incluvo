@@ -111,7 +111,8 @@ function CoachReview() {
 	const templateName = () =>
 		submissionQuery.data?.template?.name ?? inboxRow()?.templateName ?? "Coachplan";
 
-	// Local coach-answer buffer (seeded once from live answers + mapping overrides).
+	// Local coach-answer buffer, seeded once from the saved answers (a mapped
+	// leerling answer is already copied into the coach answer on submit, #18).
 	const [coachAnswers, setCoachAnswers] = createStore<Record<string, string>>({});
 	const [prefs, setPrefs] = createSignal<string[]>([]);
 	const [seeded, setSeeded] = createSignal(false);
@@ -124,16 +125,6 @@ function CoachReview() {
 		}
 		setPrefs(data.learningPreferences);
 		setSeeded(true);
-	};
-	// Fold any coach mapping-override into the textarea when no coach answer yet.
-	const seedMappings = () => {
-		const ms = mappingsQuery.data;
-		if (!ms) return;
-		for (const m of ms) {
-			if (m.overrideValue != null && coachAnswers[m.coachQuestionId] === undefined) {
-				setCoachAnswers(m.coachQuestionId, m.overrideValue);
-			}
-		}
 	};
 
 	const queryClient = useQueryClient();
@@ -252,14 +243,6 @@ function CoachReview() {
 					questionId: s.q.id,
 					value: val,
 				});
-				// A mapped (auto-filled) answer keeps its coach override in sync (#16).
-				if (mappingFor(s.q.id)) {
-					await client.coachplan.upsertMapping({
-						submissionId: id(),
-						coachQuestionId: s.q.id,
-						overrideValue: val,
-					});
-				}
 			}
 			toast({ title: "Tussentijds opgeslagen", tone: "success" });
 			refresh();
@@ -345,7 +328,6 @@ function CoachReview() {
 			<Show when={isCoach() && submissionQuery.data}>
 				{(() => {
 					seed();
-					seedMappings();
 					return null;
 				})()}
 

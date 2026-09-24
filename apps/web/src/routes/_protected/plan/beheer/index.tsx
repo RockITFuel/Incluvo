@@ -8,14 +8,17 @@ import { Select } from "../../../../components/ui/select";
 import { Input } from "../../../../components/ui/text-field";
 import { toast } from "../../../../components/ui/toast";
 import { requireRole } from "../../../../lib/auth/require-role";
+import { useMe } from "../../../../lib/auth/use-me";
 import { RequireRole } from "../../../../lib/auth/role-guard";
 import { client, orpc } from "../../../../lib/orpc";
 
 /**
  * Formulierenmanager (#8/#9/#10) — keyuser+. Lists templates (Ondivera + own
- * school), lets you copy an Ondivera template into the school (#9), create a new
- * one, edit its questions with a per-question-type editor, and set the school
- * default (#10). Gated to keyuser+.
+ * school, newest version of each), lets you copy an Ondivera template into the
+ * school (#9), create a new one, edit its questions with a per-question-type
+ * editor, and set the school default (#10). Versions (D5): a form in use is
+ * read-only — "Nieuwe versie maken" starts an editable next version — and a
+ * school copy shows when its Ondivera source has a newer version to upgrade to.
  */
 export const Route = createFileRoute("/_protected/plan/beheer/")({
 	beforeLoad: () => requireRole("keyuser"),
@@ -44,6 +47,7 @@ const SECTIONS = [
 
 function FormManager() {
 	const queryClient = useQueryClient();
+	const me = useMe();
 	const [selectedId, setSelectedId] = createSignal<string | null>(null);
 
 	const templatesQuery = useQuery(() =>
@@ -102,6 +106,32 @@ function FormManager() {
 			toast({ title: "Standaardformulier ingesteld", tone: "success" });
 		} catch {
 			toast({ title: "Lukte niet (alleen schoolformulieren)", tone: "danger" });
+		}
+	};
+
+	const makeNewVersion = async (id: string) => {
+		try {
+			const tpl = await client.coachplan.templates.newVersion({ id });
+			setSelectedId(tpl.id);
+			invalidate();
+			toast({
+				title: `Versie ${tpl.version} gemaakt`,
+				description: "Pas de vragen aan en stel hem daarna in als standaard.",
+				tone: "success",
+			});
+		} catch (err) {
+			toast({ title: "Lukte niet", description: (err as Error).message, tone: "danger" });
+		}
+	};
+
+	const upgrade = async (id: string) => {
+		try {
+			const tpl = await client.coachplan.templates.upgradeFromSource({ id });
+			setSelectedId(tpl.id);
+			invalidate();
+			toast({ title: `Bijgewerkt naar versie ${tpl.version}`, tone: "success" });
+		} catch (err) {
+			toast({ title: "Bijwerken lukte niet", description: (err as Error).message, tone: "danger" });
 		}
 	};
 
@@ -187,6 +217,7 @@ function FormManager() {
 								>
 									<div class="flex items-center gap-2">
 										<span class="font-medium text-ink">{tpl.name}</span>
+										<Badge variant="outline">v{tpl.version}</Badge>
 										<Show when={tpl.isSchoolDefault}>
 											<Badge variant="success">Standaard</Badge>
 										</Show>
@@ -204,6 +235,21 @@ function FormManager() {
 										>
 											Kopieer naar school
 										</Button>
+									</Show>
+									<Show when={tpl.sourceUpdateVersion}>
+										{(v) => (
+											<div class="flex w-full flex-col gap-1.5 rounded-2 bg-accent-100/40 p-2">
+												<p class="text-small text-ink-2">
+													Ondivera heeft versie {v()} van dit formulier. Bijwerken
+													vervangt de vragen door die van versie {v()}; eigen
+													aanpassingen gaan niet mee. Ingevulde plannen blijven op hun
+													versie.
+												</p>
+												<Button size="sm" variant="subtle" onClick={() => upgrade(tpl.id)}>
+													Bijwerken naar versie {v()}
+												</Button>
+											</div>
+										)}
 									</Show>
 									<Show when={tpl.scope === "school" && !tpl.isSchoolDefault}>
 										<Button
@@ -232,23 +278,42 @@ function FormManager() {
 					>
 						{(() => {
 							const tpl = detailQuery.data;
-							const readOnly = tpl?.scope === "ondivera";
+							const mayManage =
+								tpl?.scope === "school" || me.hasAtLeast("superadmin");
+							const readOnly = !mayManage || !!tpl?.inUse;
 							return (
 								<>
 									<div class="flex items-center justify-between gap-3">
-										<h2 class="font-head text-h2 text-ink">{tpl?.name}</h2>
+										<h2 class="font-head text-h2 text-ink">
+											{tpl?.name}{" "}
+											<span class="text-body text-muted">versie {tpl?.version}</span>
+										</h2>
 										<Show when={!readOnly}>
 											<Button size="sm" onClick={addQuestion}>
 												+ Vraag toevoegen
 											</Button>
 										</Show>
 									</div>
-									<Show when={readOnly}>
+									<Show when={!mayManage}>
 										<Card padding="sm" class="border-accent-100 bg-accent-100/30">
 											<p class="text-small text-ink-2">
 												Dit is een Ondivera-template (alleen-lezen). Kopieer hem
 												naar je school om te bewerken.
 											</p>
+										</Card>
+									</Show>
+									<Show when={mayManage && tpl?.inUse}>
+										<Card
+											padding="sm"
+											class="flex flex-wrap items-center justify-between gap-3 border-accent-100 bg-accent-100/30"
+										>
+											<p class="text-small text-ink-2">
+												{tpl?.inUse} Deze versie blijft zoals hij is, zodat ingevulde
+												plannen hun betekenis houden.
+											</p>
+											<Button size="sm" onClick={() => tpl && makeNewVersion(tpl.id)}>
+												Nieuwe versie maken
+											</Button>
 										</Card>
 									</Show>
 

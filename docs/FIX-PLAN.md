@@ -159,7 +159,7 @@ Today "the plan" = newest submission; a new draft appears after every submit.
   coach_review. Also fixed: "Sla over" and "bespreken" in the wizard threw on a
   question without a saved answer, so skipping didn't advance.
 
-### 2.2 Answer mapping (#18) — finish it or cut it
+### 2.2 Answer mapping (#18) — finish it or cut it ✅ done 2026-09-24 (except the items marked *open*)
 - `templatesCopyToSchool` (`coachplan/index.ts:319`): remap `mapsToQuestionId`
   inside the copy (reuse the logic from `seed-coachplan.ts:387-429`), in one
   transaction with the template insert.
@@ -173,6 +173,21 @@ Today "the plan" = newest submission; a new draft appears after every submit.
 - Lock question type/options/section once a template has answers
   (`questionsUpdate`, `coachplan/index.ts:410`): editing → create a new template
   version instead.
+- Done as: `submit` copies a mapped leerling answer into the coach answer
+  (`form_answer` is the one place; `overrideValue` and `upsertMapping` are
+  gone; the mapping row only drives the "Gemapt vanuit leerling" hint).
+  Template copies keep the mapping. Versions per D5
+  (`apps/server/src/coachplan/templates.ts`, migration 0011): `familyId` +
+  `version` on templates, a stable `key` on questions; a form in use is
+  read-only, "Nieuwe versie maken" starts the next version; a school copy sees
+  a newer Ondivera version and upgrades when it chooses (new version becomes
+  default and takes over assignments; plans keep their version); a revision
+  moves to the school's current form with answers carried over by key.
+- *open:* a new Ondivera version is offered to schools as soon as it exists,
+  also while the superadmin is still editing it. Add a "publiceren" step if
+  that matters.
+- *open (2.2c):* courses — show a school copy when its source course changed
+  since it was copied.
 
 ### 2.3 Course completion ✅ done 2026-09-24
 - One source of truth for "done": `assignment_submission.status` drives the task
