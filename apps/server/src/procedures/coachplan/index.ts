@@ -39,6 +39,17 @@ import {
 import { notify } from "../../notifications/notify";
 import { rateLimit } from "../../rate-limit";
 import { publishTo } from "../../sse";
+import {
+	REVIEWABLE,
+	SHARED,
+	type Status,
+	assertStatus,
+	createVersion,
+	currentVersion,
+	ensurePlan,
+	latestVersion,
+	transition,
+} from "../../coachplan/lifecycle";
 import { reachableLeerlingen, requireLeerlingAccess } from "../../access";
 import { type AuthedContext, base, protectedProcedure, withPolicy } from "../base";
 
@@ -118,6 +129,8 @@ function questionDto(row: typeof formQuestion.$inferSelect) {
 function submissionDto(row: typeof formSubmission.$inferSelect) {
 	return {
 		id: row.id,
+		coachplanId: row.coachplanId,
+		version: row.version,
 		templateId: row.templateId,
 		organizationId: row.organizationId,
 		leerlingId: row.leerlingId,
@@ -604,18 +617,18 @@ const startMine = protectedProcedure
 		const organizationId = actor.organizationId;
 		if (!organizationId) throw new ORPCError("BAD_REQUEST", { message: "No tenant" });
 
-		// Resume an existing draft if present.
-		let [submission] = await context.db
-			.select()
-			.from(formSubmission)
-			.where(
-				and(
-					eq(formSubmission.leerlingId, actor.userId),
-					eq(formSubmission.status, "draft"),
-				),
-			)
-			.orderBy(desc(formSubmission.createdAt));
-
+		// Resume the open draft, or start version 1. Once the plan has been
+		// handed in there is nothing to fill in until the leerling revises it
+		// (`revise`); the web checks `mine` first.
+		let submission = await latestVersion(context.db, actor.userId);
+		if (submission && submission.status !== "draft") {
+			throw new ORPCError("CONFLICT", {
+				message:
+					submission.status === "shared_with_leerling" || submission.status === "completed"
+						? "Je plan is gedeeld. Kies 'Plan bijwerken' om een nieuwe versie te maken."
+						: "Je plan ligt bij je coach.",
+			});
+		}
 		if (!submission) {
 			const templateId = await resolveTemplateForLeerling(
 				context.db,
@@ -627,17 +640,9 @@ const startMine = protectedProcedure
 					message: "Geen formulier gekoppeld aan deze leerling",
 				});
 			}
-			[submission] = await context.db
-				.insert(formSubmission)
-				.values({
-					templateId,
-					organizationId,
-					leerlingId: actor.userId,
-					status: "draft",
-				})
-				.returning();
+			const plan = await ensurePlan(context.db, organizationId, actor.userId);
+			submission = await createVersion(context.db, plan, templateId);
 		}
-		if (!submission) throw new ORPCError("INTERNAL_SERVER_ERROR");
 
 		const [tpl] = await context.db
 			.select()
@@ -659,6 +664,51 @@ const startMine = protectedProcedure
 			template: { ...templateDto(tpl), questions: questions.map(questionDto) },
 			answers: answers.map(answerDto),
 		};
+	});
+
+/**
+ * The leerling's plan at a glance: the version they're working on or waiting
+ * on (`latest`) and the version their coach last shared (`current`). The
+ * wizard page picks its screen from this.
+ */
+const mine = protectedProcedure
+	.route({ method: "GET", path: "/coachplan/mine/state", tags: ["coachplan"] })
+	.output(
+		z.object({
+			latest: SubmissionSchema.nullable(),
+			current: SubmissionSchema.nullable(),
+		}),
+	)
+	.handler(async ({ context }) => {
+		const { actor } = context;
+		const latest = await latestVersion(context.db, actor.userId);
+		const current = await currentVersion(context.db, actor.userId);
+		return {
+			latest: latest ? submissionDto(latest) : null,
+			current: current ? submissionDto(current) : null,
+		};
+	});
+
+/**
+ * "Plan bijwerken": start a new draft version from the shared plan, with its
+ * answers pre-filled. Only when the latest version is shared — there is at
+ * most one version in progress.
+ */
+const revise = protectedProcedure
+	.route({ method: "POST", path: "/coachplan/revise", tags: ["coachplan"] })
+	.output(SubmissionSchema)
+	.handler(async ({ context }) => {
+		const { actor } = context;
+		const latest = await latestVersion(context.db, actor.userId);
+		if (!latest || latest.leerlingId !== actor.userId) {
+			throw new ORPCError("NOT_FOUND", { message: "Nog geen plan om bij te werken" });
+		}
+		assertStatus(latest, SHARED);
+		const created = await context.db.transaction(async (tx) => {
+			const plan = await ensurePlan(tx, latest.organizationId, actor.userId);
+			return createVersion(tx, plan, latest.templateId, latest);
+		});
+		return submissionDto(created);
 	});
 
 /** Load a submission row and assert the actor may fill it (own + tenant). */
@@ -1046,7 +1096,15 @@ const inbox = protectedProcedure
 		for (const f of flags) {
 			counts.set(f.submissionId, (counts.get(f.submissionId) ?? 0) + 1);
 		}
-		return rows
+		// One row per leerling: the newest handed-in version of their plan.
+		const newest = new Map<string, (typeof rows)[number]>();
+		for (const r of rows) {
+			const seen = newest.get(r.submission.coachplanId);
+			if (!seen || r.submission.version > seen.submission.version) {
+				newest.set(r.submission.coachplanId, r);
+			}
+		}
+		return [...newest.values()]
 			.filter((r) => sameTenant(actor, r.submission))
 			.map((r) => ({
 				submission: submissionDto(r.submission),
@@ -1069,7 +1127,15 @@ const MappingSchema = z.object({
 });
 
 /** Load a submission + assert the coach may review it (tenant + role). */
-async function loadReviewable(context: AuthedContext, submissionId: string) {
+/**
+ * Load a version and assert the actor may review it (coach+, may see the
+ * leerling). With `allowed`, also that it is in one of those statuses.
+ */
+async function loadReviewable(
+	context: AuthedContext,
+	submissionId: string,
+	allowed?: readonly Status[],
+) {
 	const [sub] = await context.db
 		.select()
 		.from(formSubmission)
@@ -1080,6 +1146,7 @@ async function loadReviewable(context: AuthedContext, submissionId: string) {
 	}
 	// Role+tenant alone isn't enough: the coach must be assigned to this leerling.
 	await assertAssignedToLeerling(context, sub.leerlingId);
+	if (allowed) assertStatus(sub, allowed);
 	return sub;
 }
 
@@ -1120,7 +1187,7 @@ const upsertMapping = protectedProcedure
 	)
 	.output(MappingSchema)
 	.handler(async ({ input, context }) => {
-		const sub = await loadReviewable(context, input.submissionId);
+		const sub = await loadReviewable(context, input.submissionId, REVIEWABLE);
 		// Atomic: the review-state flip + the mapping upsert must commit together (H2).
 		const row = await context.db.transaction(async (tx) => {
 			// Flip into review state on first coach edit.
@@ -1201,7 +1268,7 @@ const saveCoachAnswer = protectedProcedure
 	)
 	.output(AnswerSchema)
 	.handler(async ({ input, context }) => {
-		const sub = await loadReviewable(context, input.submissionId);
+		const sub = await loadReviewable(context, input.submissionId, REVIEWABLE);
 		// Must be a coach-section question of this plan's own template.
 		const [q] = await context.db
 			.select({ section: formQuestion.section, templateId: formQuestion.templateId })
@@ -1254,15 +1321,13 @@ const shareWithLeerling = protectedProcedure
 	.input(z.object({ submissionId: z.string().uuid() }))
 	.output(SubmissionSchema)
 	.handler(async ({ input, context }) => {
-		const sub = await loadReviewable(context, input.submissionId);
-		const [row] = await context.db.transaction(async (tx) =>
-			tx
-				.update(formSubmission)
-				.set({ status: "shared_with_leerling", updatedAt: new Date() })
-				.where(eq(formSubmission.id, sub.id))
-				.returning(),
+		const sub = await loadReviewable(context, input.submissionId, REVIEWABLE);
+		// Shared = read-only and the leerling's current plan (lifecycle.ts).
+		const row = await context.db.transaction((tx) =>
+			transition(tx, sub.id, REVIEWABLE, "shared_with_leerling", {
+				coachId: sub.coachId ?? context.actor.userId,
+			}),
 		);
-		if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
 		// Realtime to the leerling (+ the acting coach) only (C1).
 		publishTo(
 			{
@@ -1304,7 +1369,7 @@ const setLearningPreferences = protectedProcedure
 	.input(z.object({ submissionId: z.string().uuid(), labels: z.array(z.string()) }))
 	.output(z.array(z.string()))
 	.handler(async ({ input, context }) => {
-		const sub = await loadReviewable(context, input.submissionId);
+		const sub = await loadReviewable(context, input.submissionId, REVIEWABLE);
 		const unique = [...new Set(input.labels.filter((l) => l.trim()))];
 		// Atomic delete-all-then-insert so a failed insert never wipes the
 		// leerling's existing leervoorkeuren (H2 - highest data-loss risk).
@@ -1336,7 +1401,7 @@ const setApprovedWithParents = protectedProcedure
 	.input(z.object({ submissionId: z.string().uuid(), approved: z.boolean() }))
 	.output(SubmissionSchema)
 	.handler(async ({ input, context }) => {
-		const sub = await loadReviewable(context, input.submissionId);
+		const sub = await loadReviewable(context, input.submissionId, [...REVIEWABLE, ...SHARED]);
 		const [row] = await context.db
 			.update(formSubmission)
 			.set({ approvedWithParents: input.approved, updatedAt: new Date() })
@@ -1518,7 +1583,9 @@ export const coachplanRouter = base.router({
 	templates: templatesRouter,
 	questions: questionsRouter,
 	// Leerling fill flow (#11–#14)
+	mine,
 	startMine,
+	revise,
 	saveAnswer,
 	submit,
 	listMine,

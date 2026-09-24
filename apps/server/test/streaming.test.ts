@@ -3,12 +3,9 @@
  * before its body runs. The request's pinned DB connection must stay checked
  * out until the stream ends, and be released exactly once however it ends.
  */
-import { db } from "@incluvo/drizzle";
-import { formSubmission, formTemplate } from "@incluvo/drizzle/schema";
 import { describe, expect, test } from "bun:test";
-import { and, eq } from "drizzle-orm";
 import { releaseAfterStream } from "../src/procedures/base";
-import { asUser } from "./harness";
+import { asUser, planVersion } from "./harness";
 
 function tracked() {
 	const events: string[] = [];
@@ -77,20 +74,7 @@ describe("releaseAfterStream", () => {
 describe("ai.assistant through the app", () => {
 	test("streams advice grounded in a coachplan read inside the stream", async () => {
 		const leerling = await asUser("leerling");
-		const [template] = await db
-			.select({ id: formTemplate.id, organizationId: formTemplate.organizationId })
-			.from(formTemplate)
-			.where(and(eq(formTemplate.scope, "school"), eq(formTemplate.isSchoolDefault, true)));
-		const [plan] = await db
-			.insert(formSubmission)
-			.values({
-				templateId: template!.id,
-				organizationId: template!.organizationId!,
-				leerlingId: leerling.id,
-				status: "submitted",
-				submittedAt: new Date(),
-			})
-			.returning({ id: formSubmission.id });
+		const plan = await planVersion(leerling.id);
 
 		const coach = await asUser("coach");
 		const frames: unknown[] = [];

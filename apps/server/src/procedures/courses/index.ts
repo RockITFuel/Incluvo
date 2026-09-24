@@ -10,8 +10,6 @@ import {
 	conversationMember,
 	course,
 	courseSection,
-	formSubmission,
-	learningPreferenceLabel,
 	proposedAssignment,
 	task,
 	user,
@@ -38,6 +36,7 @@ import {
 import { parseYoutubeId, youtubeEmbedUrl } from "../../courses/youtube";
 import { notify } from "../../notifications/notify";
 import { publishTo } from "../../sse";
+import { currentLeervoorkeuren } from "../../coachplan/lifecycle";
 import {
 	canReachLeerling,
 	reachableLeerlingen,
@@ -1593,22 +1592,8 @@ async function readLeervoorkeuren(
 	context: AuthedContext,
 	leerlingId: string,
 ): Promise<string[]> {
-	const rows = await context.db
-		.select({
-			label: learningPreferenceLabel.label,
-			submissionId: formSubmission.id,
-			updatedAt: formSubmission.updatedAt,
-		})
-		.from(learningPreferenceLabel)
-		.innerJoin(
-			formSubmission,
-			eq(learningPreferenceLabel.submissionId, formSubmission.id),
-		)
-		.where(eq(formSubmission.leerlingId, leerlingId))
-		.orderBy(desc(formSubmission.updatedAt));
-	const newest = rows[0]?.submissionId;
-	if (!newest) return [];
-	return rows.filter((r) => r.submissionId === newest).map((r) => r.label);
+	// The leervoorkeuren of the leerling's current (shared) coachplan.
+	return currentLeervoorkeuren(context.db, leerlingId);
 }
 
 // ---------------------------------------------------------------------------

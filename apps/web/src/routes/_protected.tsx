@@ -106,7 +106,11 @@ function AuthedShell() {
 	}));
 	const badges = () => ({
 		taken: takenQuery.data?.vandaag.length ?? 0,
-		coachplannen: inboxQuery.data?.length ?? 0,
+		// Plans waiting for the coach, not the ones already shared.
+		coachplannen:
+			inboxQuery.data?.filter(
+				(r) => r.submission.status === "submitted" || r.submission.status === "coach_review",
+			).length ?? 0,
 	});
 
 	const user = () => {

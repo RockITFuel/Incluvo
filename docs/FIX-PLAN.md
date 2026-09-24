@@ -133,7 +133,7 @@ list has a failing-then-passing test.
 
 ## Phase 2 — Coachplan lifecycle & core domain (L)
 
-### 2.1 A real plan lifecycle
+### 2.1 A real plan lifecycle ✅ done 2026-09-24
 Today "the plan" = newest submission; a new draft appears after every submit.
 
 - Schema (per D2 default): `coachplan` (one per leerling per tenant, holds
@@ -151,6 +151,14 @@ Today "the plan" = newest submission; a new draft appears after every submit.
   `readLeervoorkeuren`, PDF and AI — delete the per-feature guessing.
 - Data migration: per leerling, pick the current plan with today's
   `latestPlan` rule, attach older submissions as versions, delete empty drafts.
+- Done as: `coachplan` table + `form_submission.coachplanId/version` (migration
+  0008), `apps/server/src/coachplan/lifecycle.ts` (guarded `transition`,
+  `createVersion`, `currentVersion`, `versionForCoach`,
+  `currentLeervoorkeuren`), new `coachplan.mine` and `coachplan.revise`, and a
+  leerling `/plan` page with three states (fill / with coach / shared + PDF +
+  "Plan bijwerken"). Coach review page is read-only outside submitted /
+  coach_review. Also fixed: "Sla over" and "bespreken" in the wizard threw on a
+  question without a saved answer, so skipping didn't advance.
 
 ### 2.2 Answer mapping (#18) — finish it or cut it
 - `templatesCopyToSchool` (`coachplan/index.ts:319`): remap `mapsToQuestionId`

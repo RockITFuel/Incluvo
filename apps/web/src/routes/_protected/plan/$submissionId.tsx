@@ -1,5 +1,7 @@
 import { createFileRoute } from "@tanstack/solid-router";
-import { useQuery } from "@tanstack/solid-query";
+import { PlanStatusBadge } from "../../../components/dashboard/plan-status";
+import { downloadPlanPdf } from "../../../lib/coachplan/pdf";
+import { useQuery, useQueryClient } from "@tanstack/solid-query";
 import {
 	ArrowLeft,
 	ArrowRight,
@@ -134,6 +136,7 @@ function CoachReview() {
 		}
 	};
 
+	const queryClient = useQueryClient();
 	const refresh = () => submissionQuery.refetch();
 
 	// ── Wizard steps: real coach questions + one leervoorkeuren step (#19) ──────
@@ -200,8 +203,25 @@ function CoachReview() {
 			return n + (v && v.trim() ? 1 : 0);
 		}, 0);
 
+	// The coach works on a handed-in version; a draft is still the leerling's,
+	// a shared one is read-only (fix plan 2.1, lifecycle.ts).
+	const status = () => submissionQuery.data?.submission.status;
+	const editable = () => status() === "submitted" || status() === "coach_review";
+	const isShared = () => status() === "shared_with_leerling" || status() === "completed";
+	const readOnly = () => {
+		if (editable()) return false;
+		toast({
+			title: isShared()
+				? "Deze versie is gedeeld en kan niet meer worden gewijzigd"
+				: "De leerling vult dit plan nog in",
+			tone: "neutral",
+		});
+		return true;
+	};
+
 	// ── Mutations (all real oRPC) ──────────────────────────────────────────────
 	const togglePref = async (value: string) => {
+		if (readOnly()) return;
 		const next = prefs().includes(value)
 			? prefs().filter((p) => p !== value)
 			: [...prefs(), value];
@@ -218,7 +238,7 @@ function CoachReview() {
 
 	const saveCurrent = async () => {
 		const s = cur();
-		if (!s) return;
+		if (!s || readOnly()) return;
 		try {
 			if (s.kind === "leervoorkeuren") {
 				await client.coachplan.setLearningPreferences({
@@ -250,6 +270,7 @@ function CoachReview() {
 
 	// Autosave a non-text coach question (registry input) via saveCoachAnswer.
 	const saveChoice = (questionId: string, next: { value?: string | null; valueJson?: string[] | null }) => {
+		if (readOnly()) return;
 		if (next.value !== undefined) setCoachAnswers(questionId, next.value ?? "");
 		client.coachplan
 			.saveCoachAnswer({
@@ -274,12 +295,19 @@ function CoachReview() {
 	};
 
 	const share = async () => {
+		if (readOnly()) return;
 		try {
 			await client.coachplan.shareWithLeerling({ submissionId: id() });
 			toast({ title: "Aangeboden aan leerling", tone: "success" });
 			refresh();
-		} catch {
-			toast({ title: "Lukte niet", tone: "danger" });
+			// The nav badge and inbox count plans still waiting for the coach.
+			void queryClient.invalidateQueries({ queryKey: orpc.coachplan.inbox.key() });
+		} catch (err) {
+			toast({
+				title: "Aanbieden lukte niet",
+				description: (err as { message?: string }).message,
+				tone: "danger",
+			});
 		}
 	};
 
@@ -287,17 +315,7 @@ function CoachReview() {
 	const downloadPdf = async () => {
 		setPdfBusy(true);
 		try {
-			const res = await client.coachplan.generatePdf({ id: id() });
-			const bin = atob(res.base64);
-			const bytes = new Uint8Array(bin.length);
-			for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-			const blob = new Blob([bytes], { type: res.contentType });
-			const url = URL.createObjectURL(blob);
-			const a = document.createElement("a");
-			a.href = url;
-			a.download = res.filename;
-			a.click();
-			URL.revokeObjectURL(url);
+			await downloadPlanPdf(id());
 			toast({ title: "PDF gedownload", tone: "success" });
 		} catch {
 			toast({ title: "PDF genereren lukte niet", tone: "danger" });
@@ -345,10 +363,14 @@ function CoachReview() {
 								Coachplan · {leerlingName()}
 							</div>
 							<div style={{ "font-size": "12px", color: "rgb(var(--muted))" }}>
-								{templateName()} · Bron: leerlingvragenlijst van{" "}
+								{templateName()} · versie {submissionQuery.data?.submission.version} ·
+								Bron: leerlingvragenlijst van{" "}
 								{relativeDay(submissionQuery.data?.submission.submittedAt)}
 							</div>
 						</div>
+						<Show when={status()}>
+							{(st) => <PlanStatusBadge status={st()} />}
+						</Show>
 					</div>
 					<div class="ds-grow" />
 					<button
@@ -360,10 +382,24 @@ function CoachReview() {
 						<FileText class="size-3.5" aria-hidden="true" />{" "}
 						{pdfBusy() ? "PDF maken…" : "PDF genereren"}
 					</button>
-					<button type="button" class="btn primary sm" onClick={share}>
-						Aanbieden aan leerling <Send class="size-3.5" aria-hidden="true" />
+					<button
+						type="button"
+						class="btn primary sm"
+						onClick={share}
+						disabled={!editable()}
+					>
+						{isShared() ? "Gedeeld" : "Aanbieden aan leerling"}{" "}
+						<Send class="size-3.5" aria-hidden="true" />
 					</button>
 				</div>
+
+				<Show when={!editable()}>
+					<div class="card" role="status" style={{ "margin-bottom": "14px" }}>
+						{isShared()
+							? "Deze versie is gedeeld met de leerling en is alleen-lezen. Wil de leerling iets aanpassen, dan maakt die een nieuwe versie via 'Plan bijwerken'."
+							: "De leerling vult dit plan nog in. Je kunt het coachgedeelte invullen zodra het is ingeleverd."}
+					</div>
+				</Show>
 
 				<div
 					class="ds-grid"

@@ -105,6 +105,9 @@ export type AnswerDTO = z.infer<typeof AnswerSchema>;
 
 export const SubmissionSchema = z.object({
 	id: z.string(),
+	coachplanId: z.string(),
+	/** 1, 2, 3 … within the leerling's coachplan. */
+	version: z.number().int(),
 	templateId: z.string(),
 	organizationId: z.string(),
 	leerlingId: z.string(),

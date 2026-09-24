@@ -6,10 +6,10 @@
  *     after the coach shares the plan.
  */
 import { db } from "@incluvo/drizzle";
-import { formQuestion, formSubmission, formTemplate } from "@incluvo/drizzle/schema";
+import { formQuestion } from "@incluvo/drizzle/schema";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { and, eq, ne } from "drizzle-orm";
-import { asUser, expectForbidden } from "./harness";
+import { asUser, expectForbidden, planVersion } from "./harness";
 
 let submissionId: string;
 let coachQuestionId: string;
@@ -17,30 +17,18 @@ let foreignCoachQuestionId: string;
 
 beforeAll(async () => {
 	const leerling = await asUser("leerling");
-	const [template] = await db
-		.select({ id: formTemplate.id, organizationId: formTemplate.organizationId })
-		.from(formTemplate)
-		.where(and(eq(formTemplate.scope, "school"), eq(formTemplate.isSchoolDefault, true)));
-	const [plan] = await db
-		.insert(formSubmission)
-		.values({
-			templateId: template!.id,
-			organizationId: template!.organizationId!,
-			leerlingId: leerling.id,
-			status: "submitted",
-			submittedAt: new Date(),
-		})
-		.returning({ id: formSubmission.id });
-	submissionId = plan!.id;
+	const plan = await planVersion(leerling.id);
+	submissionId = plan.id;
+	const template = { id: plan.templateId };
 
 	const [own] = await db
 		.select({ id: formQuestion.id })
 		.from(formQuestion)
-		.where(and(eq(formQuestion.templateId, template!.id), eq(formQuestion.section, "coach")));
+		.where(and(eq(formQuestion.templateId, template.id), eq(formQuestion.section, "coach")));
 	const [foreign] = await db
 		.select({ id: formQuestion.id })
 		.from(formQuestion)
-		.where(and(ne(formQuestion.templateId, template!.id), eq(formQuestion.section, "coach")));
+		.where(and(ne(formQuestion.templateId, template.id), eq(formQuestion.section, "coach")));
 	if (!own || !foreign) throw new Error("seed lacks coach questions in two templates");
 	coachQuestionId = own.id;
 	foreignCoachQuestionId = foreign.id;
