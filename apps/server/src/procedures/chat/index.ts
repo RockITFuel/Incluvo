@@ -442,20 +442,23 @@ const send = protectedProcedure
       });
     }
 
-    const [row] = await context.db
-      .insert(message)
-      .values({
-        conversationId: input.conversationId,
-        senderId: actor.userId,
-        body: input.body,
-      })
-      .returning();
-    if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
-
-    await context.db
-      .update(conversation)
-      .set({ updatedAt: new Date() })
-      .where(eq(conversation.id, input.conversationId));
+    // The message and the conversation's "last activity" commit together.
+    const row = await context.db.transaction(async (tx) => {
+      const [inserted] = await tx
+        .insert(message)
+        .values({
+          conversationId: input.conversationId,
+          senderId: actor.userId,
+          body: input.body,
+        })
+        .returning();
+      if (!inserted) throw new ORPCError("INTERNAL_SERVER_ERROR");
+      await tx
+        .update(conversation)
+        .set({ updatedAt: new Date() })
+        .where(eq(conversation.id, input.conversationId));
+      return inserted;
+    });
 
     const [sender] = await context.db
       .select({ name: user.name })

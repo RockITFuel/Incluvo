@@ -37,6 +37,8 @@ function createServerEnv() {
 			SMTP_HOST: z.string().default("localhost"),
 			SMTP_PORT: z.coerce.number().default(1025),
 			SMTP_FROM: z.string().default("no-reply@incluvo.local"),
+			// Audit-log rows older than this are deleted daily (retention.ts).
+			AUDIT_RETENTION_DAYS: z.coerce.number().int().min(30).default(730),
 			SMTP_USER: z.string().optional(),
 			SMTP_PASS: z.string().optional(),
 			SMTP_SECURE: z

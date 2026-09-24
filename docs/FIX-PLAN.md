@@ -193,7 +193,7 @@ illegal transition returning 409.
 
 ---
 
-## Phase 3 — Data integrity (M)
+## Phase 3 — Data integrity (M) ✅ done 2026-09-24 (except the items marked *open*)
 
 Each constraint = migration that first de-duplicates, then adds the index.
 
@@ -218,6 +218,22 @@ Each constraint = migration that first de-duplicates, then adds the index.
 
 **Done when:** a concurrency test (20 parallel autosaves / submissions) produces
 no duplicates and no over-limit attempts.
+
+Done as: migration 0006 (dedupe + nine unique indexes, submissions renumbered
+rather than deleted), upserts for answers/assignments/memberships, attempt
+numbers under a unique index with retry, guarded `submit`, transactions for
+template copy, school default, block labels, role/invite and chat send.
+Audit: `keys_only` snapshots for pupil free text (migration 0007 scrubs old
+rows), `user` audited (role + organization only), daily purge after
+`AUDIT_RETENTION_DAYS` (default 730).
+- *open (phase 2):* `answer_coach_mapping` uniqueness — the mapping is being
+  reworked in 2.2.
+- *open, needs decisions:* retention of pupil data itself (plans, chats,
+  recordings, transcripts) per school. The admin settings screen is still a
+  stub; which data is deleted when, and whether schools may change the terms,
+  is a policy question.
+- *open (new finding):* nothing in the app creates or removes coach
+  assignments; only the seed does. A keyuser needs a screen for it.
 
 ---
 

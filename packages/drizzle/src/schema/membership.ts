@@ -2,6 +2,7 @@ import { relations } from "drizzle-orm";
 import {
 	boolean,
 	index,
+	uniqueIndex,
 	pgTable,
 	text,
 	timestamp,
@@ -29,6 +30,7 @@ export const membership = pgTable("membership", {
 }, (t) => [
 	// Hot path: resolve a user's memberships.
 	index("membership_user_idx").on(t.userId),
+	uniqueIndex("membership_user_org_uq").on(t.userId, t.organizationId),
 ]);
 
 /**
@@ -54,6 +56,7 @@ export const coachAssignment = pgTable("coach_assignment", {
 	// Hot paths: a coach's leerlingen, and a leerling's coaches.
 	index("coach_assignment_coach_idx").on(t.coachId),
 	index("coach_assignment_leerling_idx").on(t.leerlingId),
+	uniqueIndex("coach_assignment_pair_uq").on(t.coachId, t.leerlingId),
 ]);
 
 export type Membership = typeof membership.$inferSelect;
