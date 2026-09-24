@@ -10,8 +10,6 @@
  * Env is set here, before anything imports `@incluvo/drizzle`, because the
  * pool reads DATABASE_URL at import time.
  */
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { loadRootEnv } from "@incluvo/drizzle/load-env";
 import pg from "pg";
 
@@ -50,27 +48,5 @@ await admin.query(`DROP DATABASE IF EXISTS "${testDbName}" WITH (FORCE)`);
 await admin.query(`CREATE DATABASE "${testDbName}"`);
 await admin.end();
 
-const { drizzle } = await import("drizzle-orm/node-postgres");
-const { migrate } = await import("drizzle-orm/node-postgres/migrator");
-const drizzleDir = join(import.meta.dir, "../../../packages/drizzle/drizzle");
-
-const pool = new pg.Pool({ connectionString: testUrl.toString(), max: 1 });
-await pool.query("CREATE EXTENSION IF NOT EXISTS vector");
-await migrate(drizzle(pool), { migrationsFolder: drizzleDir });
-await pool.query(readFileSync(join(drizzleDir, "audit-trigger.sql"), "utf8"));
-await pool.end();
-
-// Demo tenants/users first, then the coachplan template and the courses (with
-// a student execution + forum for leerling@). The seed scripts call
-// process.exit, so each runs as a subprocess.
-for (const script of ["seed-demo.ts", "seed-coachplan.ts", "seed-courses.ts"]) {
-	const seed = Bun.spawnSync(["bun", `src/${script}`], {
-		cwd: join(import.meta.dir, ".."),
-		env: process.env,
-		stdout: "pipe",
-		stderr: "pipe",
-	});
-	if (seed.exitCode !== 0) {
-		throw new Error(`${script} failed:\n${seed.stdout}\n${seed.stderr}`);
-	}
-}
+const { prepareDatabase } = await import("../src/setup-db");
+await prepareDatabase(testUrl.toString());

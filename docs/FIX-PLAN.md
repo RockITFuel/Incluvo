@@ -279,7 +279,7 @@ rows), `user` audited (role + organization only), daily purge after
 
 ---
 
-## Phase 4 — Accessibility (WCAG AA) (M–L)
+## Phase 4 — Accessibility (WCAG AA) (M–L) ✅ done 2026-09-24
 
 - **4.1 Font scaling.** Type tokens in `app.css:61` → `rem`; replace the 167
   inline `"font-size": "Npx"` and px sizes in `design-system.css` with tokens.
@@ -304,6 +304,16 @@ rows), `user` audited (role + organization only), daily purge after
 
 **Done when:** axe clean on all main pages per role; M→L visibly scales text;
 no horizontal scroll at 320px.
+
+Done as: rem type scale + percentage root size + `scripts/no-px-fonts.ts` in
+lint (4.1); responsive `ds-grid-*` layouts, wrapping rows, scrolling tab
+lists, breaking long headings — 14 pages fit at 320px (4.2);
+`lib/a11y/route-announcer.tsx` for titles, focus and announcements, `<h1>` on
+every page, no heading jumps (4.3); coach dashboard as an ARIA table with a
+name button per row, mood emoji as images, full weekday names (4.4);
+Voorlezen/Taal hidden (4.5); `apps/web/e2e/a11y.ts` runs axe on 16 pages per
+role in CI and blocks deploys (4.6). Colour: welkom uses tokens; success green
+darkened to 4.76:1.
 
 ---
 

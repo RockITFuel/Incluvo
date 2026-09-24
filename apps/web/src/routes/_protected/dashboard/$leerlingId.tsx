@@ -65,6 +65,8 @@ const initials = (name: string): string =>
 
 /** Day letters for the mood-strip: Ma..Zo (M D W D V Z Z). */
 const WEEK_LETTERS = ["M", "D", "W", "D", "V", "Z", "Z"];
+// Screen readers get the full name: "D" and "Z" are ambiguous.
+const WEEK_DAYS = ["maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag", "zondag"];
 
 /** The 7 dates (Ma..Zo) of the current week as "YYYY-MM-DD" (server-local). */
 function weekDates(): string[] {
@@ -606,6 +608,7 @@ function ProfilePage() {
 												{(iso, i) => (
 													<div>
 														<div
+															aria-hidden="true"
 															style={{
 																"font-size": "0.6875rem",
 																color: "rgb(var(--muted))",
@@ -614,10 +617,13 @@ function ProfilePage() {
 														>
 															{WEEK_LETTERS[i()]}
 														</div>
+														<span class="sr-only">{WEEK_DAYS[i()]}: </span>
 														<Show
 															when={moodByDate().has(iso)}
 															fallback={
 																<div
+																	role="img"
+																	aria-label="niet gedeeld"
 																	style={{
 																		"font-size": "1.125rem",
 																		color: "rgb(var(--muted))",
@@ -628,6 +634,7 @@ function ProfilePage() {
 															}
 														>
 															<div
+																role="img"
 																style={{ "font-size": "1.375rem", "line-height": "1" }}
 																title={
 																	moodMeta(moodByDate().get(iso) as number).label

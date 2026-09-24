@@ -6,7 +6,8 @@
 		"dev": "ORPC_SERVER_URL=http://localhost:3210 vite dev --port 3200",
 		"build": "vite build",
 		"start": "vite preview --port 3200",
-		"check-types": "tsc --noEmit"
+		"check-types": "tsc --noEmit",
+		"test:a11y": "bun e2e/a11y.ts"
 	},
 	"dependencies": {
 		"@incluvo/permissions": "workspace:*",
@@ -35,11 +36,13 @@
 		"zod": "^4.3.6"
 	},
 	"devDependencies": {
+		"@axe-core/playwright": "^4.13.0",
 		"@incluvo/server": "workspace:*",
 		"@orpc/server": "^1.13.5",
 		"@tailwindcss/typography": "^0.5.19",
 		"@types/node": "^22.15.0",
 		"autoprefixer": "^10.4.21",
+		"playwright": "^1.57.0",
 		"postcss": "^8.5.3",
 		"tailwindcss": "^3.4.17",
 		"typescript": "catalog:",

@@ -413,6 +413,7 @@ function PlanWizard(props: { onSubmitted: () => void }) {
 								<div
 									class="h-2 overflow-hidden rounded-pill bg-line-2"
 									role="progressbar"
+									aria-label="Voortgang vragenlijst"
 									aria-valuenow={step() + 1}
 									aria-valuemin={1}
 									aria-valuemax={total()}

@@ -454,7 +454,7 @@ function WelkomPage() {
 						style={{
 							background: "rgb(var(--primary))",
 							"border-color": "rgb(var(--primary))",
-							color: "#fff",
+							color: "rgb(var(--primary-fg))",
 						}}
 					>
 						<div style={{ "font-size": "0.8125rem", opacity: "0.85", "font-weight": "500", "margin-bottom": "6px" }}>
@@ -464,7 +464,7 @@ function WelkomPage() {
 							when={nextDeadline()}
 							fallback={
 								<>
-									<h2 style={{ color: "#fff", "font-size": "1.25rem" }}>
+									<h2 style={{ color: "rgb(var(--primary-fg))", "font-size": "1.25rem" }}>
 										Niets met een deadline
 									</h2>
 									<div style={{ "font-size": "0.875rem", opacity: "0.85", "margin-top": "6px" }}>
@@ -475,7 +475,7 @@ function WelkomPage() {
 						>
 							{(t) => (
 								<>
-									<h2 style={{ color: "#fff", "font-size": "1.25rem" }}>{t().title}</h2>
+									<h2 style={{ color: "rgb(var(--primary-fg))", "font-size": "1.25rem" }}>{t().title}</h2>
 									<div style={{ "font-size": "0.875rem", opacity: "0.85", "margin-top": "6px" }}>
 										<Clock
 											class="size-3.5"
@@ -491,7 +491,7 @@ function WelkomPage() {
 							<button
 								type="button"
 								class="btn"
-								style={{ background: "rgb(255 255 255 / 0.18)", color: "#fff" }}
+								style={{ background: "rgb(var(--primary-fg) / 0.18)", color: "rgb(var(--primary-fg))" }}
 								onClick={() => navigate({ to: "/chat" })}
 							>
 								<MessageSquare class="size-3.5" aria-hidden="true" /> Bericht
@@ -500,7 +500,7 @@ function WelkomPage() {
 								<button
 									type="button"
 									class="btn"
-									style={{ background: "#fff", color: "rgb(var(--primary-700))" }}
+									style={{ background: "rgb(var(--primary-fg))", color: "rgb(var(--primary-700))" }}
 									onClick={() => navigate({ to: "/taken" })}
 								>
 									Naar taak

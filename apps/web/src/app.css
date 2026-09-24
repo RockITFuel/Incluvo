@@ -35,7 +35,7 @@
 	--accent-700: 160 62 44; /* #A03E2C — accent *text*: 5.36:1 on accent-100, 6.52:1 white-on */
 	--accent-100: 252 228 220; /* #FCE4DC */
 
-	--success: 46 125 91; /* #2E7D5B */
+	--success: 41 115 79; /* #29734F — 4.76:1 on success-100, 5.74:1 white-on */
 	--success-100: 221 238 227; /* #DDEEE3 */
 	--warning: 133 96 30; /* #85601E — warning *text*: 4.84:1 on warning-100, 5.06:1 on bg */
 	--warning-100: 246 236 211; /* #F6ECD3 */
