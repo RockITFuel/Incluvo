@@ -33,12 +33,22 @@ import {
 	QuestionSchema,
 	QuestionType,
 	SubmissionSchema,
+	TemplateListItemSchema,
 	TemplateSchema,
 	TemplateWithQuestionsSchema,
 } from "../../coachplan/schema";
 import { notify } from "../../notifications/notify";
 import { rateLimit } from "../../rate-limit";
 import { publishTo } from "../../sse";
+import {
+	assertEditable,
+	copyQuestions,
+	inUseReason,
+	insertTemplate,
+	newVersion,
+	sourceUpdate,
+	upgradeFromSource,
+} from "../../coachplan/templates";
 import {
 	REVIEWABLE,
 	SHARED,
@@ -103,6 +113,8 @@ function templateDto(row: typeof formTemplate.$inferSelect) {
 		scope: row.scope,
 		organizationId: row.organizationId,
 		parentTemplateId: row.parentTemplateId,
+		familyId: row.familyId,
+		version: row.version,
 		name: row.name,
 		description: row.description,
 		isSchoolDefault: row.isSchoolDefault,
@@ -115,6 +127,7 @@ function questionDto(row: typeof formQuestion.$inferSelect) {
 	return {
 		id: row.id,
 		templateId: row.templateId,
+		key: row.key,
 		section: row.section,
 		type: row.type,
 		label: row.label,
@@ -161,25 +174,37 @@ function answerDto(row: typeof formAnswer.$inferSelect) {
 
 /**
  * List templates the actor may use: Ondivera templates (visible to everyone for
- * copying) + the actor's own school templates. Superadmin sees all.
+ * copying) + the actor's own school templates. Superadmin sees all. One entry
+ * per form: its latest version.
  */
 const templatesList = protectedProcedure
 	.use(withPolicy(policies.readForm, (c) => ({ organizationId: c.actor.organizationId })))
 	.route({ method: "GET", path: "/coachplan/templates", tags: ["coachplan"] })
-	.output(z.array(TemplateSchema))
+	.output(z.array(TemplateListItemSchema))
 	.handler(async ({ context }) => {
 		const { actor } = context;
 		const rows = await context.db
 			.select()
 			.from(formTemplate)
 			.orderBy(desc(formTemplate.updatedAt));
-		const visible = rows.filter(
+		const latestByFamily = new Map<string, (typeof rows)[number]>();
+		for (const t of rows) {
+			const seen = latestByFamily.get(t.familyId);
+			if (!seen || t.version > seen.version) latestByFamily.set(t.familyId, t);
+		}
+		const visible = [...latestByFamily.values()].filter(
 			(t) =>
 				isSuperadmin(actor.role) ||
 				t.scope === "ondivera" ||
 				(t.organizationId && sameTenant(actor, t)),
 		);
-		return visible.map(templateDto);
+		return Promise.all(
+			visible.map(async (t) => ({
+				...templateDto(t),
+				inUse: await inUseReason(context.db, t),
+				sourceUpdateVersion: (await sourceUpdate(context.db, t))?.version ?? null,
+			})),
+		);
 	});
 
 /** Get one template with its questions (ordered). */
@@ -204,7 +229,11 @@ const templatesGet = protectedProcedure
 			.from(formQuestion)
 			.where(eq(formQuestion.templateId, tpl.id))
 			.orderBy(asc(formQuestion.position));
-		return { ...templateDto(tpl), questions: questions.map(questionDto) };
+		return {
+			...templateDto(tpl),
+			inUse: await inUseReason(context.db, tpl),
+			questions: questions.map(questionDto),
+		};
 	});
 
 /** Create a school template (#9). Keyuser+ within their own tenant. */
@@ -229,17 +258,13 @@ const templatesCreate = protectedProcedure
 		if (scope === "school" && !organizationId) {
 			throw new ORPCError("BAD_REQUEST", { message: "No tenant" });
 		}
-		const [row] = await context.db
-			.insert(formTemplate)
-			.values({
-				name: input.name,
-				description: input.description ?? null,
-				scope,
-				organizationId,
-				createdById: actor.userId,
-			})
-			.returning();
-		if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
+		const row = await insertTemplate(context.db, {
+			name: input.name,
+			description: input.description ?? null,
+			scope,
+			organizationId,
+			createdById: actor.userId,
+		});
 		publishTo(
 			{ type: "coachplan.template.changed", payload: { id: row.id } },
 			[context.actor.userId],
@@ -305,40 +330,18 @@ const templatesCopyToSchool = protectedProcedure
 			throw new ORPCError("FORBIDDEN");
 		}
 
-		// Template + questions commit together: never a half-copied form.
+		// Template + questions commit together: never a half-copied form. The
+		// copy records which Ondivera version it came from (D5 upgrades).
 		const copy = await context.db.transaction(async (tx) => {
-			const [copy] = await tx
-				.insert(formTemplate)
-				.values({
-					name: input.name ?? `${src.name} (kopie)`,
-					description: src.description,
-					scope: "school",
-					organizationId,
-					parentTemplateId: src.id,
-					createdById: actor.userId,
-				})
-				.returning();
-			if (!copy) throw new ORPCError("INTERNAL_SERVER_ERROR");
-
-			const srcQuestions = await tx
-				.select()
-				.from(formQuestion)
-				.where(eq(formQuestion.templateId, src.id))
-				.orderBy(asc(formQuestion.position));
-			if (srcQuestions.length) {
-				await tx.insert(formQuestion).values(
-					srcQuestions.map((q) => ({
-						templateId: copy.id,
-						section: q.section,
-						type: q.type,
-						label: q.label,
-						helpText: q.helpText,
-						required: q.required,
-						position: q.position,
-						options: q.options,
-					})),
-				);
-			}
+			const copy = await insertTemplate(tx, {
+				name: input.name ?? `${src.name} (kopie)`,
+				description: src.description,
+				scope: "school",
+				organizationId,
+				parentTemplateId: src.id,
+				createdById: actor.userId,
+			});
+			await copyQuestions(tx, src.id, copy.id);
 			return copy;
 		});
 		publishTo(
@@ -365,6 +368,8 @@ async function assertCanManageTemplate(
 	if (!can(context.actor, policies.manageForms, tpl)) {
 		throw new ORPCError("FORBIDDEN");
 	}
+	// Questions of a form in use are fixed (D5): plans must keep their meaning.
+	await assertEditable(context.db, tpl);
 	return tpl;
 }
 
@@ -473,16 +478,8 @@ const questionsRemove = protectedProcedure
 			.from(formQuestion)
 			.where(eq(formQuestion.id, input.id));
 		if (!q) throw new ORPCError("NOT_FOUND");
+		// A form in use can't lose questions (assertEditable).
 		await assertCanManageTemplate(context, q.templateId);
-		// Refuse to delete a question that answers/mappings still reference: the FK now
-		// RESTRICTs, so this guard gives a friendly error instead of a raw FK violation.
-		const [hasAnswer] = await context.db.select({ id: formAnswer.id }).from(formAnswer)
-			.where(eq(formAnswer.questionId, input.id)).limit(1);
-		const [hasMapping] = await context.db.select({ id: answerCoachMapping.id }).from(answerCoachMapping)
-			.where(eq(answerCoachMapping.coachQuestionId, input.id)).limit(1);
-		if (hasAnswer || hasMapping) {
-			throw new ORPCError("CONFLICT", { message: "Deze vraag heeft al antwoorden en kan niet worden verwijderd." });
-		}
 		await context.db.delete(formQuestion).where(eq(formQuestion.id, input.id));
 		publishTo(
 			{ type: "coachplan.template.changed", payload: { id: q.templateId } },
@@ -528,6 +525,51 @@ const setSchoolDefault = protectedProcedure
 			[context.actor.userId],
 		);
 		return { templateId: input.templateId };
+	});
+
+/** Load a template the actor may manage (manageForms on its tenant). */
+async function loadManageableTemplate(context: AuthedContext, id: string) {
+	const [tpl] = await context.db.select().from(formTemplate).where(eq(formTemplate.id, id));
+	if (!tpl) throw new ORPCError("NOT_FOUND");
+	if (!can(context.actor, policies.manageForms, tpl)) throw new ORPCError("FORBIDDEN");
+	return tpl;
+}
+
+/**
+ * Start the next version of a form (D5) to change its questions. The current
+ * version stays as it is for the plans filled in on it.
+ */
+const templatesNewVersion = protectedProcedure
+	.use(withPolicy(policies.manageForms, (c) => ({ organizationId: c.actor.organizationId })))
+	.route({ method: "POST", path: "/coachplan/templates/{id}/new-version", tags: ["coachplan"] })
+	.input(z.object({ id: z.string().uuid() }))
+	.output(TemplateSchema)
+	.handler(async ({ input, context }) => {
+		const tpl = await loadManageableTemplate(context, input.id);
+		if (!(await inUseReason(context.db, tpl))) {
+			throw new ORPCError("CONFLICT", {
+				message: "Dit formulier is nog niet in gebruik; je kunt het direct aanpassen.",
+			});
+		}
+		const next = await context.db.transaction((tx) => newVersion(tx, tpl));
+		return templateDto(next);
+	});
+
+/**
+ * Bring a school copy up to the newest version of its Ondivera source (D5:
+ * the school chooses when). The new version becomes the default and takes
+ * over the leerlingen assigned to the old one; plans keep their version.
+ */
+const templatesUpgradeFromSource = protectedProcedure
+	.use(withPolicy(policies.manageForms, (c) => ({ organizationId: c.actor.organizationId })))
+	.route({ method: "POST", path: "/coachplan/templates/{id}/upgrade", tags: ["coachplan"] })
+	.input(z.object({ id: z.string().uuid() }))
+	.output(TemplateSchema)
+	.handler(async ({ input, context }) => {
+		const tpl = await loadManageableTemplate(context, input.id);
+		if (tpl.scope !== "school") throw new ORPCError("BAD_REQUEST");
+		const next = await context.db.transaction((tx) => upgradeFromSource(tx, tpl));
+		return templateDto(next);
 	});
 
 /** Assign a specific template to a leerling, overriding the school default (#10). */
@@ -704,9 +746,14 @@ const revise = protectedProcedure
 			throw new ORPCError("NOT_FOUND", { message: "Nog geen plan om bij te werken" });
 		}
 		assertStatus(latest, SHARED);
+		// The revision uses the school's current form for this leerling (D5: a
+		// newer version if the school upgraded); answers carry over by key.
+		const templateId =
+			(await resolveTemplateForLeerling(context.db, latest.organizationId, actor.userId)) ??
+			latest.templateId;
 		const created = await context.db.transaction(async (tx) => {
 			const plan = await ensurePlan(tx, latest.organizationId, actor.userId);
-			return createVersion(tx, plan, latest.templateId, latest);
+			return createVersion(tx, plan, templateId, latest);
 		});
 		return submissionDto(created);
 	});
@@ -808,11 +855,13 @@ type CoachplanTx = Parameters<
 /**
  * #18 — apply the template-level leerling→coach correspondences for a submission.
  *
- * For every leerling question that declares `mapsToQuestionId`, point the
- * leerling's answer at the corresponding coach (POPP) question via an
- * `answerCoachMapping` row, so the coach-gedeelte opens pre-filled. Idempotent
- * and non-destructive: it never overwrites an existing mapping (a coach edit),
- * and skips empty or deliberately-skipped answers.
+ * For every leerling question that declares `mapsToQuestionId`, copy the
+ * leerling's answer into the corresponding coach (POPP) question's answer, so
+ * the coach-gedeelte opens pre-filled and the coach edits one answer (which
+ * the PDF and AI read like any other). An `answerCoachMapping` row records
+ * where the pre-fill came from ("Gemapt vanuit leerling"). Idempotent and
+ * non-destructive: an existing coach answer is never overwritten, and empty or
+ * deliberately-skipped answers are skipped.
  */
 async function applyCorrespondenceMappings(
 	tx: CoachplanTx,
@@ -839,6 +888,7 @@ async function applyCorrespondenceMappings(
 			id: formAnswer.id,
 			questionId: formAnswer.questionId,
 			value: formAnswer.value,
+			valueJson: formAnswer.valueJson,
 			skipped: formAnswer.deliberatelySkipped,
 		})
 		.from(formAnswer)
@@ -858,6 +908,7 @@ async function applyCorrespondenceMappings(
 	const alreadyMapped = new Set(existing.map((m) => m.coachQuestionId));
 
 	const toInsert: (typeof answerCoachMapping.$inferInsert)[] = [];
+	const prefills: (typeof formAnswer.$inferInsert)[] = [];
 	for (const c of corr) {
 		if (!c.coachQuestionId || alreadyMapped.has(c.coachQuestionId)) continue;
 		const ans = answerByQuestion.get(c.leerlingQuestionId);
@@ -867,9 +918,17 @@ async function applyCorrespondenceMappings(
 			sourceAnswerId: ans.id,
 			coachQuestionId: c.coachQuestionId,
 		});
+		prefills.push({
+			submissionId: submission.id,
+			questionId: c.coachQuestionId,
+			value: ans.value,
+			valueJson: ans.valueJson,
+		});
 	}
 	if (toInsert.length > 0) {
 		await tx.insert(answerCoachMapping).values(toInsert);
+		// Pre-fill only where the coach hasn't answered yet.
+		await tx.insert(formAnswer).values(prefills).onConflictDoNothing();
 	}
 }
 
@@ -1123,7 +1182,6 @@ const MappingSchema = z.object({
 	submissionId: z.string(),
 	sourceAnswerId: z.string().nullable(),
 	coachQuestionId: z.string(),
-	overrideValue: z.string().nullable(),
 });
 
 /** Load a submission + assert the coach may review it (tenant + role). */
@@ -1166,85 +1224,7 @@ const listMappings = protectedProcedure
 			submissionId: m.submissionId,
 			sourceAnswerId: m.sourceAnswerId,
 			coachQuestionId: m.coachQuestionId,
-			overrideValue: m.overrideValue,
 		}));
-	});
-
-/**
- * Upsert a mapping of a leerling answer onto a coach question, capturing the
- * coach's editable override (#16). Passing a null sourceAnswerId / overrideValue
- * lets the coach author the mapped value from scratch.
- */
-const upsertMapping = protectedProcedure
-	.route({ method: "POST", path: "/coachplan/mappings", tags: ["coachplan"] })
-	.input(
-		z.object({
-			submissionId: z.string().uuid(),
-			coachQuestionId: z.string().uuid(),
-			sourceAnswerId: z.string().uuid().nullable().optional(),
-			overrideValue: z.string().nullable().optional(),
-		}),
-	)
-	.output(MappingSchema)
-	.handler(async ({ input, context }) => {
-		const sub = await loadReviewable(context, input.submissionId, REVIEWABLE);
-		// Atomic: the review-state flip + the mapping upsert must commit together (H2).
-		const row = await context.db.transaction(async (tx) => {
-			// Flip into review state on first coach edit.
-			if (sub.status === "submitted") {
-				await tx
-					.update(formSubmission)
-					.set({
-						status: "coach_review",
-						coachId: sub.coachId ?? context.actor.userId,
-						updatedAt: new Date(),
-					})
-					.where(eq(formSubmission.id, sub.id));
-			}
-			const [existing] = await tx
-				.select()
-				.from(answerCoachMapping)
-				.where(
-					and(
-						eq(answerCoachMapping.submissionId, input.submissionId),
-						eq(answerCoachMapping.coachQuestionId, input.coachQuestionId),
-					),
-				);
-			if (existing) {
-				const [updated] = await tx
-					.update(answerCoachMapping)
-					.set({
-						...(input.sourceAnswerId !== undefined
-							? { sourceAnswerId: input.sourceAnswerId }
-							: {}),
-						...(input.overrideValue !== undefined
-							? { overrideValue: input.overrideValue }
-							: {}),
-						updatedAt: new Date(),
-					})
-					.where(eq(answerCoachMapping.id, existing.id))
-					.returning();
-				return updated;
-			}
-			const [inserted] = await tx
-				.insert(answerCoachMapping)
-				.values({
-					submissionId: input.submissionId,
-					coachQuestionId: input.coachQuestionId,
-					sourceAnswerId: input.sourceAnswerId ?? null,
-					overrideValue: input.overrideValue ?? null,
-				})
-				.returning();
-			return inserted;
-		});
-		if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
-		return {
-			id: row.id,
-			submissionId: row.submissionId,
-			sourceAnswerId: row.sourceAnswerId,
-			coachQuestionId: row.coachQuestionId,
-			overrideValue: row.overrideValue,
-		};
 	});
 
 // ---------------------------------------------------------------------------
@@ -1569,6 +1549,8 @@ const templatesRouter = base.router({
 	create: templatesCreate,
 	update: templatesUpdate,
 	copyToSchool: templatesCopyToSchool,
+	newVersion: templatesNewVersion,
+	upgradeFromSource: templatesUpgradeFromSource,
 	setSchoolDefault,
 	assignToLeerling,
 });
@@ -1593,7 +1575,6 @@ export const coachplanRouter = base.router({
 	// Coach review flow (#15–#21)
 	inbox,
 	listMappings,
-	upsertMapping,
 	saveCoachAnswer,
 	shareWithLeerling,
 	defaultLabels,

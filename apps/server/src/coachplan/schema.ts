@@ -55,6 +55,8 @@ export type QuestionOptions = z.infer<typeof QuestionOptions>;
 export const QuestionSchema = z.object({
 	id: z.string(),
 	templateId: z.string(),
+	/** Same question across form versions and school copies. */
+	key: z.string(),
 	section: FormSection,
 	type: QuestionType,
 	label: z.string(),
@@ -72,6 +74,8 @@ export const TemplateSchema = z.object({
 	scope: FormScope,
 	organizationId: z.string().nullable(),
 	parentTemplateId: z.string().nullable(),
+	familyId: z.string(),
+	version: z.number().int(),
 	name: z.string(),
 	description: z.string().nullable(),
 	isSchoolDefault: z.boolean(),
@@ -80,7 +84,16 @@ export const TemplateSchema = z.object({
 });
 export type TemplateDTO = z.infer<typeof TemplateSchema>;
 
+/** A template as the formulierenmanager lists it (latest version per form). */
+export const TemplateListItemSchema = TemplateSchema.extend({
+	/** Why the questions can't be edited in place (null = editable). */
+	inUse: z.string().nullable(),
+	/** For a school copy: a newer version of its Ondivera source, if any. */
+	sourceUpdateVersion: z.number().int().nullable(),
+});
+
 export const TemplateWithQuestionsSchema = TemplateSchema.extend({
+	inUse: z.string().nullable().optional(),
 	questions: z.array(QuestionSchema),
 });
 

@@ -24,6 +24,7 @@ loadRootEnv();
 const { db } = await import("@incluvo/drizzle");
 const schema = await import("@incluvo/drizzle/schema");
 const { and, asc, eq } = await import("drizzle-orm");
+const { copyQuestions: copyTemplateQuestions, insertTemplate } = await import("./coachplan/templates");
 
 const { organization, formTemplate, formQuestion } = schema;
 
@@ -379,54 +380,6 @@ async function insertQuestions(templateId: string): Promise<void> {
 	}
 }
 
-/**
- * Copy every question of `srcTemplateId` into `destTemplateId`, preserving the
- * leerling→coach correspondences by remapping `mapsToQuestionId` onto the copy
- * (correlated by position).
- */
-async function copyQuestions(
-	srcTemplateId: string,
-	destTemplateId: string,
-): Promise<void> {
-	const srcQs = await db
-		.select()
-		.from(formQuestion)
-		.where(eq(formQuestion.templateId, srcTemplateId))
-		.orderBy(asc(formQuestion.position));
-	await db.insert(formQuestion).values(
-		srcQs.map((q) => ({
-			templateId: destTemplateId,
-			section: q.section,
-			type: q.type,
-			label: q.label,
-			helpText: q.helpText,
-			required: q.required,
-			position: q.position,
-			options: q.options,
-		})),
-	);
-	const destQs = await db
-		.select({ id: formQuestion.id, position: formQuestion.position })
-		.from(formQuestion)
-		.where(eq(formQuestion.templateId, destTemplateId))
-		.orderBy(asc(formQuestion.position));
-	const newIdByPos = new Map<number, string>();
-	for (const r of destQs) newIdByPos.set(r.position, r.id);
-	const posBySrcId = new Map<string, number>();
-	for (const q of srcQs) posBySrcId.set(q.id, q.position);
-	for (const q of srcQs) {
-		if (!q.mapsToQuestionId) continue;
-		const targetPos = posBySrcId.get(q.mapsToQuestionId);
-		const selfNewId = newIdByPos.get(q.position);
-		const targetNewId =
-			targetPos === undefined ? undefined : newIdByPos.get(targetPos);
-		if (!selfNewId || !targetNewId) continue;
-		await db
-			.update(formQuestion)
-			.set({ mapsToQuestionId: targetNewId })
-			.where(eq(formQuestion.id, selfNewId));
-	}
-}
 
 async function ensureTemplate(): Promise<void> {
 	const [ondivera] = await db
@@ -455,16 +408,13 @@ async function ensureTemplate(): Promise<void> {
 			),
 		);
 	if (!tpl) {
-		[tpl] = await db
-			.insert(formTemplate)
-			.values({
-				name: TEMPLATE_NAME,
-				description:
-					"De Ondivera-vragenlijst: Mijn Plan (leerling) en POPP (coach), met leervoorkeuren en leerling→coach correspondenties.",
-				scope: "ondivera",
-				organizationId: null,
-			})
-			.returning({ id: formTemplate.id });
+		tpl = await insertTemplate(db, {
+			name: TEMPLATE_NAME,
+			description:
+				"De Ondivera-vragenlijst: Mijn Plan (leerling) en POPP (coach), met leervoorkeuren en leerling→coach correspondenties.",
+			scope: "ondivera",
+			organizationId: null,
+		});
 		if (!tpl) throw new Error("Failed to create Ondivera template");
 		await insertQuestions(tpl.id);
 		console.log(`  + Ondivera template "${TEMPLATE_NAME}" (${QUESTIONS.length} vragen)`);
@@ -483,19 +433,16 @@ async function ensureTemplate(): Promise<void> {
 			),
 		);
 	if (!schoolTpl) {
-		[schoolTpl] = await db
-			.insert(formTemplate)
-			.values({
-				name: `${TEMPLATE_NAME} (school)`,
-				description: "Schoolversie van de Ondivera-vragenlijst.",
-				scope: "school",
-				organizationId: school.id,
-				parentTemplateId: tpl.id,
-				isSchoolDefault: true,
-			})
-			.returning({ id: formTemplate.id });
+		schoolTpl = await insertTemplate(db, {
+			name: `${TEMPLATE_NAME} (school)`,
+			description: "Schoolversie van de Ondivera-vragenlijst.",
+			scope: "school",
+			organizationId: school.id,
+			parentTemplateId: tpl.id,
+			isSchoolDefault: true,
+		});
 		if (!schoolTpl) throw new Error("Failed to create school template");
-		await copyQuestions(tpl.id, schoolTpl.id);
+		await copyTemplateQuestions(db, tpl.id, schoolTpl.id);
 		console.log(`  + School copy set as default for Demo School`);
 	} else {
 		console.log(`  = School copy already exists`);

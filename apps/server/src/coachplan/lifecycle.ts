@@ -12,6 +12,7 @@
 import {
 	coachplan,
 	formAnswer,
+	formQuestion,
 	formSubmission,
 	learningPreferenceLabel,
 } from "@incluvo/drizzle/schema";
@@ -101,7 +102,10 @@ export async function currentLeervoorkeuren(db: Db, leerlingId: string): Promise
  * Start version n+1 as a draft. With `copyFrom`, the answers (leerling and
  * coach part) and leervoorkeuren carry over, so a revision edits the plan
  * rather than starting from scratch; "afgestemd met ouders" does not, because
- * the revised plan hasn't been discussed yet.
+ * the revised plan hasn't been discussed yet. When the new version uses a
+ * newer form, answers move to the question with the same `key`; answers to
+ * questions the new form dropped are left behind (they stay in the old
+ * version).
  */
 export async function createVersion(
 	db: Db,
@@ -134,11 +138,13 @@ export async function createVersion(
 			.select()
 			.from(formAnswer)
 			.where(eq(formAnswer.submissionId, copyFrom.id));
-		if (answers.length) {
+		const toQuestion = await questionMap(db, copyFrom.templateId, templateId);
+		const carried = answers.filter((a) => toQuestion.has(a.questionId));
+		if (carried.length) {
 			await db.insert(formAnswer).values(
-				answers.map((a) => ({
+				carried.map((a) => ({
 					submissionId: created.id,
-					questionId: a.questionId,
+					questionId: toQuestion.get(a.questionId)!,
 					value: a.value,
 					valueJson: a.valueJson,
 					discussWithCoach: a.discussWithCoach,
@@ -157,6 +163,22 @@ export async function createVersion(
 		}
 	}
 	return created;
+}
+
+/** Question id in `from` → the question with the same key in `to`. */
+async function questionMap(db: Db, fromTemplateId: string, toTemplateId: string) {
+	const rows = await db
+		.select({ id: formQuestion.id, key: formQuestion.key, templateId: formQuestion.templateId })
+		.from(formQuestion)
+		.where(inArray(formQuestion.templateId, [fromTemplateId, toTemplateId]));
+	const byKey = new Map(rows.filter((r) => r.templateId === toTemplateId).map((r) => [r.key, r.id]));
+	const map = new Map<string, string>();
+	for (const r of rows) {
+		if (r.templateId !== fromTemplateId) continue;
+		const target = byKey.get(r.key);
+		if (target) map.set(r.id, target);
+	}
+	return map;
 }
 
 const MESSAGES: Partial<Record<Status, string>> = {

@@ -63,8 +63,16 @@ export const formTemplate = pgTable("form_template", {
 	organizationId: uuid("organization_id").references(() => organization.id, {
 		onDelete: "cascade",
 	}),
-	// The template this one was copied/derived from (#8 -> #9).
+	// The template this one was copied/derived from (#8 -> #9): for a school
+	// copy, the Ondivera version it was copied from.
 	parentTemplateId: uuid("parent_template_id"),
+	/**
+	 * Versions (D5): all versions of one form share a `familyId` and count up in
+	 * `version`. A version in use (a plan filled in on it, or copied by a
+	 * school) is read-only; changing it means creating the next version.
+	 */
+	familyId: uuid("family_id").notNull(),
+	version: integer("version").notNull().default(1),
 	name: text("name").notNull(),
 	description: text("description"),
 	// Marks the school default form (#10); per-leerling overrides via #10 link.
@@ -79,6 +87,7 @@ export const formTemplate = pgTable("form_template", {
 	uniqueIndex("form_template_school_default_uq")
 		.on(t.organizationId)
 		.where(sql`${t.isSchoolDefault}`),
+	uniqueIndex("form_template_family_version_uq").on(t.familyId, t.version),
 ]);
 
 export const formQuestion = pgTable("form_question", {
@@ -87,6 +96,12 @@ export const formQuestion = pgTable("form_question", {
 		.notNull()
 		.references(() => formTemplate.id, { onDelete: "cascade" }),
 	section: formSection("section").notNull().default("leerling"),
+	/**
+	 * Stable identity of "the same question" across template versions and
+	 * school copies (a copy keeps the key). Answers carry over to a newer form
+	 * by key when a leerling revises their plan.
+	 */
+	key: uuid("key").notNull().defaultRandom(),
 	type: questionType("type").notNull().default("short_text"),
 	label: text("label").notNull(),
 	helpText: text("help_text"),
@@ -213,8 +228,9 @@ export const formAnswer = pgTable("form_answer", {
 ]);
 
 /**
- * Mapping of a leerling answer onto a question in the coach-gedeelte (#16). The
- * coach can edit the resulting value, so `overrideValue` captures the edit.
+ * Where a coach answer was pre-filled from (#16/#18): the leerling answer that
+ * `submit` copied into the coach question's `form_answer`. The coach edits that
+ * answer like any other; this row only drives the "Gemapt vanuit leerling" hint.
  */
 export const answerCoachMapping = pgTable("answer_coach_mapping", {
 	id: uuid("id").primaryKey().defaultRandom(),
@@ -227,7 +243,6 @@ export const answerCoachMapping = pgTable("answer_coach_mapping", {
 	coachQuestionId: uuid("coach_question_id")
 		.notNull()
 		.references(() => formQuestion.id, { onDelete: "restrict" }),
-	overrideValue: text("override_value"),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 	updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
