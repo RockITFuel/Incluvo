@@ -1,4 +1,4 @@
-import { organization, user } from "@incluvo/drizzle/schema";
+import { coachAssignment, organization, user } from "@incluvo/drizzle/schema";
 import {
 	atLeast,
 	canBuildCourses,
@@ -331,6 +331,19 @@ const usersSetRole = protectedProcedure
 				organizationId: user.organizationId,
 			});
 		if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
+
+		// Koppelingen only make sense for a coach and a leerling: drop the ones
+		// the new role no longer fits.
+		if (input.role !== "coach") {
+			await context.db
+				.delete(coachAssignment)
+				.where(eq(coachAssignment.coachId, input.userId));
+		}
+		if (input.role !== "leerling") {
+			await context.db
+				.delete(coachAssignment)
+				.where(eq(coachAssignment.leerlingId, input.userId));
+		}
 		return row;
 	});
 

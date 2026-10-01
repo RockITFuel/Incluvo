@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/solid-router";
 import { createMemo, Show } from "solid-js";
+import { AssignmentsPanel } from "../../../components/admin/assignments-panel";
 import { AuditPanel } from "../../../components/admin/audit-panel";
 import { SchoolsPanel } from "../../../components/admin/schools-panel";
 import { SettingsPanel } from "../../../components/admin/settings-panel";
@@ -36,6 +37,11 @@ function BeheerPage() {
 		const isSuperadmin = me.is("superadmin");
 		const items: TabItem[] = [
 			{ value: "users", label: "Gebruikers", content: <UsersPanel /> },
+			{
+				value: "assignments",
+				label: "Koppelingen",
+				content: <AssignmentsPanel />,
+			},
 		];
 		if (isSuperadmin) {
 			items.push({

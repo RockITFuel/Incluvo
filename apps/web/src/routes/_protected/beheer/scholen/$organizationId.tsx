@@ -16,6 +16,7 @@ import {
 	Users,
 } from "lucide-solid";
 import { createSignal, Show } from "solid-js";
+import { AssignmentsPanel } from "../../../../components/admin/assignments-panel";
 import { formatDate, kindLabel } from "../../../../components/admin/format";
 import {
 	CoursesPanel,
@@ -262,6 +263,13 @@ function SchoolPage() {
 												o().stats.keyuserCount === 0 ? "keyuser" : "leerling"
 											}
 										/>
+									),
+								},
+								{
+									value: "assignments",
+									label: "Koppelingen",
+									content: (
+										<AssignmentsPanel organizationId={o().id} readOnly={isArchived()} />
 									),
 								},
 								{

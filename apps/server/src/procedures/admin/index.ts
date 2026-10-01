@@ -1,5 +1,6 @@
 import {
 	auditLog,
+	coachAssignment,
 	course,
 	formSubmission,
 	formTemplate,
@@ -19,7 +20,13 @@ import { and, count, countDistinct, desc, eq, inArray, max } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import { assertNotArchived } from "../../access";
-import { base, ownTenant, protectedProcedure, withPolicy } from "../base";
+import {
+	type AuthedContext,
+	base,
+	ownTenant,
+	protectedProcedure,
+	withPolicy,
+} from "../base";
 
 /**
  * Admin omgeving (backlog #60, Epic 9). Register key: `admin`.
@@ -775,12 +782,170 @@ const settingsRouter = base.router({
 });
 
 // ---------------------------------------------------------------------------
+// assignments — coach ↔ leerling koppelingen (FIX-PLAN phase 3, open finding)
+// ---------------------------------------------------------------------------
+
+const AssignmentPersonSchema = z.object({
+	id: z.string(),
+	name: z.string(),
+	email: z.string(),
+});
+
+const AssignmentsSchema = z.object({
+	organizationId: z.string(),
+	coaches: z.array(AssignmentPersonSchema),
+	leerlingen: z.array(
+		AssignmentPersonSchema.extend({ coachIds: z.array(z.string()) }),
+	),
+});
+
+/**
+ * The school whose koppelingen the actor manages: their own school for a
+ * keyuser (any `organizationId` they pass must be it), the chosen school for
+ * the superadmin. Throws when there is none or the actor may not manage it.
+ */
+function assignmentScope(
+	actor: AuthedContext["actor"],
+	organizationId: string | undefined,
+): string {
+	const orgId = organizationId ?? actor.organizationId;
+	if (!orgId) {
+		throw new ORPCError("BAD_REQUEST", { message: "Kies een school" });
+	}
+	if (!sameTenant(actor, { organizationId: orgId })) {
+		throw new ORPCError("FORBIDDEN", {
+			message: "Geen toegang tot de koppelingen van deze school",
+		});
+	}
+	return orgId;
+}
+
+/** Coaches and leerlingen of one school, with who coaches whom. */
+const assignmentsList = protectedProcedure
+	.use(withPolicy(policies.manageUsers, ownTenant))
+	.route({ method: "GET", path: "/admin/assignments", tags: ["admin"] })
+	.input(z.object({ organizationId: z.string().uuid().optional() }).optional())
+	.output(AssignmentsSchema)
+	.handler(async ({ input, context }) => {
+		const orgId = assignmentScope(context.actor, input?.organizationId);
+
+		const people = await context.db
+			.select({
+				id: user.id,
+				name: user.name,
+				email: user.email,
+				role: user.role,
+			})
+			.from(user)
+			.where(
+				and(
+					eq(user.organizationId, orgId),
+					inArray(user.role, ["coach", "leerling"]),
+				),
+			)
+			.orderBy(user.name);
+
+		const links = await context.db
+			.select({
+				coachId: coachAssignment.coachId,
+				leerlingId: coachAssignment.leerlingId,
+			})
+			.from(coachAssignment)
+			.where(eq(coachAssignment.organizationId, orgId));
+
+		const coachIdsOf = new Map<string, string[]>();
+		for (const l of links) {
+			coachIdsOf.set(l.leerlingId, [...(coachIdsOf.get(l.leerlingId) ?? []), l.coachId]);
+		}
+		const person = (p: (typeof people)[number]) => ({
+			id: p.id,
+			name: p.name,
+			email: p.email,
+		});
+		return {
+			organizationId: orgId,
+			coaches: people.filter((p) => p.role === "coach").map(person),
+			leerlingen: people
+				.filter((p) => p.role === "leerling")
+				.map((p) => ({ ...person(p), coachIds: coachIdsOf.get(p.id) ?? [] })),
+		};
+	});
+
+/**
+ * Link or unlink a coach and a leerling. Both must be in the same school, with
+ * the roles coach and leerling, and the school may not be archived. Idempotent.
+ */
+const assignmentsSet = protectedProcedure
+	.use(withPolicy(policies.manageUsers, ownTenant))
+	.route({ method: "POST", path: "/admin/assignments", tags: ["admin"] })
+	.input(
+		z.object({
+			coachId: z.string(),
+			leerlingId: z.string(),
+			assigned: z.boolean(),
+		}),
+	)
+	.output(z.object({ assigned: z.boolean() }))
+	.handler(async ({ input, context }) => {
+		const rows = await context.db
+			.select({
+				id: user.id,
+				role: user.role,
+				organizationId: user.organizationId,
+			})
+			.from(user)
+			.where(inArray(user.id, [input.coachId, input.leerlingId]));
+		const coach = rows.find((r) => r.id === input.coachId);
+		const leerling = rows.find((r) => r.id === input.leerlingId);
+		if (!coach || !leerling) throw new ORPCError("NOT_FOUND");
+		if (coach.role !== "coach" || leerling.role !== "leerling") {
+			throw new ORPCError("BAD_REQUEST", {
+				message: "Koppel een coach aan een leerling",
+			});
+		}
+		if (!coach.organizationId || coach.organizationId !== leerling.organizationId) {
+			throw new ORPCError("BAD_REQUEST", {
+				message: "Coach en leerling horen niet bij dezelfde school",
+			});
+		}
+		const orgId = assignmentScope(context.actor, coach.organizationId);
+		await assertNotArchived(context.db, orgId);
+
+		if (input.assigned) {
+			await context.db
+				.insert(coachAssignment)
+				.values({
+					organizationId: orgId,
+					coachId: input.coachId,
+					leerlingId: input.leerlingId,
+				})
+				.onConflictDoNothing();
+		} else {
+			await context.db
+				.delete(coachAssignment)
+				.where(
+					and(
+						eq(coachAssignment.coachId, input.coachId),
+						eq(coachAssignment.leerlingId, input.leerlingId),
+					),
+				);
+		}
+		return { assigned: input.assigned };
+	});
+
+const assignmentsRouter = base.router({
+	list: assignmentsList,
+	set: assignmentsSet,
+});
+
+// ---------------------------------------------------------------------------
 // Domain router
 // ---------------------------------------------------------------------------
 
 export const adminRouter = base.router({
 	organizations: organizationsRouter,
 	users: usersRouter,
+	assignments: assignmentsRouter,
 	templates: templatesRouter,
 	audit: auditRouter,
 	settings: settingsRouter,
