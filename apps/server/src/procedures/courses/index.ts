@@ -33,12 +33,14 @@ import {
 } from "../../courses/storage";
 import { parseYoutubeId, youtubeEmbedUrl } from "../../courses/youtube";
 import { notify } from "../../notifications/notify";
+import { rateLimit } from "../../rate-limit";
 import { publishTo } from "../../sse";
 import { currentLeervoorkeuren } from "../../coachplan/lifecycle";
 import {
 	canReachLeerling,
 	reachableLeerlingen,
 	requireLeerlingAccess,
+	requireTenantMember,
 } from "../../access";
 import { type AuthedContext, base, protectedProcedure } from "../base";
 
@@ -1110,6 +1112,9 @@ const reorderBlocks = protectedProcedure
 // Uploads (#27/#30): presign a PUT, then confirm (stat re-verify)
 // ---------------------------------------------------------------------------
 
+/** Uploads (presign or local) per user per 10 minutes. */
+const UPLOADS_PER_USER = { max: 60, windowMs: 10 * 60_000 };
+
 const presignUpload = protectedProcedure
 	.route({ method: "POST", path: "/courses/upload/presign", tags: ["courses"] })
 	.input(
@@ -1128,6 +1133,14 @@ const presignUpload = protectedProcedure
 	)
 	.handler(async ({ input, context }) => {
 		const { actor } = context;
+		// School members only, and a ceiling per user so nobody can fill the
+		// storage (FIX-PLAN 1.2).
+		requireTenantMember(context);
+		if (!rateLimit(`upload:${actor.userId}`, UPLOADS_PER_USER)) {
+			throw new ORPCError("TOO_MANY_REQUESTS", {
+				message: "Te veel uploads achter elkaar. Wacht even en probeer opnieuw.",
+			});
+		}
 		// Ontwikkelaar+ upload course files; a leerling uploads submission files.
 		if (input.scope === "bestand" && !canBuildCourses(actor.role)) {
 			throw new ORPCError("FORBIDDEN");
@@ -1176,6 +1189,14 @@ const uploadLocal = protectedProcedure
 	.output(z.object({ storageKey: z.string(), size: z.number() }))
 	.handler(async ({ input, context }) => {
 		const { actor } = context;
+		// School members only, and a ceiling per user so nobody can fill the
+		// storage (FIX-PLAN 1.2).
+		requireTenantMember(context);
+		if (!rateLimit(`upload:${actor.userId}`, UPLOADS_PER_USER)) {
+			throw new ORPCError("TOO_MANY_REQUESTS", {
+				message: "Te veel uploads achter elkaar. Wacht even en probeer opnieuw.",
+			});
+		}
 		if (input.scope === "bestand" && !canBuildCourses(actor.role)) {
 			throw new ORPCError("FORBIDDEN");
 		}

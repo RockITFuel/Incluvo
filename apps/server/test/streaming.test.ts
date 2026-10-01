@@ -86,6 +86,6 @@ describe("ai.assistant through the app", () => {
 
 		expect(frames[0]).toMatchObject({ meta: { mock: true } });
 		expect(frames.some((f) => typeof (f as { delta?: unknown }).delta === "string")).toBe(true);
-		expect(frames.at(-1)).toEqual({ done: true });
+		expect(frames.at(-1)).toMatchObject({ done: true, signature: expect.any(String) });
 	});
 });

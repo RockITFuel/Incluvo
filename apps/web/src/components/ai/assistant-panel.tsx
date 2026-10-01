@@ -26,7 +26,6 @@ const STARTERS = [
 
 export function AssistantPanel(props: {
 	submissionId: string;
-	coachplanContext?: string;
 	/** Optional heading override. */
 	title?: string;
 }) {
@@ -39,7 +38,6 @@ export function AssistantPanel(props: {
 
 	const assistant = useAssistant({
 		submissionId: effectiveId,
-		coachplanContext: () => props.coachplanContext,
 	});
 
 	// Switching plans must not carry the previous leerling's turns into the next

@@ -1,5 +1,6 @@
 import { RPCHandler } from "@orpc/server/fetch";
 import { auth } from "./auth";
+import { withTrustedClientIp } from "./client-ip";
 import { createContext } from "./context";
 import { env } from "./env";
 import { openAPIHandler } from "./openapi-handler";
@@ -47,7 +48,7 @@ export async function handleRequest(request: Request): Promise<Response> {
 
 	// --- better-auth: /api/auth/* ---
 	if (url.pathname.startsWith("/api/auth")) {
-		const res = await auth.handler(request);
+		const res = await auth.handler(withTrustedClientIp(request, env.AUTH_IP_HEADER));
 		for (const [k, v] of Object.entries(cors)) res.headers.set(k, v);
 		return res;
 	}

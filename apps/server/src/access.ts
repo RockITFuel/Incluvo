@@ -128,3 +128,16 @@ export async function assertNotArchived(
 		});
 	}
 }
+
+/**
+ * Refuse actors without a school (FIX-PLAN 1.2): costly or storage-filling
+ * endpoints (AI translation, uploads) are for school members only. The
+ * superadmin has the Ondivera tenant, so this never blocks them.
+ */
+export function requireTenantMember(context: AuthedContext): void {
+	if (!context.actor.organizationId && !isSuperadmin(context.actor.role)) {
+		throw new ORPCError("FORBIDDEN", {
+			message: "Je account hoort niet bij een school.",
+		});
+	}
+}

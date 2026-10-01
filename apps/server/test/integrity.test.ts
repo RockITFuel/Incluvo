@@ -22,6 +22,7 @@ import { migrate } from "drizzle-orm/node-postgres/migrator";
 import pg from "pg";
 import { purgeAuditLog } from "../src/retention";
 import { asUser, planVersion, userId } from "./harness";
+import { createAccount } from "../src/users";
 
 const DRIZZLE_DIR = join(import.meta.dir, "../../../packages/drizzle/drizzle");
 
@@ -180,7 +181,14 @@ describe("audit log", () => {
 
 	test("records a role change (role and school only)", async () => {
 		const keyuser = await asUser("keyuser");
-		const target = await userId("leerling2");
+		// A throwaway leerling: a role change drops koppelingen, and the demo
+		// leerlingen's koppelingen are used by other test files.
+		const target = await createAccount({
+			email: "rolwissel@school.nl",
+			name: "Rol Wissel",
+			role: "leerling",
+			organizationId: (await keyuser.client.account.me()).organization!.id,
+		});
 		await keyuser.client.account.users.setRole({ userId: target, role: "coach" });
 		await keyuser.client.account.users.setRole({ userId: target, role: "leerling" });
 		const [row] = await db
