@@ -23,6 +23,7 @@ import { MOODS } from "../../../lib/mood";
 import { orpc } from "../../../lib/orpc";
 import { useServerEvent } from "../../../lib/sse/use-events";
 import { doneStreak } from "../../../lib/streak";
+import { ErrorState } from "../../../components/ui/error-state";
 
 /**
  * Leerling home dashboard — the approved "Welkom" prototype layout, with every
@@ -301,8 +302,23 @@ function WelkomPage() {
 		return n ? `Hoi ${n} 👋` : "Hoi 👋";
 	};
 
+	// Any widget's data failing would otherwise read as "nothing to do".
+	const loadError = () => tasksQuery.error ?? planQuery.error ?? chatQuery.error;
+
 	return (
 		<>
+			<Show when={loadError()}>
+				<ErrorState
+					class="mb-4"
+					error={loadError()}
+					what="alles"
+					onRetry={() => {
+						void tasksQuery.refetch();
+						void planQuery.refetch();
+						void chatQuery.refetch();
+					}}
+				/>
+			</Show>
 			<div class="page-head" data-page-title="Welkom">
 				<div>
 					<h1>{greeting()}</h1>

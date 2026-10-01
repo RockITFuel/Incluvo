@@ -8,6 +8,7 @@ export {
 	CardTitle,
 } from "./card";
 export { Dialog } from "./dialog";
+export { ErrorState } from "./error-state";
 export { Pagination } from "./pagination";
 export type { PaginationProps } from "./pagination";
 export { SegmentedControl } from "./segmented-control";

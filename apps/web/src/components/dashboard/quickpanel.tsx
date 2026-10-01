@@ -12,6 +12,7 @@ import { For, type JSX, Show } from "solid-js";
 import { cn } from "../../lib/cn";
 import { orpc } from "../../lib/orpc";
 import { PlanStatusBadge } from "./plan-status";
+import { ErrorState } from "../../components/ui/error-state";
 
 /**
  * Quickpanel slide-over (#43) — a 1:1 port of the approved prototype's panel.
@@ -121,10 +122,19 @@ export function Quickpanel(props: {
 								flex: "1",
 							}}
 						>
+							<Show when={query.error}>
+								<ErrorState
+									error={query.error}
+									what="deze leerling"
+									onRetry={() => query.refetch()}
+								/>
+							</Show>
 							<Show
-								when={!query.isLoading}
+								when={!query.isLoading && !query.error}
 								fallback={
-									<p style={{ color: "rgb(var(--muted))" }}>Laden…</p>
+									<Show when={query.isLoading}>
+										<p style={{ color: "rgb(var(--muted))" }}>Laden…</p>
+									</Show>
 								}
 							>
 								{/* Coachplan status */}

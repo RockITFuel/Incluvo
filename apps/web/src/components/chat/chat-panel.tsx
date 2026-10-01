@@ -12,6 +12,7 @@ import { orpc } from "../../lib/orpc";
 import { useMe } from "../../lib/auth/use-me";
 import { useServerEvent } from "../../lib/sse/use-events";
 import { toast } from "../ui/toast";
+import { ErrorState } from "../../components/ui/error-state";
 
 /**
  * Chat (#5 1:1 coach–leerling, #6 group/forum met coach-supervisie). A 1:1
@@ -231,11 +232,19 @@ export function ChatPanel(props: {
 					<Show when={conversationsQuery.isLoading}>
 						<p class="px-4 py-3 text-muted text-small">Laden…</p>
 					</Show>
+					<Show when={conversationsQuery.error}>
+						<ErrorState
+							class="m-3"
+							error={conversationsQuery.error}
+							what="je gesprekken"
+							onRetry={() => conversationsQuery.refetch()}
+						/>
+					</Show>
 
 					<Show
 						when={filteredConversations().length > 0}
 						fallback={
-							<Show when={!conversationsQuery.isLoading}>
+							<Show when={!conversationsQuery.isLoading && !conversationsQuery.error}>
 								<p class="px-4 py-3 text-muted text-small">
 									{query() ? "Geen gesprekken gevonden." : "Nog geen gesprekken."}
 								</p>
@@ -490,6 +499,13 @@ function ChatThread(props: { conversation: Conversation }) {
 			>
 				<Show when={messagesQuery.isLoading}>
 					<p class="text-muted text-small">Berichten laden…</p>
+				</Show>
+				<Show when={messagesQuery.error}>
+					<ErrorState
+						error={messagesQuery.error}
+						what="de berichten"
+						onRetry={() => messagesQuery.refetch()}
+					/>
 				</Show>
 				<Show
 					when={messages().length > 0}

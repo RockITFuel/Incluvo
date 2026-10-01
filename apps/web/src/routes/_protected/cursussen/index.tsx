@@ -9,6 +9,7 @@ import { toast } from "../../../components/ui/toast";
 import { useMe } from "../../../lib/auth/use-me";
 import { client, orpc } from "../../../lib/orpc";
 import { useServerEvent } from "../../../lib/sse/use-events";
+import { ErrorState } from "../../../components/ui/error-state";
 
 /**
  * Cursussen overzicht (#23) — a 1:1 port of the approved "Cursussen" prototype.
@@ -66,6 +67,13 @@ function CursussenPage() {
 
 			<Show when={coursesQuery.isLoading}>
 				<p class="text-muted">Laden…</p>
+			</Show>
+			<Show when={coursesQuery.error}>
+				<ErrorState
+					error={coursesQuery.error}
+					what="de cursussen"
+					onRetry={() => coursesQuery.refetch()}
+				/>
 			</Show>
 			<Show when={coursesQuery.data?.length === 0}>
 				<div class="card" style={{ "text-align": "center", color: "rgb(var(--muted))" }}>

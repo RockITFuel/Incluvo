@@ -25,6 +25,7 @@ import { requireRole } from "../../../lib/auth/require-role";
 import { RequireRole } from "../../../lib/auth/role-guard";
 import { useMe } from "../../../lib/auth/use-me";
 import { client, orpc } from "../../../lib/orpc";
+import { friendlyError } from "../../../lib/errors";
 
 /**
  * Coach review of a submitted coachplan (#15–#21), presented as a step-by-step
@@ -288,7 +289,7 @@ function CoachReview() {
 		} catch (err) {
 			toast({
 				title: "Aanbieden lukte niet",
-				description: (err as { message?: string }).message,
+				description: friendlyError(err),
 				tone: "danger",
 			});
 		}

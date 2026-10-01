@@ -8,6 +8,7 @@ import { Textarea } from "../ui/text-field";
 import { toast } from "../ui/toast";
 import { FileLink } from "./file-link";
 import { uploadFile } from "./upload";
+import { ErrorState } from "../ui/error-state";
 
 type AssignmentDTO = {
 	id: string;
@@ -130,6 +131,13 @@ export function AssignmentBlock(props: {
 			</div>
 
 			{/* Past submissions + feedback (#28) */}
+			<Show when={submissionsQuery.error}>
+				<ErrorState
+					error={submissionsQuery.error}
+					what="je eerdere inzendingen"
+					onRetry={() => submissionsQuery.refetch()}
+				/>
+			</Show>
 			<Show when={(submissionsQuery.data?.length ?? 0) > 0}>
 				<div class="flex flex-col gap-2">
 					<p class="text-small font-medium text-ink-2">Jouw inzendingen</p>

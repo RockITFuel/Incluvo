@@ -7,6 +7,7 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/text-field";
 import { authClient } from "../lib/auth/auth-client";
 import { clearCachedSession, getCachedSession } from "../lib/auth/session";
+import { friendlyError } from "../lib/errors";
 
 /**
  * Login — the front door of Incluvo (the root route redirects here). A calm
@@ -84,7 +85,10 @@ function Login() {
 			setError(
 				err.status === 429
 					? "Te veel inlogpogingen. Probeer het over een kwartier opnieuw."
-					: "E-mailadres of wachtwoord klopt niet.",
+					: err.status === 401
+						? "E-mailadres of wachtwoord klopt niet."
+						: // e.g. 403 for an archived school, or no connection.
+							friendlyError(err, "Inloggen lukte niet. Probeer het opnieuw."),
 			);
 			return;
 		}

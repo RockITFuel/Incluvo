@@ -6,6 +6,7 @@ import { Input } from "../ui/text-field";
 import { Switch } from "../ui/switch";
 import { toast } from "../ui/toast";
 import { orpc } from "../../lib/orpc";
+import { friendlyError } from "../../lib/errors";
 
 /**
  * Bewaartermijnen / instellingen (#4, AVG). The server has NO settings table
@@ -42,7 +43,7 @@ export function SettingsPanel() {
 			onError: (err) =>
 				toast({
 					title: "Nog niet beschikbaar",
-					description: err.message,
+					description: friendlyError(err),
 					tone: "warning",
 				}),
 		}),

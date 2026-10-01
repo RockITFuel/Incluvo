@@ -11,6 +11,7 @@ import { requireRole } from "../../../../lib/auth/require-role";
 import { useMe } from "../../../../lib/auth/use-me";
 import { RequireRole } from "../../../../lib/auth/role-guard";
 import { client, orpc } from "../../../../lib/orpc";
+import { ErrorState } from "../../../../components/ui/error-state";
 
 /**
  * Formulierenmanager (#8/#9/#10) — keyuser+. Lists templates (Ondivera + own
@@ -199,6 +200,13 @@ function FormManager() {
 
 					<Show when={templatesQuery.isLoading}>
 						<p class="text-muted">Laden…</p>
+					</Show>
+					<Show when={templatesQuery.error}>
+						<ErrorState
+							error={templatesQuery.error}
+							what="de formulieren"
+							onRetry={() => templatesQuery.refetch()}
+						/>
 					</Show>
 					<For each={templatesQuery.data}>
 						{(tpl) => (

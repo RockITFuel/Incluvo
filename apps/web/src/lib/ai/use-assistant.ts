@@ -1,5 +1,6 @@
 import { createSignal, onCleanup } from "solid-js";
 import { client } from "../orpc";
+import { friendlyError } from "../errors";
 
 /**
  * Thin local AI-assistant hook (backlog #22) wrapping the **oRPC Event
@@ -99,9 +100,7 @@ export function useAssistant(options: UseAssistantOptions = {}) {
 			// touch the (already-cleared) conversation.
 			if (signal.aborted) return;
 			setError(
-				err instanceof Error
-					? err.message
-					: "Er ging iets mis bij het ophalen van het advies.",
+				friendlyError(err, "Er ging iets mis bij het ophalen van het advies."),
 			);
 			// Drop the empty assistant placeholder on failure.
 			setMessages((prev) => {

@@ -34,6 +34,7 @@ import { toast } from "../../../../components/ui/toast";
 import { requireRole } from "../../../../lib/auth/require-role";
 import { RequireRole } from "../../../../lib/auth/role-guard";
 import { orpc } from "../../../../lib/orpc";
+import { friendlyError } from "../../../../lib/errors";
 
 /**
  * School page (superadmin, docs/decisions/superadmin-beheer.md, voorstel 4):
@@ -75,7 +76,7 @@ function SchoolPage() {
 				toast({ title: "Naam gewijzigd", tone: "success" });
 			},
 			onError: (error) =>
-				toast({ title: "Opslaan mislukt", description: error.message, tone: "danger" }),
+				toast({ title: "Opslaan mislukt", description: friendlyError(error), tone: "danger" }),
 		}),
 	);
 
@@ -95,7 +96,7 @@ function SchoolPage() {
 				);
 			},
 			onError: (error) =>
-				toast({ title: "Mislukt", description: error.message, tone: "danger" }),
+				toast({ title: "Mislukt", description: friendlyError(error), tone: "danger" }),
 		}),
 	);
 

@@ -18,6 +18,8 @@ import { PlanView } from "../../../components/coachplan/plan-view";
 import { downloadPlanPdf } from "../../../lib/coachplan/pdf";
 import { useMe } from "../../../lib/auth/use-me";
 import { client, orpc } from "../../../lib/orpc";
+import { ErrorState } from "../../../components/ui/error-state";
+import { friendlyError } from "../../../lib/errors";
 
 /**
  * `/plan` entry point. Role-aware: a coach sees the inbox of submitted plans
@@ -54,6 +56,13 @@ function CoachInbox() {
 			</div>
 			<Show when={inboxQuery.isLoading}>
 				<p class="text-muted">Laden…</p>
+			</Show>
+			<Show when={inboxQuery.error}>
+				<ErrorState
+					error={inboxQuery.error}
+					what="de coachplannen"
+					onRetry={() => inboxQuery.refetch()}
+				/>
 			</Show>
 			<Show when={inboxQuery.data?.length === 0}>
 				<Card class="text-muted">Nog geen ingeleverde coachplannen.</Card>
@@ -123,7 +132,7 @@ function LeerlingPlan() {
 		} catch (err) {
 			toast({
 				title: "Bijwerken lukte niet",
-				description: (err as { message?: string }).message,
+				description: friendlyError(err),
 				tone: "danger",
 			});
 		} finally {
@@ -142,7 +151,21 @@ function LeerlingPlan() {
 	};
 
 	return (
-		<Show when={state.data} fallback={<p class="text-muted">Bezig met laden…</p>}>
+		<Show
+			when={state.data}
+			fallback={
+				<Show
+					when={state.error}
+					fallback={<p class="text-muted">Bezig met laden…</p>}
+				>
+					<ErrorState
+						error={state.error}
+						what="je plan"
+						onRetry={() => state.refetch()}
+					/>
+				</Show>
+			}
+		>
 			<Show when={phase() === "fill"}>
 				<PlanWizard onSubmitted={refresh} />
 			</Show>
@@ -240,8 +263,7 @@ function PlanWizard(props: { onSubmitted: () => void }) {
 			}
 		} catch (err) {
 			setBootError(
-				(err as { message?: string }).message ??
-					"Er is nog geen formulier aan jou gekoppeld.",
+				friendlyError(err, "Er is nog geen formulier aan jou gekoppeld."),
 			);
 		}
 	};
@@ -338,7 +360,7 @@ function PlanWizard(props: { onSubmitted: () => void }) {
 		} catch (err) {
 			toast({
 				title: "Versturen lukte niet",
-				description: (err as { message?: string }).message,
+				description: friendlyError(err),
 				tone: "danger",
 			});
 		}

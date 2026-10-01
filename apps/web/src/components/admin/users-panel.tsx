@@ -24,6 +24,7 @@ import { toast } from "../ui/toast";
 import { roleLabel } from "../shell/nav";
 import { useMe } from "../../lib/auth/use-me";
 import { orpc } from "../../lib/orpc";
+import { friendlyError } from "../../lib/errors";
 
 const PAGE_SIZE = 20;
 const ALL_SCHOOLS = "__all__";
@@ -163,7 +164,7 @@ export function UsersPanel(props: {
 			onError: (error) =>
 				toast({
 					title: "Uitnodigen mislukt",
-					description: error.message,
+					description: friendlyError(error),
 					tone: "danger",
 				}),
 		}),

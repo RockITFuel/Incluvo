@@ -31,6 +31,7 @@ import { RequireRole } from "../../../lib/auth/role-guard";
 import { useMe } from "../../../lib/auth/use-me";
 import { moodMeta } from "../../../lib/mood";
 import { orpc } from "../../../lib/orpc";
+import { ErrorState } from "../../../components/ui/error-state";
 
 /**
  * Coach dashboard (#42) — a 1:1 port of the approved "Coach" prototype page.
@@ -220,8 +221,8 @@ function DashboardPage() {
 					<div class="sub">
 						<span style={{ "text-transform": "capitalize" }}>
 							{todayLabel()}
-						</span>{" "}
-						· {rows().length} leerlingen
+						</span>
+						<Show when={overview.data}> · {rows().length} leerlingen</Show>
 					</div>
 				</div>
 			</div>
@@ -230,7 +231,15 @@ function DashboardPage() {
 				<div class="card text-muted">Laden…</div>
 			</Show>
 
-			<Show when={!overview.isLoading && rows().length === 0}>
+			<Show when={overview.error}>
+				<ErrorState
+					error={overview.error}
+					what="je leerlingen"
+					onRetry={() => overview.refetch()}
+				/>
+			</Show>
+
+			<Show when={!overview.isLoading && !overview.error && rows().length === 0}>
 				<div class="card" style={{ color: "rgb(var(--muted))" }}>
 					Er zijn nog geen leerlingen aan jou gekoppeld.
 				</div>

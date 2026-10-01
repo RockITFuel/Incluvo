@@ -4,6 +4,7 @@ import { orpc } from "../../lib/orpc";
 import { Badge } from "../ui/badge";
 import { Card } from "../ui/card";
 import { type AnswerValue, type QuestionDTO, renderAnswerText } from "./question-input";
+import { ErrorState } from "../../components/ui/error-state";
 
 /**
  * A plan version, read-only, as the leerling sees it: their own answers per
@@ -67,7 +68,18 @@ export function PlanView(props: { submissionId: string }) {
 	};
 
 	return (
-		<Show when={query.data} fallback={<p class="text-muted">Laden…</p>}>
+		<Show
+			when={query.data}
+			fallback={
+				<Show when={query.error} fallback={<p class="text-muted">Laden…</p>}>
+					<ErrorState
+						error={query.error}
+						what="het plan"
+						onRetry={() => query.refetch()}
+					/>
+				</Show>
+			}
+		>
 			<div class="flex flex-col gap-5">
 				<Show when={coachQuestions().length > 0}>
 					<Card class="border-primary">

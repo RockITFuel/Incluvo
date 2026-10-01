@@ -6,6 +6,7 @@ import { client, orpc } from "../../lib/orpc";
 import { Select } from "../ui/select";
 import { toast } from "../ui/toast";
 import { MockBanner } from "./mock-banner";
+import { friendlyError } from "../../lib/errors";
 
 /**
  * Transcriptietool (#18), styled as the sidebar card from the approved
@@ -75,7 +76,7 @@ export function TranscriptionPanel(props: { submissionId?: string }) {
 			},
 			onError: (err) =>
 				toast({
-					title: err instanceof Error ? err.message : "Transcriptie mislukt",
+					title: friendlyError(err, "Transcriptie mislukt"),
 					tone: "danger",
 				}),
 		}),
@@ -145,7 +146,7 @@ export function TranscriptionPanel(props: { submissionId?: string }) {
 			toast({ title: `"${p.label}" overgenomen`, tone: "success" });
 		} catch (err) {
 			toast({
-				title: err instanceof Error ? err.message : "Overnemen mislukt",
+				title: friendlyError(err, "Overnemen mislukt"),
 				tone: "danger",
 			});
 		} finally {

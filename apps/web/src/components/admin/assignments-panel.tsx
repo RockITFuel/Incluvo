@@ -18,6 +18,7 @@ import { Select } from "../ui/select";
 import { toast } from "../ui/toast";
 import { useMe } from "../../lib/auth/use-me";
 import { orpc } from "../../lib/orpc";
+import { friendlyError } from "../../lib/errors";
 
 const PAGE_SIZE = 20;
 
@@ -105,7 +106,7 @@ export function AssignmentsPanel(props: {
 			onError: (error) =>
 				toast({
 					title: "Koppelen mislukt",
-					description: error.message,
+					description: friendlyError(error),
 					tone: "danger",
 				}),
 		}),
