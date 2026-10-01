@@ -3,9 +3,9 @@
  *   - the leerling themselves
  *   - a coach assigned to them (coach_assignment)
  *   - a keyuser of their school (D1: read + write, like any coach there)
- *   - the superadmin
  * Nobody else: not an unassigned coach, not an ontwikkelaar (D4), not another
- * leerling, and nobody from another school.
+ * leerling, nobody from another school, and not the superadmin (Ondivera
+ * manages the platform, it doesn't coach — `sameSchool`).
  *
  * Every endpoint below is called as each of those actors against data of the
  * demo leerling (leerling@incluvo.local).
@@ -20,8 +20,9 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import { type DemoUser, type TestUser, asUser, expectForbidden, userId, planVersion } from "./harness";
 
-const ALLOWED: DemoUser[] = ["coach", "keyuser", "superadmin"];
+const ALLOWED: DemoUser[] = ["coach", "keyuser"];
 const DENIED: DemoUser[] = [
+	"superadmin",
 	"coach2",
 	"ontwikkelaar",
 	"leerling2",

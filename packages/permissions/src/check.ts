@@ -20,6 +20,15 @@ export function canBuildCourses(role: UserRole): boolean {
 	return role === "ontwikkelaar" || role === "keyuser" || role === "superadmin";
 }
 
+/**
+ * Who works with leerlingen (plans, taken, chat, AI-advies): the coach and the
+ * keyuser (D1: a keyuser acts as any coach of their school). Not the
+ * superadmin — Ondivera manages the platform (see `sameSchool`).
+ */
+export function coachesLeerlingen(role: UserRole): boolean {
+	return role === "coach" || role === "keyuser";
+}
+
 /** A resource that is scoped to a tenant (organization). */
 export interface TenantScoped {
 	organizationId?: string | null;
@@ -40,6 +49,20 @@ export function sameTenant(
 	if (!resource) return false;
 	if (!actor.organizationId || !resource.organizationId) return false;
 	return actor.organizationId === resource.organizationId;
+}
+
+/**
+ * Like `sameTenant`, but without the superadmin exemption. For pupil content
+ * (plans, taken, opdrachten, a leerling's own course): Ondivera manages the
+ * platform and the templates, it doesn't coach leerlingen, so it has no
+ * business reading their data (AVG data minimisation; Ondivera is the
+ * processor, the school the controller).
+ */
+export function sameSchool(
+	actor: PolicySubject,
+	resource?: TenantScoped | null,
+): boolean {
+	return !isSuperadmin(actor.role) && sameTenant(actor, resource);
 }
 
 /** Evaluate a single policy for an actor against an optional resource. */

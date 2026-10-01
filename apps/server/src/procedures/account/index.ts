@@ -3,6 +3,7 @@ import {
 	atLeast,
 	canBuildCourses,
 	can,
+	coachesLeerlingen,
 	INCLUVO_ROLES,
 	type IncluvoRole,
 	isSuperadmin,
@@ -334,7 +335,7 @@ const usersSetRole = protectedProcedure
 
 		// Koppelingen only make sense for a coach and a leerling: drop the ones
 		// the new role no longer fits.
-		if (input.role !== "coach") {
+		if (!coachesLeerlingen(input.role)) {
 			await context.db
 				.delete(coachAssignment)
 				.where(eq(coachAssignment.coachId, input.userId));

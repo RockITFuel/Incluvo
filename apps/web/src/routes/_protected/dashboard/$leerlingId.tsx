@@ -38,9 +38,9 @@ import { client, orpc } from "../../../lib/orpc";
  * assignment within the tenant.
  */
 export const Route = createFileRoute("/_protected/dashboard/$leerlingId")({
-	beforeLoad: () => requireRole("coach"),
+	beforeLoad: () => requireRole("coach", undefined, { coaching: true }),
 	component: () => (
-		<RequireRole min="coach">
+		<RequireRole min="coach" coaching>
 			<ProfilePage />
 		</RequireRole>
 	),
@@ -238,6 +238,13 @@ function ProfilePage() {
 										class="btn ghost sm"
 									>
 										<MessageSquare class="size-3.5" aria-hidden="true" /> Bericht
+									</Link>
+									<Link
+										to="/taken/$leerlingId"
+										params={{ leerlingId: data().leerling.id }}
+										class="btn ghost sm"
+									>
+										<ListChecks class="size-3.5" aria-hidden="true" /> Taken
 									</Link>
 									<Show when={data().plan.submissionId}>
 										<Link

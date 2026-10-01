@@ -10,6 +10,7 @@ import {
 } from "@incluvo/drizzle/schema";
 import {
 	atLeast,
+	coachesLeerlingen,
 	isSuperadmin,
 	policies,
 	sameTenant,
@@ -800,7 +801,7 @@ const assignmentsList = protectedProcedure
 			.where(
 				and(
 					eq(user.organizationId, orgId),
-					inArray(user.role, ["coach", "leerling"]),
+					inArray(user.role, ["coach", "keyuser", "leerling"]),
 				),
 			)
 			.orderBy(user.name);
@@ -824,7 +825,8 @@ const assignmentsList = protectedProcedure
 		});
 		return {
 			organizationId: orgId,
-			coaches: people.filter((p) => p.role === "coach").map(person),
+			// A keyuser can coach too (D1) — e.g. at a small school.
+			coaches: people.filter((p) => coachesLeerlingen(p.role)).map(person),
 			leerlingen: people
 				.filter((p) => p.role === "leerling")
 				.map((p) => ({ ...person(p), coachIds: coachIdsOf.get(p.id) ?? [] })),
@@ -858,7 +860,7 @@ const assignmentsSet = protectedProcedure
 		const coach = rows.find((r) => r.id === input.coachId);
 		const leerling = rows.find((r) => r.id === input.leerlingId);
 		if (!coach || !leerling) throw new ORPCError("NOT_FOUND");
-		if (coach.role !== "coach" || leerling.role !== "leerling") {
+		if (!coachesLeerlingen(coach.role) || leerling.role !== "leerling") {
 			throw new ORPCError("BAD_REQUEST", {
 				message: "Koppel een coach aan een leerling",
 			});

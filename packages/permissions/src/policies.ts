@@ -2,6 +2,7 @@ import {
 	atLeast,
 	canBuildCourses,
 	isSuperadmin,
+	sameSchool,
 	sameTenant,
 	type TenantScoped,
 } from "./check";
@@ -95,7 +96,7 @@ export const readCoachplan = definePolicy<OwnedByLeerling>({
 	subject: "coachplan",
 	action: "read",
 	evaluate: (actor, resource) =>
-		sameTenant(actor, resource) &&
+		sameSchool(actor, resource) &&
 		(resource?.leerlingId === actor.userId || atLeast(actor.role, "coach")),
 });
 
@@ -105,7 +106,7 @@ export const reviewCoachplan = definePolicy<OwnedByLeerling>({
 	subject: "coachplan",
 	action: "update",
 	evaluate: (actor, resource) =>
-		atLeast(actor.role, "coach") && sameTenant(actor, resource),
+		atLeast(actor.role, "coach") && sameSchool(actor, resource),
 });
 
 // ---------------------------------------------------------------------------
@@ -126,10 +127,9 @@ export const manageCourse = definePolicy<CourseResource>({
 	subject: "course",
 	action: "update",
 	evaluate: (actor, resource) =>
-		sameTenant(actor, resource) &&
-		(resource?.kind === "student_execution"
-			? atLeast(actor.role, "coach")
-			: canBuildCourses(actor.role)),
+		resource?.kind === "student_execution"
+			? sameSchool(actor, resource) && atLeast(actor.role, "coach")
+			: sameTenant(actor, resource) && canBuildCourses(actor.role),
 });
 
 /** Read course content within the tenant (#23/#24/#35). */
@@ -146,7 +146,7 @@ export const gradeAssignment = definePolicy<TenantScoped>({
 	subject: "assignment",
 	action: "update",
 	evaluate: (actor, resource) =>
-		atLeast(actor.role, "coach") && sameTenant(actor, resource),
+		atLeast(actor.role, "coach") && sameSchool(actor, resource),
 });
 
 /** A leerling submits their own assignment (#27); coach may submit on behalf. */
@@ -155,7 +155,7 @@ export const submitAssignment = definePolicy<OwnedByLeerling>({
 	subject: "assignment",
 	action: "create",
 	evaluate: (actor, resource) =>
-		sameTenant(actor, resource) &&
+		sameSchool(actor, resource) &&
 		(resource?.leerlingId === actor.userId || atLeast(actor.role, "coach")),
 });
 
@@ -169,7 +169,7 @@ export const readTask = definePolicy<OwnedByLeerling>({
 	subject: "task",
 	action: "read",
 	evaluate: (actor, resource) =>
-		sameTenant(actor, resource) &&
+		sameSchool(actor, resource) &&
 		(resource?.leerlingId === actor.userId || atLeast(actor.role, "coach")),
 });
 
@@ -179,7 +179,7 @@ export const manageTask = definePolicy<OwnedByLeerling>({
 	subject: "task",
 	action: "update",
 	evaluate: (actor, resource) =>
-		sameTenant(actor, resource) &&
+		sameSchool(actor, resource) &&
 		(resource?.leerlingId === actor.userId || atLeast(actor.role, "coach")),
 });
 

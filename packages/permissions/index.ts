@@ -13,7 +13,9 @@ export {
 	can,
 	canBuildCourses,
 	checkPermission,
+	coachesLeerlingen,
 	isSuperadmin,
+	sameSchool,
 	sameTenant,
 } from "./src/check";
 export * as policies from "./src/policies";

@@ -42,9 +42,9 @@ import { friendlyError } from "../../../lib/errors";
  * coach+.
  */
 export const Route = createFileRoute("/_protected/plan/$submissionId")({
-	beforeLoad: () => requireRole("coach"),
+	beforeLoad: () => requireRole("coach", undefined, { coaching: true }),
 	component: () => (
-		<RequireRole min="coach">
+		<RequireRole min="coach" coaching>
 			<CoachReview />
 		</RequireRole>
 	),

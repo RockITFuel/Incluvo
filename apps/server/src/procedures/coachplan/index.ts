@@ -14,6 +14,7 @@ import {
 	can,
 	isSuperadmin,
 	policies,
+	sameSchool,
 	sameTenant,
 } from "@incluvo/permissions";
 import { ORPCError } from "@orpc/server";
@@ -587,7 +588,7 @@ const assignToLeerling = protectedProcedure
 			.select({ id: user.id, organizationId: user.organizationId })
 			.from(user)
 			.where(eq(user.id, input.leerlingId));
-		if (!ll || !sameTenant(actor, ll)) throw new ORPCError("FORBIDDEN");
+		if (!ll || !sameSchool(actor, ll)) throw new ORPCError("FORBIDDEN");
 		// Template must be in the tenant.
 		const [tpl] = await context.db
 			.select()

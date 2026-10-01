@@ -1,5 +1,5 @@
 import { ORPCError } from "@orpc/client";
-import type { UserRole } from "@incluvo/permissions";
+import { coachesLeerlingen, type UserRole } from "@incluvo/permissions";
 import {
 	createFileRoute,
 	Outlet,
@@ -102,7 +102,10 @@ function AuthedShell() {
 	}));
 	const inboxQuery = useQuery(() => ({
 		...orpc.coachplan.inbox.queryOptions(),
-		enabled: me.hasAtLeast("coach"),
+		enabled: (() => {
+			const r = role();
+			return r !== null && coachesLeerlingen(r);
+		})(),
 	}));
 	const badges = () => ({
 		taken: takenQuery.data?.vandaag.length ?? 0,

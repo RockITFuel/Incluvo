@@ -22,9 +22,9 @@ import { orpc } from "../../../lib/orpc";
  * a MOCK banner shows when no credentials are configured.
  */
 export const Route = createFileRoute("/_protected/assistent/")({
-	beforeLoad: () => requireRole("coach"),
+	beforeLoad: () => requireRole("coach", undefined, { coaching: true }),
 	component: () => (
-		<RequireRole min="coach">
+		<RequireRole min="coach" coaching>
 			<AssistentPage />
 		</RequireRole>
 	),

@@ -70,3 +70,32 @@ Nieuwe route `/beheer/scholen/$organizationId` (alleen superadmin).
   school. Verplaatsen betekent: meenemen (de nieuwe school ziet de historie) of
   achterlaten (de oude school blijft eigenaar). Dat is een AVG-keuze voor Mark,
   geen technische.
+
+## Rollen en toegang (01-10-2026)
+
+Ondivera beheert het platform en de sjablonen; het begeleidt geen leerlingen.
+De superadmin heeft daarom **geen toegang tot inhoudelijke leerlinggegevens**
+(plannen, taken, opdrachten, de eigen cursus van een leerling, chats, AI-advies)
+— AVG-dataminimalisatie: de school is verwerkingsverantwoordelijke.
+
+- `sameSchool(actor, resource)` (permissions/check.ts): als `sameTenant`, maar
+  zonder uitzondering voor de superadmin. Gebruikt door de policies voor
+  leerlinggegevens en door `canAccessLeerling`; `reachableLeerlingen` geeft
+  voor de superadmin niets terug. `test/leerling-access.test.ts` heeft de
+  superadmin bij de geweigerde rollen voor elk endpoint.
+- `coachesLeerlingen(role)`: coach en keyuser. Bepaalt wie koppelingen kan
+  hebben (een keyuser kan zelf coachen, D1), en welke pagina's open zijn
+  (`requireRole(..., { coaching: true })`, `<RequireRole coaching>`).
+- Ontbreekt een rol voor een pagina, dan stuurt de guard naar de eigen
+  startpagina van die rol (niet via `/`).
+
+| Rol | Menu | Startpagina |
+| --- | --- | --- |
+| leerling | Welkom, Mijn taken, Cursussen, Mijn plan, Chat, Mijn profiel | /welkom |
+| ontwikkelaar | Cursussen, Mijn profiel | /cursussen |
+| coach | Dashboard, Coachplannen, Cursussen, Chat, Assistent | /dashboard |
+| keyuser | coach + Beheer, Formulieren | /dashboard |
+| superadmin | Overzicht, Cursussen, Beheer, Formulieren | /dashboard (platformoverzicht) |
+
+Later, als het nodig blijkt: tijdelijke supporttoegang tot één school, met
+toestemming van de keyuser en vastgelegd in de audit-log.

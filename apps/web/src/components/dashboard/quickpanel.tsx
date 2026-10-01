@@ -380,6 +380,14 @@ export function Quickpanel(props: {
 								</div>
 								<Show when={props.leerlingId}>
 									<Link
+										to="/taken/$leerlingId"
+										params={{ leerlingId: props.leerlingId ?? "" }}
+										class="btn ghost"
+										style={{ "justify-content": "center" }}
+									>
+										<ListChecks class="size-3.5" aria-hidden="true" /> Taken beheren
+									</Link>
+									<Link
 										to="/dashboard/$leerlingId"
 										params={{ leerlingId: props.leerlingId ?? "" }}
 										class="btn ghost"

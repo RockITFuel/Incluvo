@@ -20,6 +20,7 @@ import { useMe } from "../../../lib/auth/use-me";
 import { client, orpc } from "../../../lib/orpc";
 import { ErrorState } from "../../../components/ui/error-state";
 import { friendlyError } from "../../../lib/errors";
+import { RequireRole } from "../../../lib/auth/role-guard";
 
 /**
  * `/plan` entry point. Role-aware: a coach sees the inbox of submitted plans
@@ -31,15 +32,16 @@ export const Route = createFileRoute("/_protected/plan/")({
 
 function PlanEntry() {
 	const me = useMe();
-	// Wait for `account.me` before choosing a view: the role defaults to "member"
-	// while it loads, so a coach would briefly mount the leerling wizard and fire
-	// its side-effectful `startMine()` RPC.
+	// RequireRole waits for `account.me` before choosing a view: otherwise a
+	// coach would briefly mount the leerling wizard and fire its side-effectful
+	// `startMine()` RPC. The superadmin manages the forms (/plan/beheer) and is
+	// sent home; plans belong to the school.
 	return (
-		<Show when={me.query.data} fallback={<p class="text-muted">Bezig met laden…</p>}>
+		<RequireRole min="leerling" only={["leerling", "coach", "keyuser"]}>
 			<Show when={me.hasAtLeast("coach")} fallback={<LeerlingPlan />}>
 				<CoachInbox />
 			</Show>
-		</Show>
+		</RequireRole>
 	);
 }
 

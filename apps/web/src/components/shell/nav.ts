@@ -26,12 +26,33 @@ export type NavBadges = {
  *
  *   - leerling     → Welkom, Mijn taken, Cursussen, Mijn plan, Chat
  *   - coach        → Dashboard, Coachplannen, Cursussen, Chat, Assistent
- *   - keyuser/up   → coach nav + a Beheer/Admin entry
+ *   - keyuser      → coach nav + Beheer, Formulieren
+ *   - superadmin   → Overzicht (all schools), Cursussen, Beheer, Formulieren
  *   - ontwikkelaar → Cursussen (the course builder) and their profiel (D4)
  * While the role is still loading (null) there is no nav yet.
  */
 export function navForRole(role: UserRole | null, badges: NavBadges = {}): NavSection[] {
 	if (role === null) return [];
+	// Ondivera manages the platform and its templates; it doesn't work with
+	// leerlingen, so no coachplannen, chat or AI-assistent (sameSchool).
+	if (role === "superadmin") {
+		return [
+			{
+				label: "Navigatie",
+				items: [
+					{ label: "Overzicht", href: "/dashboard", icon: LayoutDashboard },
+					{ label: "Cursussen", href: "/cursussen", icon: GraduationCap },
+				],
+			},
+			{
+				label: "Beheer",
+				items: [
+					{ label: "Beheer", href: "/beheer", icon: Settings },
+					{ label: "Formulieren", href: "/plan/beheer", icon: NotebookPen },
+				],
+			},
+		];
+	}
 	if (role === "ontwikkelaar") {
 		return [
 			{
@@ -50,12 +71,7 @@ export function navForRole(role: UserRole | null, badges: NavBadges = {}): NavSe
 	// that used to sit here pointed at the keyuser-only /beheer (CODE-REVIEW.md).
 	if (atLeast(role, "coach")) {
 		const items = [
-			// The superadmin's /dashboard is the platform overview of all schools.
-			{
-				label: role === "superadmin" ? "Overzicht" : "Dashboard",
-				href: "/dashboard",
-				icon: LayoutDashboard,
-			},
+			{ label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
 			{
 				label: "Coachplannen",
 				href: "/plan",
@@ -68,8 +84,8 @@ export function navForRole(role: UserRole | null, badges: NavBadges = {}): NavSe
 		];
 		const sections: NavSection[] = [{ label: "Navigatie", items }];
 
-		// keyuser & superadmin also manage the tenant + form templates.
-		if (atLeast(role, "keyuser")) {
+		// The keyuser also manages their school and its form templates.
+		if (role === "keyuser") {
 			sections.push({
 				label: "Beheer",
 				items: [

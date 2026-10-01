@@ -1,5 +1,6 @@
-import { atLeast, type UserRole } from "@incluvo/permissions";
+import { atLeast, coachesLeerlingen, type UserRole } from "@incluvo/permissions";
 import { redirect } from "@tanstack/solid-router";
+import { roleHome } from "./role-home";
 import { getCachedSession } from "./session";
 
 /**
@@ -17,7 +18,8 @@ import { getCachedSession } from "./session";
  */
 export async function requireRole(
 	minRole: UserRole,
-	to: string = "/",
+	to?: string,
+	options: { coaching?: boolean } = {},
 ): Promise<{ role: UserRole }> {
 	// Skip the session probe during the Bun SPA-shell prerender (no `window`,
 	// empty auth baseURL → "fetch() URL is invalid", which would bake an error
@@ -32,8 +34,9 @@ export async function requireRole(
 	if (!data?.session) {
 		throw redirect({ to: "/login" });
 	}
-	if (!atLeast(role, minRole)) {
-		throw redirect({ to });
+	if (!atLeast(role, minRole) || (options.coaching && !coachesLeerlingen(role))) {
+		// Default: the role's own home, so nobody bounces through "/".
+		throw redirect({ to: to ?? roleHome(role) });
 	}
 	return { role };
 }
