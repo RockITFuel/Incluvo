@@ -10,14 +10,23 @@ import {
 	Sparkles,
 	TrendingUp,
 	User,
-	type LucideProps,
 } from "lucide-solid";
-import { createMemo, createSignal, For, type JSX, Show } from "solid-js";
+import {
+	createEffect,
+	createMemo,
+	createSignal,
+	For,
+	on,
+	Show,
+} from "solid-js";
 import {
 	PlanStatusBadge,
 	relativeTime,
 } from "../../../components/dashboard/plan-status";
+import { KPI } from "../../../components/dashboard/kpi";
 import { Quickpanel } from "../../../components/dashboard/quickpanel";
+import { Pagination } from "../../../components/ui/pagination";
+import { Tooltip } from "../../../components/ui/tooltip";
 import { requireRole } from "../../../lib/auth/require-role";
 import { RequireRole } from "../../../lib/auth/role-guard";
 import { moodMeta } from "../../../lib/mood";
@@ -49,6 +58,18 @@ export const Route = createFileRoute("/_protected/dashboard/")({
 });
 
 type Filter = "all" | "attention" | "plan";
+
+const PAGE_SIZE = 10;
+
+/** Full date + time for the "laatst actief" tooltip. */
+const fullDate = (date: Date | string): string =>
+	new Date(date).toLocaleString("nl-NL", {
+		weekday: "long",
+		day: "numeric",
+		month: "long",
+		hour: "2-digit",
+		minute: "2-digit",
+	});
 
 const initials = (name: string): string =>
 	name
@@ -109,6 +130,18 @@ function DashboardPage() {
 		const q = search().trim().toLowerCase();
 		if (q) list = list.filter((r) => r.leerling.name.toLowerCase().includes(q));
 		return list;
+	});
+
+	// --- Paginering (client-side; the overview returns all assigned leerlingen).
+	const [page, setPage] = createSignal(1);
+	createEffect(on([filter, search], () => setPage(1), { defer: true }));
+	const pageCount = createMemo(() =>
+		Math.max(1, Math.ceil(filtered().length / PAGE_SIZE)),
+	);
+	const currentPage = createMemo(() => Math.min(page(), pageCount()));
+	const paged = createMemo(() => {
+		const start = (currentPage() - 1) * PAGE_SIZE;
+		return filtered().slice(start, start + PAGE_SIZE);
 	});
 
 	const attentionCount = createMemo(
@@ -316,6 +349,7 @@ function DashboardPage() {
 								style={{
 									display: "grid",
 									"grid-template-columns": colTemplate,
+									"column-gap": "24px",
 									padding: "12px 20px",
 									background: "rgb(var(--bg-2))",
 									"border-bottom": "1px solid rgb(var(--line))",
@@ -336,7 +370,7 @@ function DashboardPage() {
 								</div>
 							</div>
 
-							<For each={filtered()}>
+							<For each={paged()}>
 								{(row) => (
 									// The row is clickable for mouse users; keyboard and screen-reader
 									// users open the snelpanel with the name button (no nested
@@ -346,6 +380,7 @@ function DashboardPage() {
 										style={{
 											display: "grid",
 											"grid-template-columns": colTemplate,
+											"column-gap": "24px",
 											padding: "14px 20px",
 											"border-bottom": "1px solid rgb(var(--line-2))",
 											"align-items": "center",
@@ -467,18 +502,23 @@ function DashboardPage() {
 										</div>
 
 										{/* Voortgang */}
-										<div role="cell">
-											<div class="progress" style={{ "margin-bottom": "4px" }}>
+										<div role="cell" class="ds-row" style={{ gap: "10px" }}>
+											<div
+												class="progress"
+												style={{ flex: "1", "max-width": "160px" }}
+												aria-hidden="true"
+											>
 												<span style={{ width: `${voortgang(row)}%` }} />
 											</div>
-											<div
+											<span
 												style={{
-													"font-size": "0.6875rem",
+													"font-size": "0.75rem",
 													color: "rgb(var(--muted))",
+													"font-variant-numeric": "tabular-nums",
 												}}
 											>
 												{voortgang(row)}%
-											</div>
+											</span>
 										</div>
 
 										{/* Laatst actief */}
@@ -487,9 +527,17 @@ function DashboardPage() {
 											style={{
 												"font-size": "0.8125rem",
 												color: "rgb(var(--muted))",
+												"white-space": "nowrap",
 											}}
+											title={
+												row.lastActivityAt
+													? fullDate(row.lastActivityAt)
+													: "Nog geen activiteit"
+											}
 										>
-											{relativeTime(row.lastActivityAt)}
+											{row.lastActivityAt
+												? relativeTime(row.lastActivityAt)
+												: "Nog niet actief"}
 										</div>
 
 										{/* Snelacties */}
@@ -498,33 +546,43 @@ function DashboardPage() {
 											class="ds-row"
 											style={{ gap: "4px", "justify-content": "flex-end" }}
 										>
-											<Link
-												to="/chat"
-												search={
-													row.snelacties.conversationId
-														? {
-																conversationId:
-																	row.snelacties.conversationId,
-															}
-														: { otherUserId: row.leerling.id }
-												}
-												aria-label={`Chat met ${row.leerling.name}`}
-												class="icon-btn"
-												style={{ width: "30px", height: "30px" }}
-												onClick={(e) => e.stopPropagation()}
-											>
-												<MessageSquare class="size-3.5" aria-hidden="true" />
-											</Link>
-											<Link
-												to="/dashboard/$leerlingId"
-												params={{ leerlingId: row.leerling.id }}
-												aria-label={`Profiel van ${row.leerling.name}`}
-												class="icon-btn"
-												style={{ width: "30px", height: "30px" }}
-												onClick={(e) => e.stopPropagation()}
-											>
-												<User class="size-3.5" aria-hidden="true" />
-											</Link>
+											<Tooltip content="Chat openen">
+												{(trigger) => (
+													<Link
+														{...trigger}
+														to="/chat"
+														search={
+															row.snelacties.conversationId
+																? {
+																		conversationId:
+																			row.snelacties.conversationId,
+																	}
+																: { otherUserId: row.leerling.id }
+														}
+														aria-label={`Chat met ${row.leerling.name}`}
+														class="icon-btn"
+														style={{ width: "30px", height: "30px" }}
+														onClick={(e) => e.stopPropagation()}
+													>
+														<MessageSquare class="size-3.5" aria-hidden="true" />
+													</Link>
+												)}
+											</Tooltip>
+											<Tooltip content="Profiel bekijken">
+												{(trigger) => (
+													<Link
+														{...trigger}
+														to="/dashboard/$leerlingId"
+														params={{ leerlingId: row.leerling.id }}
+														aria-label={`Profiel van ${row.leerling.name}`}
+														class="icon-btn"
+														style={{ width: "30px", height: "30px" }}
+														onClick={(e) => e.stopPropagation()}
+													>
+														<User class="size-3.5" aria-hidden="true" />
+													</Link>
+												)}
+											</Tooltip>
 										</div>
 									</div>
 								)}
@@ -546,6 +604,15 @@ function DashboardPage() {
 							</Show>
 						</div>
 					</div>
+
+					<Pagination
+						page={currentPage()}
+						pageCount={pageCount()}
+						pageSize={PAGE_SIZE}
+						total={filtered().length}
+						noun="leerlingen"
+						onPage={setPage}
+					/>
 				</div>
 			</Show>
 
@@ -556,80 +623,5 @@ function DashboardPage() {
 				onClose={() => setOpenLeerling(null)}
 			/>
 		</>
-	);
-}
-
-function KPI(props: {
-	label: string;
-	value: string;
-	sub: string;
-	tone: "primary" | "accent" | "warning" | "success";
-	icon: (p: LucideProps) => JSX.Element;
-}) {
-	const bg = () =>
-		props.tone === "primary"
-			? "rgb(var(--primary-100))"
-			: props.tone === "accent"
-				? "rgb(var(--accent-100))"
-				: props.tone === "warning"
-					? "rgb(var(--warning-100))"
-					: "rgb(var(--success-100))";
-	const fg = () =>
-		props.tone === "primary"
-			? "rgb(var(--primary-700))"
-			: props.tone === "accent"
-				? "rgb(var(--accent-700))"
-				: props.tone === "warning"
-					? "rgb(var(--warning))"
-					: "rgb(var(--success))";
-	return (
-		<div class="card" style={{ padding: "18px" }}>
-			<div class="ds-row ds-between" style={{ "margin-bottom": "8px" }}>
-				<div
-					style={{
-						"font-size": "0.75rem",
-						color: "rgb(var(--muted))",
-						"font-weight": "600",
-						"text-transform": "uppercase",
-						"letter-spacing": "0.06em",
-					}}
-				>
-					{props.label}
-				</div>
-				<div
-					style={{
-						width: "30px",
-						height: "30px",
-						"border-radius": "9px",
-						background: bg(),
-						color: fg(),
-						display: "grid",
-						"place-items": "center",
-						"flex-shrink": "0",
-					}}
-				>
-					<props.icon class="size-4" aria-hidden="true" />
-				</div>
-			</div>
-			<div
-				style={{
-					"font-family": "var(--font-head)",
-					"font-size": "1.75rem",
-					"font-weight": "600",
-					"line-height": "1",
-				}}
-			>
-				{props.value}
-			</div>
-			<div
-				style={{
-					"font-size": "0.75rem",
-					color: "rgb(var(--muted))",
-					"margin-top": "6px",
-				}}
-			>
-				{props.sub}
-			</div>
-		</div>
 	);
 }

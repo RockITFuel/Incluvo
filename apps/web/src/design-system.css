@@ -255,6 +255,11 @@
 .icon-btn:hover {
 	background: rgb(var(--line-2));
 }
+.icon-btn:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+	background: rgb(var(--surface));
+}
 .icon-btn .dot {
 	position: absolute;
 	top: 6px;

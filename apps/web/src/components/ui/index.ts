@@ -8,6 +8,8 @@ export {
 	CardTitle,
 } from "./card";
 export { Dialog } from "./dialog";
+export { Pagination } from "./pagination";
+export type { PaginationProps } from "./pagination";
 export { SegmentedControl } from "./segmented-control";
 export { Select } from "./select";
 export type { SelectOption } from "./select";
@@ -16,3 +18,5 @@ export { Tabs } from "./tabs";
 export type { TabItem } from "./tabs";
 export { Input, Textarea } from "./text-field";
 export { Toaster, toast } from "./toast";
+export { Tooltip } from "./tooltip";
+export type { TooltipProps } from "./tooltip";
