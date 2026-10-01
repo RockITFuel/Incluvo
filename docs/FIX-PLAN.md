@@ -270,12 +270,11 @@ rows), `user` audited (role + organization only), daily purge after
 `AUDIT_RETENTION_DAYS` (default 730).
 - *open (phase 2):* `answer_coach_mapping` uniqueness — the mapping is being
   reworked in 2.2.
-- *open, needs decisions:* retention of pupil data itself (plans, chats,
-  recordings, transcripts) per school. The admin settings screen is still a
-  stub; which data is deleted when, and whether schools may change the terms,
-  is a policy question.
-- *open (new finding):* nothing in the app creates or removes coach
-  assignments; only the seed does. A keyuser needs a screen for it.
+- ✅ (01-10-2026) retention of pupil data: kept without a time limit for now,
+  audio is never stored, read-only policy screen
+  (`docs/decisions/bewaartermijnen.md`).
+- ✅ (01-10-2026) coach assignments: Beheer → Koppelingen (keyuser, superadmin),
+  `admin.assignments`.
 
 ---
 

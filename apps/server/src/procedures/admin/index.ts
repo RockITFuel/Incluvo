@@ -20,6 +20,7 @@ import { and, count, countDistinct, desc, eq, inArray, max } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import { assertNotArchived } from "../../access";
+import { env } from "../../env";
 import {
 	type AuthedContext,
 	base,
@@ -41,9 +42,7 @@ import {
  *    courses (#23) per school, with counts/links.
  *  - `audit`          — tenant-scoped audit-log inzage for keyuser (their org's
  *    actors only) and global for superadmin, paged + filtered (#60).
- *  - `settings`       — retention/bewaartermijnen (#4 privacy). There is NO
- *    settings/retention table in the schema, so these are a typed STUB that
- *    returns sane defaults and rejects writes. See "ORCHESTRATOR TODO".
+ *  - `settings`       — the bewaartermijnen policy (#4 privacy), read-only.
  *
  * Tenant scoping: role-only gates use `withPolicy(...)`; once a row is loaded
  * handlers re-check `sameTenant(actor, row)`. The superadmin (Ondivera) is the
@@ -701,37 +700,27 @@ const auditRouter = base.router({
 });
 
 // ---------------------------------------------------------------------------
-// settings — bewaartermijnen / retention (#4 privacy) — STUB (no table yet)
+// settings — bewaartermijnen / retention (#4 privacy)
 // ---------------------------------------------------------------------------
 
 /**
- * Retention / bewaartermijnen settings (#4, AVG). There is intentionally NO
- * settings/retention table in the schema (we may not edit it), so this is a
- * typed STUB: `get` returns documented defaults; `update` is rejected with a
- * clear message so the UI can render the intended shape without pretending to
- * persist. See "ORCHESTRATOR TODO" — a `settings`/`retention` table is needed
- * to make this real.
+ * Bewaartermijnen (decision 01-10-2026, docs/decisions/bewaartermijnen.md):
+ * pupil data is kept without a time limit for now. Nothing is deleted
+ * automatically except the audit log (AUDIT_RETENTION_DAYS, retention.ts).
+ * Audio is never stored: it goes straight to transcription. Read-only — there
+ * is nothing per school to configure until the policy changes.
  */
-const RetentionSettingsSchema = z.object({
-	organizationId: z.string().nullable(),
-	coachplanRetentionDays: z.number().int(),
-	chatRetentionDays: z.number().int(),
-	recordingRetentionDays: z.number().int(),
-	transcriptRetentionDays: z.number().int(),
-	deleteRecordingAfterTranscription: z.boolean(),
-	// Marks this as a non-persisted default until a settings table exists.
-	persisted: z.boolean(),
+const RetentionPolicySchema = z.object({
+	/** Days, or null for "onbeperkt". */
+	coachplanDays: z.number().int().nullable(),
+	chatDays: z.number().int().nullable(),
+	transcriptDays: z.number().int().nullable(),
+	/** Audio recordings are not stored at all. */
+	recordingsStored: z.boolean(),
+	auditLogDays: z.number().int(),
 });
 
-const DEFAULT_RETENTION = {
-	coachplanRetentionDays: 365 * 2,
-	chatRetentionDays: 365,
-	recordingRetentionDays: 30,
-	transcriptRetentionDays: 365,
-	deleteRecordingAfterTranscription: true,
-} as const;
-
-/** Read retention settings (keyuser+ for their tenant; superadmin global). */
+/** The retention policy (keyuser+). */
 const settingsGet = protectedProcedure
 	.use(withPolicy(policies.manageUsers, ownTenant))
 	.route({
@@ -739,46 +728,17 @@ const settingsGet = protectedProcedure
 		path: "/admin/settings/retention",
 		tags: ["admin"],
 	})
-	.output(RetentionSettingsSchema)
-	.handler(async ({ context }) => {
-		return {
-			organizationId: context.actor.organizationId ?? null,
-			...DEFAULT_RETENTION,
-			persisted: false,
-		};
-	});
-
-/**
- * Update retention settings — STUB. Returns BAD_REQUEST until a settings table
- * exists; the typed input shape documents what we will persist.
- */
-const settingsUpdate = protectedProcedure
-	.use(withPolicy(policies.manageUsers, ownTenant))
-	.route({
-		method: "PUT",
-		path: "/admin/settings/retention",
-		tags: ["admin"],
-	})
-	.input(
-		z.object({
-			coachplanRetentionDays: z.number().int().min(0).optional(),
-			chatRetentionDays: z.number().int().min(0).optional(),
-			recordingRetentionDays: z.number().int().min(0).optional(),
-			transcriptRetentionDays: z.number().int().min(0).optional(),
-			deleteRecordingAfterTranscription: z.boolean().optional(),
-		}),
-	)
-	.output(RetentionSettingsSchema)
-	.handler(() => {
-		throw new ORPCError("NOT_IMPLEMENTED", {
-			message:
-				"Bewaartermijnen kunnen nog niet worden opgeslagen: er ontbreekt een settings/retention-tabel in het schema (zie ORCHESTRATOR TODO).",
-		});
-	});
+	.output(RetentionPolicySchema)
+	.handler(() => ({
+		coachplanDays: null,
+		chatDays: null,
+		transcriptDays: null,
+		recordingsStored: false,
+		auditLogDays: env.AUDIT_RETENTION_DAYS,
+	}));
 
 const settingsRouter = base.router({
 	getRetention: settingsGet,
-	updateRetention: settingsUpdate,
 });
 
 // ---------------------------------------------------------------------------
