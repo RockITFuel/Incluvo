@@ -23,12 +23,14 @@ import {
 	PlanStatusBadge,
 	relativeTime,
 } from "../../../components/dashboard/plan-status";
+import { PlatformOverview } from "../../../components/admin/platform-overview";
 import { KPI } from "../../../components/dashboard/kpi";
 import { Quickpanel } from "../../../components/dashboard/quickpanel";
 import { Pagination } from "../../../components/ui/pagination";
 import { Tooltip } from "../../../components/ui/tooltip";
 import { requireRole } from "../../../lib/auth/require-role";
 import { RequireRole } from "../../../lib/auth/role-guard";
+import { useMe } from "../../../lib/auth/use-me";
 import { moodMeta } from "../../../lib/mood";
 import { orpc } from "../../../lib/orpc";
 
@@ -52,10 +54,23 @@ export const Route = createFileRoute("/_protected/dashboard/")({
 	beforeLoad: () => requireRole("coach"),
 	component: () => (
 		<RequireRole min="coach">
-			<DashboardPage />
+			<DashboardOrOverview />
 		</RequireRole>
 	),
 });
+
+/**
+ * The superadmin (Ondivera) manages schools rather than coaching leerlingen:
+ * they get the platform overview (docs/decisions/superadmin-beheer.md).
+ */
+function DashboardOrOverview() {
+	const me = useMe();
+	return (
+		<Show when={me.is("superadmin")} fallback={<DashboardPage />}>
+			<PlatformOverview />
+		</Show>
+	);
+}
 
 type Filter = "all" | "attention" | "plan";
 

@@ -1,5 +1,5 @@
 import { createRequestDb, isPoolTimeout } from "@incluvo/drizzle";
-import { user } from "@incluvo/drizzle/schema";
+import { organization, user } from "@incluvo/drizzle/schema";
 import {
 	checkPermission,
 	type Policy,
@@ -46,9 +46,22 @@ const requireAuth = base.middleware(async ({ context, next }) => {
 
 	// Load the authoritative tenant for this user from the DB.
 	const [row] = await context.db
-		.select({ organizationId: user.organizationId })
+		.select({
+			organizationId: user.organizationId,
+			archivedAt: organization.archivedAt,
+		})
 		.from(user)
+		.leftJoin(organization, eq(organization.id, user.organizationId))
 		.where(eq(user.id, sessionUser.id));
+
+	// An archived school is locked out (docs/decisions/superadmin-beheer.md).
+	// Its sessions are revoked on archive; this catches any that slipped
+	// through, e.g. a request that was already in flight.
+	if (row?.archivedAt) {
+		throw new ORPCError("FORBIDDEN", {
+			message: "Deze school heeft geen toegang meer tot Incluvo.",
+		});
+	}
 
 	const actor: PolicySubject = {
 		userId: sessionUser.id,

@@ -13,6 +13,7 @@ import {
 import { ORPCError } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
+import { assertNotArchived } from "../../access";
 import { createAccount, hasPassword, sendInvite } from "../../users";
 import { base, ownTenant, protectedProcedure, withPolicy } from "../base";
 
@@ -314,6 +315,9 @@ const usersSetRole = protectedProcedure
 				message: `Not allowed to assign role "${input.role}"`,
 			});
 		}
+		if (target.organizationId) {
+			await assertNotArchived(context.db, target.organizationId);
+		}
 
 		const [row] = await context.db
 			.update(user)
@@ -383,6 +387,7 @@ const usersInvite = protectedProcedure
 				message: `Not allowed to assign role "${input.role}"`,
 			});
 		}
+		await assertNotArchived(context.db, organizationId);
 
 		const [existing] = await context.db
 			.select({

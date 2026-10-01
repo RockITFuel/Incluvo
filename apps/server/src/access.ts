@@ -4,7 +4,8 @@
  * `requireLeerlingAccess` with the leerling id taken from the loaded row (a
  * course, submission, plan …), never trusting a client-supplied id alone.
  */
-import { coachAssignment, user } from "@incluvo/drizzle/schema";
+import type { Database } from "@incluvo/drizzle";
+import { coachAssignment, organization, user } from "@incluvo/drizzle/schema";
 import {
 	canAccessLeerling,
 	isSuperadmin,
@@ -107,4 +108,23 @@ export async function reachableLeerlingen(
 		return sql`false`;
 	}
 	return eq(leerlingIdColumn, actor.userId);
+}
+
+/**
+ * Refuse changes to an archived school. Archiving keeps the data but freezes
+ * the tenant: no invites, no renames — restore it first.
+ */
+export async function assertNotArchived(
+	db: Database,
+	organizationId: string,
+): Promise<void> {
+	const [row] = await db
+		.select({ archivedAt: organization.archivedAt })
+		.from(organization)
+		.where(eq(organization.id, organizationId));
+	if (row?.archivedAt) {
+		throw new ORPCError("BAD_REQUEST", {
+			message: "Deze school is gearchiveerd. Herstel de school eerst.",
+		});
+	}
 }

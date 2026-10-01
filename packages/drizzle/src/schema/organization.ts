@@ -27,6 +27,9 @@ export const organization = pgTable("organization", {
 	// Self-FK: a school is administered under the Ondivera root tenant.
 	// ASSUMPTION: there is a single Ondivera root org; schools reference it.
 	parentId: uuid("parent_id"),
+	// Archived schools keep their data but can no longer sign in or be invited
+	// into (docs/decisions/superadmin-beheer.md). Null = active.
+	archivedAt: timestamp("archived_at"),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 	updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

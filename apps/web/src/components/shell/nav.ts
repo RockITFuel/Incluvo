@@ -51,7 +51,12 @@ export function navForRole(role: UserRole | null, badges: NavBadges = {}): NavSe
 	// that used to sit here pointed at the keyuser-only /beheer (CODE-REVIEW.md).
 	if (atLeast(role, "coach")) {
 		const items = [
-			{ label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+			// The superadmin's /dashboard is the platform overview of all schools.
+			{
+				label: role === "superadmin" ? "Overzicht" : "Dashboard",
+				href: "/dashboard",
+				icon: LayoutDashboard,
+			},
 			{
 				label: "Coachplannen",
 				href: "/plan",

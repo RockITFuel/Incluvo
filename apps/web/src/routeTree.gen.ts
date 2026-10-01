@@ -28,6 +28,7 @@ import { Route as ProtectedPlanSubmissionIdRouteImport } from './routes/_protect
 import { Route as ProtectedDashboardLeerlingIdRouteImport } from './routes/_protected/dashboard/$leerlingId'
 import { Route as ProtectedCursussenCourseIdRouteImport } from './routes/_protected/cursussen/$courseId'
 import { Route as ProtectedPlanBeheerIndexRouteImport } from './routes/_protected/plan/beheer/index'
+import { Route as ProtectedBeheerScholenOrganizationIdRouteImport } from './routes/_protected/beheer/scholen/$organizationId'
 
 const WachtwoordInstellenRoute = WachtwoordInstellenRouteImport.update({
   id: '/wachtwoord-instellen',
@@ -129,6 +130,12 @@ const ProtectedPlanBeheerIndexRoute =
     path: '/plan/beheer/',
     getParentRoute: () => ProtectedRoute,
   } as any)
+const ProtectedBeheerScholenOrganizationIdRoute =
+  ProtectedBeheerScholenOrganizationIdRouteImport.update({
+    id: '/beheer/scholen/$organizationId',
+    path: '/beheer/scholen/$organizationId',
+    getParentRoute: () => ProtectedRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -148,6 +155,7 @@ export interface FileRoutesByFullPath {
   '/profiel/': typeof ProtectedProfielIndexRoute
   '/taken/': typeof ProtectedTakenIndexRoute
   '/welkom/': typeof ProtectedWelkomIndexRoute
+  '/beheer/scholen/$organizationId': typeof ProtectedBeheerScholenOrganizationIdRoute
   '/plan/beheer/': typeof ProtectedPlanBeheerIndexRoute
 }
 export interface FileRoutesByTo {
@@ -168,6 +176,7 @@ export interface FileRoutesByTo {
   '/profiel': typeof ProtectedProfielIndexRoute
   '/taken': typeof ProtectedTakenIndexRoute
   '/welkom': typeof ProtectedWelkomIndexRoute
+  '/beheer/scholen/$organizationId': typeof ProtectedBeheerScholenOrganizationIdRoute
   '/plan/beheer': typeof ProtectedPlanBeheerIndexRoute
 }
 export interface FileRoutesById {
@@ -190,6 +199,7 @@ export interface FileRoutesById {
   '/_protected/profiel/': typeof ProtectedProfielIndexRoute
   '/_protected/taken/': typeof ProtectedTakenIndexRoute
   '/_protected/welkom/': typeof ProtectedWelkomIndexRoute
+  '/_protected/beheer/scholen/$organizationId': typeof ProtectedBeheerScholenOrganizationIdRoute
   '/_protected/plan/beheer/': typeof ProtectedPlanBeheerIndexRoute
 }
 export interface FileRouteTypes {
@@ -212,6 +222,7 @@ export interface FileRouteTypes {
     | '/profiel/'
     | '/taken/'
     | '/welkom/'
+    | '/beheer/scholen/$organizationId'
     | '/plan/beheer/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -232,6 +243,7 @@ export interface FileRouteTypes {
     | '/profiel'
     | '/taken'
     | '/welkom'
+    | '/beheer/scholen/$organizationId'
     | '/plan/beheer'
   id:
     | '__root__'
@@ -253,6 +265,7 @@ export interface FileRouteTypes {
     | '/_protected/profiel/'
     | '/_protected/taken/'
     | '/_protected/welkom/'
+    | '/_protected/beheer/scholen/$organizationId'
     | '/_protected/plan/beheer/'
   fileRoutesById: FileRoutesById
 }
@@ -398,6 +411,13 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof ProtectedPlanBeheerIndexRouteImport
       parentRoute: typeof ProtectedRoute
     }
+    '/_protected/beheer/scholen/$organizationId': {
+      id: '/_protected/beheer/scholen/$organizationId'
+      path: '/beheer/scholen/$organizationId'
+      fullPath: '/beheer/scholen/$organizationId'
+      preLoaderRoute: typeof ProtectedBeheerScholenOrganizationIdRouteImport
+      parentRoute: typeof ProtectedRoute
+    }
   }
 }
 
@@ -416,6 +436,7 @@ interface ProtectedRouteChildren {
   ProtectedProfielIndexRoute: typeof ProtectedProfielIndexRoute
   ProtectedTakenIndexRoute: typeof ProtectedTakenIndexRoute
   ProtectedWelkomIndexRoute: typeof ProtectedWelkomIndexRoute
+  ProtectedBeheerScholenOrganizationIdRoute: typeof ProtectedBeheerScholenOrganizationIdRoute
   ProtectedPlanBeheerIndexRoute: typeof ProtectedPlanBeheerIndexRoute
 }
 
@@ -434,6 +455,8 @@ const ProtectedRouteChildren: ProtectedRouteChildren = {
   ProtectedProfielIndexRoute: ProtectedProfielIndexRoute,
   ProtectedTakenIndexRoute: ProtectedTakenIndexRoute,
   ProtectedWelkomIndexRoute: ProtectedWelkomIndexRoute,
+  ProtectedBeheerScholenOrganizationIdRoute:
+    ProtectedBeheerScholenOrganizationIdRoute,
   ProtectedPlanBeheerIndexRoute: ProtectedPlanBeheerIndexRoute,
 }
 

@@ -1,6 +1,7 @@
 import { db } from "@incluvo/drizzle";
 import {
 	account,
+	organization,
 	session,
 	user,
 	verification,
@@ -9,6 +10,7 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { APIError, createAuthMiddleware } from "better-auth/api";
 import { bearer } from "better-auth/plugins";
+import { eq } from "drizzle-orm";
 import { env } from "./env";
 import { sendMail } from "./mail";
 import { rateLimit } from "./rate-limit";
@@ -83,6 +85,27 @@ export const auth = betterAuth({
 	advanced: env.AUTH_IP_HEADER
 		? { ipAddress: { ipAddressHeaders: [env.AUTH_IP_HEADER] } }
 		: undefined,
+	// Runs after the password check, so it reveals nothing about an address
+	// to someone who doesn't know the password.
+	databaseHooks: {
+		session: {
+			create: {
+				before: async (newSession) => {
+					const [row] = await db
+						.select({ archivedAt: organization.archivedAt })
+						.from(user)
+						.innerJoin(organization, eq(organization.id, user.organizationId))
+						.where(eq(user.id, newSession.userId));
+					if (row?.archivedAt) {
+						throw new APIError("FORBIDDEN", {
+							message:
+								"Je school heeft geen toegang meer tot Incluvo. Neem contact op met je school.",
+						});
+					}
+				},
+			},
+		},
+	},
 	hooks: {
 		before: createAuthMiddleware(async (ctx) => {
 			if (ctx.path !== "/sign-in/email") return;

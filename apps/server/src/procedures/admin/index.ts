@@ -1,8 +1,10 @@
 import {
 	auditLog,
 	course,
+	formSubmission,
 	formTemplate,
 	organization,
+	session,
 	user,
 } from "@incluvo/drizzle/schema";
 import {
@@ -13,8 +15,10 @@ import {
 } from "@incluvo/permissions";
 import type { Database } from "@incluvo/drizzle";
 import { ORPCError } from "@orpc/server";
-import { and, count, desc, eq, inArray } from "drizzle-orm";
+import { and, count, countDistinct, desc, eq, inArray, max } from "drizzle-orm";
+import type { PgColumn } from "drizzle-orm/pg-core";
 import { z } from "zod";
+import { assertNotArchived } from "../../access";
 import { base, ownTenant, protectedProcedure, withPolicy } from "../base";
 
 /**
@@ -48,16 +52,28 @@ const OrganizationSchema = z.object({
 	name: z.string(),
 	kind: z.enum(["ondivera", "school"]),
 	parentId: z.string().nullable(),
+	archivedAt: z.date().nullable(),
 	createdAt: z.date(),
 });
 
 const SchoolStatsSchema = z.object({
 	organizationId: z.string(),
 	userCount: z.number().int(),
+	keyuserCount: z.number().int(),
 	coachCount: z.number().int(),
 	leerlingCount: z.number().int(),
 	formTemplateCount: z.number().int(),
 	courseCount: z.number().int(),
+	/** Leerlingen whose coachplan waits for the coach (status `submitted`). */
+	plansWaiting: z.number().int(),
+	/** Most recent session activity of anyone in the school. */
+	lastActiveAt: z.date().nullable(),
+});
+
+type SchoolStats = z.infer<typeof SchoolStatsSchema>;
+
+const OrganizationWithStatsSchema = OrganizationSchema.extend({
+	stats: SchoolStatsSchema.omit({ organizationId: true }),
 });
 
 const orgColumns = {
@@ -65,6 +81,7 @@ const orgColumns = {
 	name: organization.name,
 	kind: organization.kind,
 	parentId: organization.parentId,
+	archivedAt: organization.archivedAt,
 	createdAt: organization.createdAt,
 } as const;
 
@@ -78,6 +95,120 @@ async function ondiveraRootId(db: Database): Promise<string | null> {
 	return root?.id ?? null;
 }
 
+/**
+ * Per-organization aggregates in a handful of grouped queries (not one query
+ * per school), so the platform overview stays cheap with many schools.
+ * `orgIds` narrows every query to those organizations; omit it for all.
+ */
+async function schoolStats(
+	db: Database,
+	orgIds?: string[],
+): Promise<Map<string, SchoolStats>> {
+	const inOrgs = (column: PgColumn) =>
+		orgIds ? inArray(column, orgIds) : undefined;
+
+	const usersByOrg = await db
+		.select({
+			organizationId: user.organizationId,
+			role: user.role,
+			value: count(),
+		})
+		.from(user)
+		.where(inOrgs(user.organizationId))
+		.groupBy(user.organizationId, user.role);
+
+	const templatesByOrg = await db
+		.select({ organizationId: formTemplate.organizationId, value: count() })
+		.from(formTemplate)
+		.where(inOrgs(formTemplate.organizationId))
+		.groupBy(formTemplate.organizationId);
+
+	const coursesByOrg = await db
+		.select({ organizationId: course.organizationId, value: count() })
+		.from(course)
+		.where(inOrgs(course.organizationId))
+		.groupBy(course.organizationId);
+
+	const plansByOrg = await db
+		.select({
+			organizationId: formSubmission.organizationId,
+			value: countDistinct(formSubmission.leerlingId),
+		})
+		.from(formSubmission)
+		.where(
+			and(
+				eq(formSubmission.status, "submitted"),
+				inOrgs(formSubmission.organizationId),
+			),
+		)
+		.groupBy(formSubmission.organizationId);
+
+	const activityByOrg = await db
+		.select({
+			organizationId: user.organizationId,
+			value: max(session.updatedAt),
+		})
+		.from(session)
+		.innerJoin(user, eq(user.id, session.userId))
+		.where(inOrgs(user.organizationId))
+		.groupBy(user.organizationId);
+
+	const stats = new Map<string, SchoolStats>();
+	const statFor = (orgId: string): SchoolStats => {
+		let row = stats.get(orgId);
+		if (!row) {
+			row = {
+				organizationId: orgId,
+				userCount: 0,
+				keyuserCount: 0,
+				coachCount: 0,
+				leerlingCount: 0,
+				formTemplateCount: 0,
+				courseCount: 0,
+				plansWaiting: 0,
+				lastActiveAt: null,
+			};
+			stats.set(orgId, row);
+		}
+		return row;
+	};
+	for (const r of usersByOrg) {
+		if (!r.organizationId) continue;
+		const row = statFor(r.organizationId);
+		row.userCount += r.value;
+		if (r.role === "keyuser") row.keyuserCount = r.value;
+		if (r.role === "coach") row.coachCount = r.value;
+		if (r.role === "leerling") row.leerlingCount = r.value;
+	}
+	for (const r of templatesByOrg) {
+		if (r.organizationId) statFor(r.organizationId).formTemplateCount = r.value;
+	}
+	for (const r of coursesByOrg) {
+		if (r.organizationId) statFor(r.organizationId).courseCount = r.value;
+	}
+	for (const r of plansByOrg) statFor(r.organizationId).plansWaiting = r.value;
+	for (const r of activityByOrg) {
+		if (r.organizationId) statFor(r.organizationId).lastActiveAt = r.value;
+	}
+	return stats;
+}
+
+/** Stats for one org without its id (the shape nested under `stats`). */
+function statsOf(stats: Map<string, SchoolStats>, orgId: string) {
+	const { organizationId: _, ...rest } = stats.get(orgId) ?? {
+		organizationId: orgId,
+		userCount: 0,
+		keyuserCount: 0,
+		coachCount: 0,
+		leerlingCount: 0,
+		formTemplateCount: 0,
+		courseCount: 0,
+		plansWaiting: 0,
+		lastActiveAt: null,
+	};
+	return rest;
+}
+
 // ---------------------------------------------------------------------------
 // organizations / scholen
 // ---------------------------------------------------------------------------
@@ -85,73 +216,39 @@ async function ondiveraRootId(db: Database): Promise<string | null> {
 /**
  * List all organizations with admin-level aggregates (superadmin only).
  * Returns Ondivera + every school with per-school counts so the admin sees the
- * whole tenant tree at a glance.
+ * whole tenant tree at a glance (platform overview + Beheer → Scholen).
  */
 const orgListAll = protectedProcedure
 	.use(withPolicy(policies.manageTenant))
 	.route({ method: "GET", path: "/admin/organizations", tags: ["admin"] })
-	.output(
-		z.array(
-			OrganizationSchema.extend({
-				stats: SchoolStatsSchema.omit({ organizationId: true }),
-			}),
-		),
-	)
+	.output(z.array(OrganizationWithStatsSchema))
 	.handler(async ({ context }) => {
 		const orgs = await context.db
 			.select(orgColumns)
 			.from(organization)
 			.orderBy(organization.kind, organization.name);
+		const stats = await schoolStats(context.db);
+		return orgs.map((o) => ({ ...o, stats: statsOf(stats, o.id) }));
+	});
 
-		// Aggregate counts grouped by tenant in three cheap grouped queries.
-		const usersByOrg = await context.db
-			.select({
-				organizationId: user.organizationId,
-				role: user.role,
-				value: count(),
-			})
-			.from(user)
-			.groupBy(user.organizationId, user.role);
-
-		const templatesByOrg = await context.db
-			.select({
-				organizationId: formTemplate.organizationId,
-				value: count(),
-			})
-			.from(formTemplate)
-			.groupBy(formTemplate.organizationId);
-
-		const coursesByOrg = await context.db
-			.select({
-				organizationId: course.organizationId,
-				value: count(),
-			})
-			.from(course)
-			.groupBy(course.organizationId);
-
-		const statFor = (orgId: string) => {
-			const userRows = usersByOrg.filter(
-				(r) => r.organizationId === orgId,
-			);
-			const userCount = userRows.reduce((s, r) => s + r.value, 0);
-			const coachCount =
-				userRows.find((r) => r.role === "coach")?.value ?? 0;
-			const leerlingCount =
-				userRows.find((r) => r.role === "leerling")?.value ?? 0;
-			const formTemplateCount =
-				templatesByOrg.find((r) => r.organizationId === orgId)?.value ?? 0;
-			const courseCount =
-				coursesByOrg.find((r) => r.organizationId === orgId)?.value ?? 0;
-			return {
-				userCount,
-				coachCount,
-				leerlingCount,
-				formTemplateCount,
-				courseCount,
-			};
-		};
-
-		return orgs.map((o) => ({ ...o, stats: statFor(o.id) }));
+/** One organization with its stats, for the school page (superadmin only). */
+const orgDetail = protectedProcedure
+	.use(withPolicy(policies.manageTenant))
+	.route({
+		method: "GET",
+		path: "/admin/organizations/{id}",
+		tags: ["admin"],
+	})
+	.input(z.object({ id: z.string().uuid() }))
+	.output(OrganizationWithStatsSchema)
+	.handler(async ({ input, context }) => {
+		const [o] = await context.db
+			.select(orgColumns)
+			.from(organization)
+			.where(eq(organization.id, input.id));
+		if (!o) throw new ORPCError("NOT_FOUND");
+		const stats = await schoolStats(context.db, [o.id]);
+		return { ...o, stats: statsOf(stats, o.id) };
 	});
 
 /** The actor's own organization (keyuser views their school). */
@@ -190,36 +287,10 @@ const orgStats = protectedProcedure
 				message: "Not allowed to view stats for this tenant",
 			});
 		}
-
-		const orgScope = eq(user.organizationId, input.organizationId);
-		const [users] = await context.db
-			.select({ value: count() })
-			.from(user)
-			.where(orgScope);
-		const [coaches] = await context.db
-			.select({ value: count() })
-			.from(user)
-			.where(and(orgScope, eq(user.role, "coach")));
-		const [leerlingen] = await context.db
-			.select({ value: count() })
-			.from(user)
-			.where(and(orgScope, eq(user.role, "leerling")));
-		const [templates] = await context.db
-			.select({ value: count() })
-			.from(formTemplate)
-			.where(eq(formTemplate.organizationId, input.organizationId));
-		const [courses] = await context.db
-			.select({ value: count() })
-			.from(course)
-			.where(eq(course.organizationId, input.organizationId));
-
+		const stats = await schoolStats(context.db, [input.organizationId]);
 		return {
 			organizationId: input.organizationId,
-			userCount: users?.value ?? 0,
-			coachCount: coaches?.value ?? 0,
-			leerlingCount: leerlingen?.value ?? 0,
-			formTemplateCount: templates?.value ?? 0,
-			courseCount: courses?.value ?? 0,
+			...statsOf(stats, input.organizationId),
 		};
 	});
 
@@ -232,7 +303,7 @@ const orgCreateSchool = protectedProcedure
 	.route({ method: "POST", path: "/admin/organizations", tags: ["admin"] })
 	.input(
 		z.object({
-			name: z.string().min(1),
+			name: z.string().trim().min(1),
 			parentId: z.string().uuid().nullable().optional(),
 		}),
 	)
@@ -261,7 +332,7 @@ const orgUpdate = protectedProcedure
 	.input(
 		z.object({
 			id: z.string().uuid(),
-			name: z.string().min(1).optional(),
+			name: z.string().trim().min(1).optional(),
 			kind: z.enum(["ondivera", "school"]).optional(),
 			parentId: z.string().uuid().nullable().optional(),
 		}),
@@ -283,6 +354,7 @@ const orgUpdate = protectedProcedure
 				message: "Only the superadmin may change kind/parent",
 			});
 		}
+		await assertNotArchived(context.db, id);
 
 		const [row] = await context.db
 			.update(organization)
@@ -297,12 +369,67 @@ const orgUpdate = protectedProcedure
 		return row;
 	});
 
+/**
+ * Archive or restore a school (superadmin only). Archiving keeps every row but
+ * locks the school out: its sessions are revoked here, new sessions are refused
+ * in `auth.ts` and every API call is refused in `requireAuth`. Ondivera itself
+ * cannot be archived.
+ */
+const orgSetArchived = protectedProcedure
+	.use(withPolicy(policies.manageTenant))
+	.route({
+		method: "POST",
+		path: "/admin/organizations/{id}/archived",
+		tags: ["admin"],
+	})
+	.input(z.object({ id: z.string().uuid(), archived: z.boolean() }))
+	.output(OrganizationSchema)
+	.handler(async ({ input, context }) => {
+		const [org] = await context.db
+			.select({ kind: organization.kind })
+			.from(organization)
+			.where(eq(organization.id, input.id));
+		if (!org) throw new ORPCError("NOT_FOUND");
+		if (org.kind === "ondivera") {
+			throw new ORPCError("BAD_REQUEST", {
+				message: "Ondivera kan niet worden gearchiveerd.",
+			});
+		}
+
+		const [row] = await context.db
+			.update(organization)
+			.set({
+				archivedAt: input.archived ? new Date() : null,
+				updatedAt: new Date(),
+			})
+			.where(eq(organization.id, input.id))
+			.returning(orgColumns);
+		if (!row) throw new ORPCError("NOT_FOUND");
+
+		if (input.archived) {
+			await context.db
+				.delete(session)
+				.where(
+					inArray(
+						session.userId,
+						context.db
+							.select({ id: user.id })
+							.from(user)
+							.where(eq(user.organizationId, input.id)),
+					),
+				);
+		}
+		return row;
+	});
+
 const organizationsRouter = base.router({
 	listAll: orgListAll,
+	detail: orgDetail,
 	current: orgCurrent,
 	stats: orgStats,
 	createSchool: orgCreateSchool,
 	update: orgUpdate,
+	setArchived: orgSetArchived,
 });
 
 // ---------------------------------------------------------------------------
