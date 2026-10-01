@@ -12,7 +12,7 @@ import {
 	user,
 } from "@incluvo/drizzle/schema";
 import { policies, sameTenant } from "@incluvo/permissions";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, count, desc, eq, inArray, max, sql } from "drizzle-orm";
 import { z } from "zod";
 import { currentLeervoorkeuren, versionForCoach } from "../../coachplan/lifecycle";
 import { reachableLeerlingen, requireLeerlingAccess } from "../../access";
@@ -435,37 +435,142 @@ function computeAandacht(args: {
 	return { aandacht: redenen.length > 0, redenen };
 }
 
-/** Resolve the existing 1:1 conversation id between coach and leerling, if any. */
-async function existingDirectConversation(
-	context: AuthedContext,
-	coachId: string,
-	leerlingId: string,
-): Promise<string | null> {
-	const mine = await context.db
-		.select({ conversationId: conversationMember.conversationId })
+/**
+ * Everything the overview needs for a set of leerlingen in a fixed number of
+ * queries (not ~5 per leerling): the plan version a coach looks at
+ * (`versionForCoach`) with its discuss-flag count, task counts, the latest
+ * course activity and the actor's 1:1 conversation. Same results as
+ * `latestPlan` / `taskProgress` / `coursesFor` / `existingDirectConversation`.
+ */
+async function overviewData(context: AuthedContext, leerlingIds: string[]) {
+	const plans = new Map<string, z.infer<typeof PlanSummarySchema>>();
+	const tasks = new Map<string, { progress: z.infer<typeof TaskProgressSchema>; lastTouched: Date | null }>();
+	const courseTouched = new Map<string, Date>();
+	const conversations = new Map<string, string>();
+	if (leerlingIds.length === 0) {
+		return { plans, tasks, courseTouched, conversations };
+	}
+
+	// Plan: newest handed-in version, else the newest draft.
+	const subs = await context.db
+		.select()
+		.from(formSubmission)
+		.where(inArray(formSubmission.leerlingId, leerlingIds))
+		.orderBy(desc(formSubmission.version));
+	const chosen = new Map<string, typeof formSubmission.$inferSelect>();
+	for (const sub of subs) {
+		const current = chosen.get(sub.leerlingId);
+		if (!current) chosen.set(sub.leerlingId, sub);
+		else if (current.status === "draft" && sub.status !== "draft") {
+			chosen.set(sub.leerlingId, sub);
+		}
+	}
+	const chosenIds = [...chosen.values()].map((s) => s.id);
+	const flags = chosenIds.length
+		? await context.db
+				.select({ submissionId: formAnswer.submissionId, value: count() })
+				.from(formAnswer)
+				.where(
+					and(
+						inArray(formAnswer.submissionId, chosenIds),
+						eq(formAnswer.discussWithCoach, true),
+					),
+				)
+				.groupBy(formAnswer.submissionId)
+		: [];
+	const flagsBySub = new Map(flags.map((f) => [f.submissionId, f.value]));
+	for (const id of leerlingIds) {
+		const sub = chosen.get(id);
+		plans.set(id, {
+			status: planStatusFor(sub),
+			submissionId: sub?.id ?? null,
+			discussCount: sub ? (flagsBySub.get(sub.id) ?? 0) : 0,
+			submittedAt: sub?.submittedAt ?? null,
+			updatedAt: sub?.updatedAt ?? null,
+		});
+	}
+
+	// Tasks: counts and last change per leerling.
+	const now = new Date();
+	const taskRows = await context.db
+		.select({
+			leerlingId: task.leerlingId,
+			open: sql<number>`count(*) filter (where not ${task.done})`.mapWith(Number),
+			done: sql<number>`count(*) filter (where ${task.done})`.mapWith(Number),
+			overdue: sql<number>`count(*) filter (where not ${task.done} and ${task.dueAt} < ${now})`.mapWith(Number),
+			lastTouched: max(task.updatedAt),
+		})
+		.from(task)
+		.where(inArray(task.leerlingId, leerlingIds))
+		.groupBy(task.leerlingId);
+	for (const t of taskRows) {
+		tasks.set(t.leerlingId, {
+			progress: { open: t.open, done: t.done, overdue: t.overdue },
+			lastTouched: t.lastTouched,
+		});
+	}
+
+	// Courses: latest progress on a counting block of the leerling's own course.
+	try {
+		const courseRows = await context.db
+			.select({
+				leerlingId: contentProgress.leerlingId,
+				lastTouched: max(contentProgress.updatedAt),
+			})
+			.from(contentProgress)
+			.innerJoin(contentBlock, eq(contentBlock.id, contentProgress.contentBlockId))
+			.innerJoin(courseSection, eq(courseSection.id, contentBlock.sectionId))
+			.innerJoin(
+				course,
+				and(
+					eq(course.id, courseSection.courseId),
+					eq(course.leerlingId, contentProgress.leerlingId),
+				),
+			)
+			.where(
+				and(
+					inArray(contentProgress.leerlingId, leerlingIds),
+					eq(contentBlock.countsForProgress, true),
+				),
+			)
+			.groupBy(contentProgress.leerlingId);
+		for (const c of courseRows) {
+			if (c.lastTouched) courseTouched.set(c.leerlingId, c.lastTouched);
+		}
+	} catch {
+		// Courses domain not ready / schema mismatch — degrade gracefully.
+	}
+
+	// The actor's 1:1 conversation with each leerling.
+	const mine = context.db
+		.select({ id: conversationMember.conversationId })
 		.from(conversationMember)
-		.innerJoin(
-			conversation,
-			eq(conversation.id, conversationMember.conversationId),
-		)
+		.innerJoin(conversation, eq(conversation.id, conversationMember.conversationId))
 		.where(
 			and(
-				eq(conversationMember.userId, coachId),
+				eq(conversationMember.userId, context.actor.userId),
 				eq(conversation.kind, "direct"),
 			),
 		);
-	const ids = mine.map((r) => r.conversationId);
-	if (!ids.length) return null;
-	const [shared] = await context.db
-		.select({ conversationId: conversationMember.conversationId })
+	const shared = await context.db
+		.select({
+			leerlingId: conversationMember.userId,
+			conversationId: conversationMember.conversationId,
+		})
 		.from(conversationMember)
 		.where(
 			and(
-				eq(conversationMember.userId, leerlingId),
-				inArray(conversationMember.conversationId, ids),
+				inArray(conversationMember.userId, leerlingIds),
+				inArray(conversationMember.conversationId, mine),
 			),
 		);
-	return shared?.conversationId ?? null;
+	for (const c of shared) {
+		if (!conversations.has(c.leerlingId)) {
+			conversations.set(c.leerlingId, c.conversationId);
+		}
+	}
+
+	return { plans, tasks, courseTouched, conversations };
 }
 
 // ---------------------------------------------------------------------------
@@ -499,31 +604,26 @@ const overview = protectedProcedure
 		// Defence in depth: never leak cross-tenant leerlingen.
 		leerlingRows = leerlingRows.filter((l) => sameTenant(actor, l));
 
-		const rows: z.infer<typeof OverviewRowSchema>[] = [];
-		for (const l of leerlingRows) {
-			const plan = await latestPlan(context, l.id);
-			const { progress, lastTouched: taskTouched } = await taskProgress(
-				context,
-				l.id,
-			);
-			const { lastTouched: courseTouched } = await coursesFor(context, l.id);
+		const data = await overviewData(
+			context,
+			leerlingRows.map((l) => l.id),
+		);
+		const rows: z.infer<typeof OverviewRowSchema>[] = leerlingRows.map((l) => {
+			const plan = data.plans.get(l.id)!;
+			const taskData = data.tasks.get(l.id);
+			const progress = taskData?.progress ?? { open: 0, done: 0, overdue: 0 };
 			const lastActivityAt = mostRecent(
 				plan.updatedAt,
 				plan.submittedAt,
-				taskTouched,
-				courseTouched,
+				taskData?.lastTouched ?? null,
+				data.courseTouched.get(l.id) ?? null,
 			);
 			const { aandacht, redenen } = computeAandacht({
 				plan,
 				tasks: progress,
 				lastActivityAt,
 			});
-			const conversationId = await existingDirectConversation(
-				context,
-				actor.userId,
-				l.id,
-			);
-			rows.push({
+			return {
 				leerling: { id: l.id, name: l.name, email: l.email },
 				plan,
 				tasks: progress,
@@ -531,11 +631,11 @@ const overview = protectedProcedure
 				aandacht,
 				aandachtRedenen: redenen,
 				snelacties: {
-					conversationId,
+					conversationId: data.conversations.get(l.id) ?? null,
 					planSubmissionId: plan.submissionId,
 				},
-			});
-		}
+			};
+		});
 
 		// Attention first, then most recently active.
 		rows.sort((a, b) => {
