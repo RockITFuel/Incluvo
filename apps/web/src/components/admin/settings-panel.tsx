@@ -54,7 +54,7 @@ export function SettingsPanel() {
 				<h2 class="font-head text-h3 text-ink">Instellingen</h2>
 				<p class="mt-1 text-small text-muted">
 					Bewaartermijnen voor coachplannen, chats, opnames en
-					transcripties (AVG, #4).
+					transcripties (AVG).
 				</p>
 			</div>
 

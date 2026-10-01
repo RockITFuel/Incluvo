@@ -37,7 +37,7 @@ export function FormsPanel(props: { organizationId?: string }) {
 			<div>
 				<h2 class="font-head text-h3 text-ink">Formulieren</h2>
 				<p class="mt-1 text-small text-muted">
-					Overzicht van formulier-templates (coachplan, #8/#9). Alleen-lezen.
+					Formulier-templates van deze school. Bewerken doe je onder Formulieren.
 				</p>
 			</div>
 
@@ -99,7 +99,7 @@ export function CoursesPanel(props: { organizationId?: string }) {
 			<div>
 				<h2 class="font-head text-h3 text-ink">Cursussen</h2>
 				<p class="mt-1 text-small text-muted">
-					Overzicht van cursussen en sjablonen (#23). Alleen-lezen.
+					Cursussen en sjablonen van deze school. Bewerken doe je onder Cursussen.
 				</p>
 			</div>
 

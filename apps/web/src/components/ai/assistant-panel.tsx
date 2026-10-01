@@ -3,7 +3,6 @@ import { Send, Sparkles } from "lucide-solid";
 import { createEffect, createSignal, For, on, Show } from "solid-js";
 import { useAssistant } from "../../lib/ai/use-assistant";
 import { orpc } from "../../lib/orpc";
-import { Select } from "../ui/select";
 import { MockBanner } from "./mock-banner";
 
 /**
@@ -13,12 +12,10 @@ import { MockBanner } from "./mock-banner";
  * `useAssistant` hook). The "Wens" chip and the suggestion cards surface the
  * prompt-starters, and "Meer adviezen" asks the model to continue.
  *
- * Embedded in the coach-review by passing `submissionId` + `coachplanContext`
- * (the plan is then fixed and the picker is hidden); standalone — the
- * `/assistent` werkbank — it lets the coach pick a plan from their review inbox,
- * exactly like the TranscriptionPanel. Without a plan the server has no
- * coachformulier to read, so the composer stays disabled rather than silently
- * advising about nobody (feedback Mark 15-07-2026, punt 5).
+ * Lives in the sidebar of the coach-review (`/plan/$submissionId`), the one
+ * place for AI-advies: the server reads that plan's coachformulier, so the
+ * advice is always about a specific leerling (feedback Mark 15-07-2026, punt
+ * 5). `/assistent` links there instead of hosting a second copy.
  */
 
 const STARTERS = [
@@ -28,28 +25,17 @@ const STARTERS = [
 ];
 
 export function AssistantPanel(props: {
-	submissionId?: string;
+	submissionId: string;
 	coachplanContext?: string;
 	/** Optional heading override. */
 	title?: string;
 }) {
 	const [draft, setDraft] = createSignal("");
-	const [pickedId, setPickedId] = createSignal<string | undefined>();
 	let scrollEl: HTMLDivElement | undefined;
 
 	// Provider mode for the static banner (the stream also reports it live).
 	const providerQuery = useQuery(() => orpc.ai.provider.queryOptions());
-	// Only needed for the standalone picker; harmless (and cached) when embedded.
-	const inboxQuery = useQuery(() => orpc.coachplan.inbox.queryOptions());
-
-	// The effective plan: the embedding page's submission, else the picked one.
-	const effectiveId = () => props.submissionId ?? pickedId();
-
-	const submissionOptions = () =>
-		(inboxQuery.data ?? []).map((row) => ({
-			value: row.submission.id,
-			label: `${row.leerlingName} · ${row.templateName}`,
-		}));
+	const effectiveId = () => props.submissionId;
 
 	const assistant = useAssistant({
 		submissionId: effectiveId,
@@ -98,25 +84,6 @@ export function AssistantPanel(props: {
 			</div>
 
 			<MockBanner mock={isMock()} model={providerQuery.data?.model} />
-
-			{/* Plan picker only when standalone (no submission from the page). */}
-			<Show when={!props.submissionId}>
-				<div style={{ "margin-bottom": "12px", "margin-top": "12px" }}>
-					<Select
-						label="Coachplan"
-						placeholder="Kies een leerling / coachplan…"
-						options={submissionOptions()}
-						value={pickedId()}
-						onChange={(v) => setPickedId(v)}
-						description="Het advies wordt opgesteld op basis van de antwoorden in dit coachformulier."
-					/>
-					<Show when={!inboxQuery.isPending && submissionOptions().length === 0}>
-						<p style={{ "font-size": "0.75rem", color: "rgb(var(--muted))", "margin-top": "6px" }}>
-							Er staan nog geen ingediende coachplannen klaar om te bespreken.
-						</p>
-					</Show>
-				</div>
-			</Show>
 
 			{/* Conversation / suggestions */}
 			<div
@@ -245,9 +212,7 @@ export function AssistantPanel(props: {
 					class="textarea"
 					style={{ "min-height": "44px", "font-size": "0.8125rem", resize: "none", flex: "1" }}
 					placeholder={
-						effectiveId()
-							? "Stel een vraag over interventies…"
-							: "Kies eerst een coachplan…"
+"Stel een vraag over interventies…"
 					}
 					rows={1}
 					value={draft()}

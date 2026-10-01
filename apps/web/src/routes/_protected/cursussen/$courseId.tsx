@@ -337,7 +337,7 @@ function CourseDetail() {
 									<div class="ds-row ds-between">
 										<span class="text-small text-muted">
 											{onlyRecommended()
-												? "Je ziet alleen aanbevolen content (#35)."
+												? "Je ziet alleen aanbevolen content."
 												: "Je ziet alle content."}
 										</span>
 										<ProposeDialog courseId={courseId()} onDone={refetch} />
@@ -567,7 +567,7 @@ function ProposeDialog(props: { courseId: string; onDone: () => void }) {
 			open={open()}
 			onOpenChange={setOpen}
 			title="Eigen opdracht voorstellen"
-			description="Bedenk zelf hoe je wilt laten zien wat je geleerd hebt (#61)."
+			description="Bedenk zelf hoe je wilt laten zien wat je geleerd hebt."
 			trigger={{
 				variant: "subtle",
 				size: "sm",
@@ -626,7 +626,7 @@ function ProposalsList(props: { courseId: string }) {
 		<Show when={(proposalsQuery.data?.length ?? 0) > 0}>
 			<Card class="flex flex-col gap-3">
 				<h2 class="font-head text-h3 text-ink">
-					<Lightbulb class="inline size-4" /> Eigen opdracht-voorstellen (#61)
+					<Lightbulb class="inline size-4" /> Eigen opdracht-voorstellen
 				</h2>
 				<For each={proposalsQuery.data}>
 					{(p) => (

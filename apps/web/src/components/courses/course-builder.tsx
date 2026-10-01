@@ -583,7 +583,7 @@ export function CourseBuilder(props: {
 							fallback={
 								<div style={{ "font-size": "0.75rem", color: "rgb(var(--muted))" }}>
 									Nog geen labels — deze komen uit het coachplan van de gekoppelde
-									leerling (#36).
+									leerling.
 								</div>
 							}
 						>
@@ -829,7 +829,7 @@ function AddBlockDialog(props: {
 				<Show when={props.availableLabels.length > 0}>
 					<div class="flex flex-col gap-1.5">
 						<span class="text-small font-medium text-ink-2">
-							Leervoorkeur-labels (#36)
+							Leervoorkeur-labels
 						</span>
 						<div class="flex flex-wrap gap-1.5">
 							<For each={props.availableLabels}>
