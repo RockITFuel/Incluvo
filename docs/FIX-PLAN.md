@@ -95,13 +95,15 @@ check tenant + role only; the coach↔leerling link is checked ad hoc.
   (`smtp.mx.cloudflare.net:465`, sender `no-reply@mail.d2d.cloud`, token in
   1Password `incluvo-smtp`). Takes effect on the next deploy.
 - *open:* the origin (server2.d2d-hosting.dev) is reachable without Cloudflare,
-  where `cf-connecting-ip` can be forged. Restrict the origin to Cloudflare IPs
-  (or use Cloudflare Tunnel) to make the per-IP limit airtight.
+  where `cf-connecting-ip` can be forged. ✅ (01-10-2026) mitigated in code:
+  `client-ip.ts` only trusts it when Traefik's `x-real-ip` is a Cloudflare
+  address. Still worth restricting the origin to Cloudflare (firewall or
+  Tunnel) — that is a server change, not done.
 - Rate limit: split — keep strict limits on `sign-in`/`reset`, exempt
   `get-session` (`auth.ts:42`), key by IP+email so one school NAT isn't locked
   out.
-- *open:* gate `ai.translate` and `uploadLocal` behind a tenant + per-user rate
-  limit (less urgent now that only invited users can sign in).
+- ✅ (01-10-2026) `ai.translate` and uploads: school members only
+  (`requireTenantMember`) + per-user rate limits.
 
 ### 1.3 Streaming handler DB connection ✅ done 2026-09-24
 - `ai.assistant` (async generator) runs queries after `requireAuth` released its
@@ -318,23 +320,23 @@ darkened to 4.76:1.
 
 ## Phase 5 — Flow & UI clean-up (M)
 
-- **Dead buttons:** implement or remove — "Taak voor klas", "AI-overzicht week"
+- ✅ (01-10-2026) **Dead buttons:** implement or remove — "Taak voor klas", "AI-overzicht week"
   (`dashboard/index.tsx:182`), PDF/AI-advies on leerling detail
   (`$leerlingId.tsx:295` → link to `/plan/$id` of the current plan), topbar
   search, chat phone/video/paperclip. Default: remove; add back when built.
-- **One AI-advice entry point:** the `/plan/$id` sidebar. `/assistent` becomes a
+- ✅ (01-10-2026) **One AI-advice entry point:** the `/plan/$id` sidebar. `/assistent` becomes a
   thin picker that links there, or goes.
-- **One "Formulieren":** drop the read-only Beheer tab, keep `/plan/beheer`
+- ✅ (01-10-2026) **One "Formulieren":** drop the read-only Beheer tab, keep `/plan/beheer`
   (linked from Beheer). Same for Beheer→Cursussen.
 - **Coach task management:** link `/taken/$leerlingId` from the leerling detail
   page; back link returns to where you came from.
 - ✅ (in 2.5) **Ontwikkelaar home:** own nav and landing on `/cursussen`;
   `startMine` rejects non-leerlingen server-side.
-- Nav: remove the duplicate "Mijn successen"; remove unused breadcrumb code or
+- Nav: ✅ remove the duplicate "Mijn successen"; remove unused breadcrumb code or
   pass `crumbs`.
-- Error states: every query shows an error state distinct from "empty"; map
+- ✅ (01-10-2026) Error states: every query shows an error state distinct from "empty"; map
   server errors to friendly Dutch messages (`plan/index.tsx:136`, `login.tsx:67`).
-- Remove ticket numbers from UI copy (`cursussen/$courseId.tsx:299,526,585`,
+- ✅ Remove ticket numbers from UI copy (`cursussen/$courseId.tsx:299,526,585`,
   `templates-panel.tsx`).
 - Confirm dialog (or undo) on deleting a builder section.
 - `todayKey()` (`welkom:112`) → Europe/Amsterdam date.
@@ -351,11 +353,11 @@ darkened to 4.76:1.
 - Pick one styling system: migrate the ported prototype CSS / inline styles to
   Tailwind + `components/ui` page by page as they're touched.
 - Data fetching: plan wizard to solid-query like the rest.
-- AI prompts: pupil answers and `coachplanContext` in the *user* message with
+- ✅ (01-10-2026) AI prompts: pupil answers and `coachplanContext` in the *user* message with
   delimiters, not the system prompt; server builds the context (ignore the
   client-supplied one); reject client `assistant` turns; cap `messages` length;
   pseudonymise the pupil name before sending.
-- AI residency: `AI_ALLOWED_HOSTS` override only honoured when
+- ✅ (01-10-2026, as: in production it may only *narrow* the EU list) AI residency: `AI_ALLOWED_HOSTS` override only honoured when
   `NODE_ENV !== "production"`; log a loud warning at boot when it's set.
 - Rewrite `docs/IMPLEMENTATION-STATUS.md` from the code (it's wrong in both
   directions), and link this plan from `ROADMAP.md`.
