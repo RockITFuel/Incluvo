@@ -8,7 +8,6 @@ import {
 	NotebookPen,
 	Settings,
 	Sparkles,
-	Star,
 	UserRound,
 } from "lucide-solid";
 import type { NavSection } from "./app-shell";
@@ -99,14 +98,10 @@ export function navForRole(role: UserRole | null, badges: NavBadges = {}): NavSe
 				{ label: "Chat", href: "/chat", icon: MessageSquare },
 			],
 		},
-		// The prototype's "Snel" shortcuts (inert there) get real destinations:
-		// successen live on the Welkom dashboard, profiel is its own page.
+		// "Mijn successen" pointed at /welkom too (already in the nav above).
 		{
 			label: "Snel",
-			items: [
-				{ label: "Mijn successen", href: "/welkom", icon: Star },
-				{ label: "Mijn profiel", href: "/profiel", icon: UserRound },
-			],
+			items: [{ label: "Mijn profiel", href: "/profiel", icon: UserRound }],
 		},
 	];
 }

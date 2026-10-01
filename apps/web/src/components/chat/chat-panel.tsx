@@ -2,13 +2,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/solid-query";
 import {
 	ClipboardList,
 	Eye,
-	Paperclip,
-	Phone,
 	Plus,
 	Search,
 	Send,
 	Users,
-	Video,
 } from "lucide-solid";
 import { createEffect, createMemo, createSignal, For, on, Show } from "solid-js";
 import { orpc } from "../../lib/orpc";
@@ -459,13 +456,6 @@ function ChatThread(props: { conversation: Conversation }) {
 						<p class="truncate text-small text-muted">{props.conversation.subtitle}</p>
 					</Show>
 				</div>
-				{/* Decorative — calling isn't wired up. */}
-				<button type="button" class="icon-btn" tabIndex={-1} aria-hidden="true">
-					<Phone size={15} />
-				</button>
-				<button type="button" class="icon-btn" tabIndex={-1} aria-hidden="true">
-					<Video size={15} />
-				</button>
 			</header>
 
 			{/* Coach-meekijk transparency banner (#6 / AVG) */}
@@ -601,10 +591,6 @@ function ChatThread(props: { conversation: Conversation }) {
 						submit();
 					}}
 				>
-					{/* Decorative — attachments aren't wired up. */}
-					<button type="button" class="icon-btn" tabIndex={-1} aria-hidden="true">
-						<Paperclip size={15} />
-					</button>
 					<label class="sr-only" for="chat-composer">
 						Schrijf een bericht
 					</label>

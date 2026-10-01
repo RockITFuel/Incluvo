@@ -5,9 +5,7 @@ import {
 	Flag,
 	MessageSquare,
 	NotebookPen,
-	Plus,
 	Search,
-	Sparkles,
 	TrendingUp,
 	User,
 } from "lucide-solid";
@@ -225,14 +223,6 @@ function DashboardPage() {
 						</span>{" "}
 						· {rows().length} leerlingen
 					</div>
-				</div>
-				<div class="ds-row">
-					<button type="button" class="btn ghost">
-						<Plus class="size-3.5" aria-hidden="true" /> Taak voor klas
-					</button>
-					<button type="button" class="btn primary">
-						<Sparkles class="size-3.5" aria-hidden="true" /> AI-overzicht week
-					</button>
 				</div>
 			</div>
 
