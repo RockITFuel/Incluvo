@@ -23,6 +23,7 @@ import {
 	protectedProcedure,
 	withPolicy,
 } from "../base";
+import { dutchDay } from "../../time";
 
 /**
  * Coach dashboard domain (backlog #42–#44).
@@ -39,8 +40,8 @@ import {
  * Gating: every procedure is coach+ (`policies.readUsers`, tenant-scoped) and
  * each handler re-asserts the leerling is assigned to *this* coach within the
  * tenant (`assertAssigned`), so a coach can never reach an unassigned or
- * cross-tenant leerling. The superadmin (Ondivera) is exempt from the
- * assignment check but still tenant-true everywhere via `sameTenant`.
+ * cross-tenant leerling. The superadmin (Ondivera) sees no leerlingen
+ * (`sameSchool`); it has the platform overview instead.
  *
  * Courses (Epic 4) may be built in parallel; this router queries the course
  * tables directly and defends against an empty/absent dataset (optional rows,
@@ -241,7 +242,8 @@ async function taskProgress(
 		})
 		.from(task)
 		.where(eq(task.leerlingId, leerlingId));
-	const now = new Date();
+	// Overdue = a due date before today (dates are stored as Dutch midnight).
+	const { start: today } = dutchDay();
 	let open = 0;
 	let done = 0;
 	let overdue = 0;
@@ -250,7 +252,7 @@ async function taskProgress(
 		if (r.done) done++;
 		else {
 			open++;
-			if (r.dueAt && r.dueAt < now) overdue++;
+			if (r.dueAt && r.dueAt < today) overdue++;
 		}
 		if (!lastTouched || r.updatedAt > lastTouched) lastTouched = r.updatedAt;
 	}
@@ -272,11 +274,7 @@ async function tasksTodayFor(
 		})
 		.from(task)
 		.where(eq(task.leerlingId, leerlingId));
-	const now = new Date();
-	const startOfDay = new Date(now);
-	startOfDay.setHours(0, 0, 0, 0);
-	const endOfDay = new Date(startOfDay);
-	endOfDay.setDate(endOfDay.getDate() + 1);
+	const { start: startOfDay, end: endOfDay } = dutchDay();
 	return rows
 		.filter(
 			(r) =>
@@ -289,7 +287,7 @@ async function tasksTodayFor(
 			title: r.title,
 			dueAt: r.dueAt,
 			done: r.done,
-			overdue: r.dueAt !== null && r.dueAt < now,
+			overdue: r.dueAt !== null && r.dueAt < startOfDay,
 		}))
 		.sort((a, b) => (a.dueAt?.getTime() ?? 0) - (b.dueAt?.getTime() ?? 0));
 }
@@ -491,13 +489,13 @@ async function overviewData(context: AuthedContext, leerlingIds: string[]) {
 	}
 
 	// Tasks: counts and last change per leerling.
-	const now = new Date();
+	const { start: today } = dutchDay();
 	const taskRows = await context.db
 		.select({
 			leerlingId: task.leerlingId,
 			open: sql<number>`count(*) filter (where not ${task.done})`.mapWith(Number),
 			done: sql<number>`count(*) filter (where ${task.done})`.mapWith(Number),
-			overdue: sql<number>`count(*) filter (where not ${task.done} and ${task.dueAt} < ${now})`.mapWith(Number),
+			overdue: sql<number>`count(*) filter (where not ${task.done} and ${task.dueAt} < ${today})`.mapWith(Number),
 			lastTouched: max(task.updatedAt),
 		})
 		.from(task)
@@ -584,8 +582,8 @@ const overview = protectedProcedure
 	.handler(async ({ context }) => {
 		const { actor } = context;
 
-		// Leerlingen this actor may see: assigned (coach), whole school
-		// (keyuser, D1) or everyone (superadmin).
+		// Leerlingen this actor may see: assigned (coach) or the whole school
+		// (keyuser, D1); none for the superadmin (sameSchool).
 		let leerlingRows = await context.db
 			.select({
 				id: user.id,

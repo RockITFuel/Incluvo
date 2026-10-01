@@ -91,7 +91,7 @@ async function loadAccessibleConversation(context: AuthedContext, conversationId
 
   // Members may take part. A non-member may only read along in a course forum
   // (#6) when they may see one of its leerlingen (assigned coach, keyuser of
-  // the school, superadmin) — never in someone else's 1:1 chat.
+  // the school) — never in someone else's 1:1 chat.
   const isExplicitMember = memberIds.includes(context.actor.userId);
   if (!checkPermission(policies.accessChat, context.actor, resource)) {
     let readAlong = false;

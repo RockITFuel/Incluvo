@@ -18,6 +18,8 @@ export type TaskRow = {
 	done: boolean;
 	doneAt: Date | null;
 	createdAt: Date;
+	/** Open and due before today; listed under Vandaag. */
+	overdue?: boolean;
 };
 
 const SOURCE_LABEL: Record<TaskRow["source"], string> = {
@@ -400,7 +402,8 @@ function BigTask(props: { task: TaskRow; canManage: boolean; onToggle: () => voi
 	const sub = () =>
 		subLine(
 			props.task.description,
-			formatTime(props.task.dueAt)
+			// An overdue task shows its date: "Vandaag" would be wrong.
+			formatTime(props.task.dueAt) && !props.task.overdue
 				? `Vandaag ${formatTime(props.task.dueAt)}`
 				: formatDue(props.task.dueAt),
 			props.task.source,
@@ -465,8 +468,16 @@ function BigTask(props: { task: TaskRow; canManage: boolean; onToggle: () => voi
 					{sub()}
 				</div>
 			</div>
-			<Show when={urgent()}>
-				<span class="chip danger">Deadline</span>
+			{/* Overdue reads calm, not alarming: it's still today's to-do. */}
+			<Show
+				when={props.task.overdue}
+				fallback={
+					<Show when={urgent()}>
+						<span class="chip danger">Deadline</span>
+					</Show>
+				}
+			>
+				<span class="chip warning">Te laat</span>
 			</Show>
 			<Show
 				when={fromOpdracht() && !props.task.done}

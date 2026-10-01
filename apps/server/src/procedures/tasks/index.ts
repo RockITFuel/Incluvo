@@ -7,6 +7,7 @@ import { notify } from "../../notifications/notify";
 import { publishTo } from "../../sse";
 import { requireLeerlingAccess } from "../../access";
 import { type AuthedContext, base, protectedProcedure } from "../base";
+import { dutchDay } from "../../time";
 
 /**
  * Takenlijst domain (backlog #37–#41). Register key: `tasks`.
@@ -40,6 +41,12 @@ const TaskSchema = z.object({
 	createdAt: z.date(),
 });
 
+/** A task in the list: also whether it is past its due date. */
+const ListTaskSchema = TaskSchema.extend({
+	/** Open and due before today: shown under Vandaag as "Te laat". */
+	overdue: z.boolean(),
+});
+
 const taskColumns = {
 	id: task.id,
 	leerlingId: task.leerlingId,
@@ -54,15 +61,11 @@ const taskColumns = {
 	createdAt: task.createdAt,
 } as const;
 
-/** A date falls "today" when it lands within the actor's calendar day. */
+/** A date falls "today" when it lands within the Dutch calendar day. */
 function isDueToday(dueAt: Date | null): boolean {
 	if (!dueAt) return false;
-	const now = new Date();
-	return (
-		dueAt.getFullYear() === now.getFullYear() &&
-		dueAt.getMonth() === now.getMonth() &&
-		dueAt.getDate() === now.getDate()
-	);
+	const { start, end } = dutchDay();
+	return dueAt >= start && dueAt < end;
 }
 
 /**
@@ -119,19 +122,21 @@ async function taskRecipients(
 	return [...ids];
 }
 
-/** The coach_assignment row binding the actor's chosen leerling, if any. */
-async function findAssignment(
+/**
+ * Whether the leerling's task list is hidden. The flag lives on the
+ * koppelingen; it is about the leerling, so it is set on all of them and the
+ * list is hidden when any is (a leerling can have several coaches). Null when
+ * the leerling has no koppeling at all.
+ */
+async function taskListHidden(
 	context: AuthedContext,
 	leerlingId: string,
-): Promise<{ id: string; taskListHidden: boolean } | null> {
-	const [row] = await context.db
-		.select({
-			id: coachAssignment.id,
-			taskListHidden: coachAssignment.taskListHidden,
-		})
+): Promise<boolean | null> {
+	const rows = await context.db
+		.select({ hidden: coachAssignment.taskListHidden })
 		.from(coachAssignment)
 		.where(eq(coachAssignment.leerlingId, leerlingId));
-	return row ?? null;
+	return rows.length === 0 ? null : rows.some((r) => r.hidden);
 }
 
 // ---------------------------------------------------------------------------
@@ -145,9 +150,9 @@ const list = protectedProcedure
 		z.object({
 			leerlingId: z.string(),
 			listHidden: z.boolean(),
-			vandaag: z.array(TaskSchema),
-			toekomst: z.array(TaskSchema),
-			klaar: z.array(TaskSchema),
+			vandaag: z.array(ListTaskSchema),
+			toekomst: z.array(ListTaskSchema),
+			klaar: z.array(ListTaskSchema),
 		}),
 	)
 	.handler(async ({ input, context }) => {
@@ -163,24 +168,31 @@ const list = protectedProcedure
 			.where(eq(task.leerlingId, leerling.id))
 			.orderBy(asc(task.dueAt), asc(task.createdAt));
 
-		const assignment = await findAssignment(context, leerling.id);
+		const hidden = await taskListHidden(context, leerling.id);
 
-		const vandaag: typeof rows = [];
-		const toekomst: typeof rows = [];
-		const klaar: typeof rows = [];
-		for (const row of rows) {
+		// Overdue open tasks belong to today's work, not to "later".
+		const { start: startOfToday } = dutchDay();
+		type Row = (typeof rows)[number] & { overdue: boolean };
+		const vandaag: Row[] = [];
+		const toekomst: Row[] = [];
+		const klaar: Row[] = [];
+		for (const r of rows) {
+			const overdue = !r.done && r.dueAt !== null && r.dueAt < startOfToday;
+			const row = { ...r, overdue };
 			if (row.done) {
 				klaar.push(row);
-			} else if (isDueToday(row.dueAt) || row.pinnedForToday) {
+			} else if (overdue || isDueToday(row.dueAt) || row.pinnedForToday) {
 				vandaag.push(row);
 			} else {
 				toekomst.push(row);
 			}
 		}
+		// Te laat first, then the rest of today in due order.
+		vandaag.sort((a, b) => Number(b.overdue) - Number(a.overdue));
 
 		return {
 			leerlingId: leerling.id,
-			listHidden: assignment?.taskListHidden ?? false,
+			listHidden: hidden ?? false,
 			vandaag,
 			toekomst,
 			klaar,
@@ -236,7 +248,7 @@ const add = protectedProcedure
 		// Notify the leerling when a coach adds a task on their behalf (#3/#41).
 		// (A leerling adding their own task notifies nobody.) Best-effort: a
 		// notify failure must never break the add mutation.
-		// TODO(#3): daily `task_due_today` digest needs a scheduler/cron job.
+		// The daily `task_due_today` digest is notifications/daily.ts.
 		if (context.actor.userId !== leerling.id) {
 			try {
 				await notify(context.db, {
@@ -375,16 +387,14 @@ const setListHidden = protectedProcedure
 			});
 		}
 
-		const existing = await findAssignment(context, leerling.id);
-		if (existing) {
-			await context.db
-				.update(coachAssignment)
-				.set({ taskListHidden: input.hidden, updatedAt: new Date() })
-				.where(eq(coachAssignment.id, existing.id));
-		} else {
-			// Never create a coach_assignment from this toggle — only flip an existing one.
+		// Never create a coach_assignment from this toggle — only flip existing ones.
+		if ((await taskListHidden(context, leerling.id)) === null) {
 			throw new ORPCError("NOT_FOUND", { message: "Geen coach-koppeling gevonden voor deze leerling" });
 		}
+		await context.db
+			.update(coachAssignment)
+			.set({ taskListHidden: input.hidden, updatedAt: new Date() })
+			.where(eq(coachAssignment.leerlingId, leerling.id));
 
 		publishTo(
 			{ type: "task.changed", payload: { leerlingId: leerling.id } },

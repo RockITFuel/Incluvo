@@ -1,6 +1,5 @@
 import {
 	answerCoachMapping,
-	coachAssignment,
 	formAnswer,
 	formAssignment,
 	formQuestion,
@@ -18,7 +17,7 @@ import {
 	sameTenant,
 } from "@incluvo/permissions";
 import { ORPCError } from "@orpc/server";
-import { and, asc, desc, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { z } from "zod";
 import {
 	type PdfPlan,
@@ -38,7 +37,7 @@ import {
 	TemplateSchema,
 	TemplateWithQuestionsSchema,
 } from "../../coachplan/schema";
-import { notify } from "../../notifications/notify";
+import { leerlingCoachRecipients, notify } from "../../notifications";
 import { rateLimit } from "../../rate-limit";
 import { publishTo } from "../../sse";
 import {
@@ -89,18 +88,6 @@ import { type AuthedContext, base, protectedProcedure, withPolicy } from "../bas
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/** A leerling's assigned coach ids (for per-recipient SSE fan-out, C1). */
-async function coachIdsFor(
-	context: AuthedContext,
-	leerlingId: string,
-): Promise<string[]> {
-	const rows = await context.db
-		.select({ coachId: coachAssignment.coachId })
-		.from(coachAssignment)
-		.where(eq(coachAssignment.leerlingId, leerlingId));
-	return [...new Set(rows.map((r) => r.coachId))];
-}
 
 /** Only actors who may see this leerling's data (`requireLeerlingAccess`). */
 async function assertAssignedToLeerling(context: AuthedContext, leerlingId: string): Promise<void> {
@@ -807,12 +794,23 @@ const saveAnswer = protectedProcedure
 		const sub = await loadFillable(context, input.submissionId);
 		// Question must belong to the submission's template.
 		const [q] = await context.db
-			.select({ id: formQuestion.id, templateId: formQuestion.templateId })
+			.select({
+				id: formQuestion.id,
+				templateId: formQuestion.templateId,
+				section: formQuestion.section,
+			})
 			.from(formQuestion)
 			.where(eq(formQuestion.id, input.questionId));
 		if (!q) throw new ORPCError("NOT_FOUND");
 		if (q.templateId !== sub.templateId) {
 			throw new ORPCError("BAD_REQUEST", { message: "Vraag hoort niet bij dit formulier" });
+		}
+		// Only the leerling fills in here (fillCoachplan); the coach-gedeelte is
+		// written through saveCoachAnswer.
+		if (q.section !== "leerling") {
+			throw new ORPCError("FORBIDDEN", {
+				message: "Deze vraag is voor de coach",
+			});
 		}
 
 		const patch = {
@@ -974,7 +972,7 @@ const submit = protectedProcedure
 				type: "coachplan.submitted",
 				payload: { id: row.id, leerlingId: row.leerlingId },
 			},
-			await coachIdsFor(context, row.leerlingId),
+			await leerlingCoachRecipients(context.db, row.leerlingId, row.organizationId),
 		);
 		// Notify the leerling's coach(es) that a coachplan was submitted (#3/#15).
 		// Best-effort: a notify failure must never break the submit mutation.
@@ -983,18 +981,29 @@ const submit = protectedProcedure
 				.select({ name: user.name })
 				.from(user)
 				.where(eq(user.id, row.leerlingId));
-			const coaches = await context.db
-				.select({ coachId: coachAssignment.coachId })
-				.from(coachAssignment)
-				.where(eq(coachAssignment.leerlingId, row.leerlingId));
-			const coachIds = [...new Set(coaches.map((c) => c.coachId))];
-			for (const coachId of coachIds) {
+			// Questions the leerling wants to talk about, so the coach sees it
+			// without opening the plan.
+			const [flags] = await context.db
+				.select({ value: count() })
+				.from(formAnswer)
+				.where(and(eq(formAnswer.submissionId, row.id), eq(formAnswer.discussWithCoach, true)));
+			const discuss = flags?.value ?? 0;
+			const name = leerling?.name ?? "Een leerling";
+			const recipients = await leerlingCoachRecipients(
+				context.db,
+				row.leerlingId,
+				row.organizationId,
+			);
+			for (const userId of recipients) {
 				await notify(context.db, {
-					userId: coachId,
+					userId,
 					organizationId: row.organizationId,
 					type: "coachplan_submitted",
 					title: "Nieuw coachplan ontvangen",
-					body: `${leerling?.name ?? "Een leerling"} heeft een coachplan ingediend.`,
+					body:
+						discuss > 0
+							? `${name} heeft een coachplan ingediend en wil ${discuss === 1 ? "1 vraag" : `${discuss} vragen`} met je bespreken.`
+							: `${name} heeft een coachplan ingediend.`,
 					entity: { type: "form_submission", id: row.id },
 				});
 			}
@@ -1121,8 +1130,8 @@ const inbox = protectedProcedure
 	.output(z.array(InboxRowSchema))
 	.handler(async ({ context }) => {
 		const { actor } = context;
-		// Plans of leerlingen this actor may see: assigned (coach), whole
-		// school (keyuser, D1) or everyone (superadmin).
+		// Plans of leerlingen this actor may see: assigned (coach) or the
+		// whole school (keyuser, D1); none for the superadmin (sameSchool).
 		const rows = await context.db
 			.select({
 				submission: formSubmission,

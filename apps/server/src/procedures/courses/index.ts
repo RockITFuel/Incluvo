@@ -32,7 +32,7 @@ import {
 	writeLocalUpload,
 } from "../../courses/storage";
 import { parseYoutubeId, youtubeEmbedUrl } from "../../courses/youtube";
-import { notify } from "../../notifications/notify";
+import { leerlingCoachRecipients, notify } from "../../notifications";
 import { rateLimit } from "../../rate-limit";
 import { publishTo } from "../../sse";
 import { currentLeervoorkeuren } from "../../coachplan/lifecycle";
@@ -1705,6 +1705,41 @@ async function loadAssignmentCourse(context: AuthedContext, assignmentId: string
 	return { assignment: asg, course: crs };
 }
 
+/** A user's name for a notification ("Een leerling" when unknown). */
+async function nameOf(context: AuthedContext, userId: string): Promise<string> {
+	const [row] = await context.db
+		.select({ name: user.name })
+		.from(user)
+		.where(eq(user.id, userId));
+	return row?.name ?? "Een leerling";
+}
+
+/**
+ * Tell the leerling's coach(es) about something the leerling did in a course
+ * (`leerlingCoachRecipients`: gekoppelde coaches, else the keyusers).
+ * Best-effort: a failed notification never breaks the action itself.
+ */
+async function notifyCoachesOf(
+	context: AuthedContext,
+	leerlingId: string,
+	organizationId: string | null,
+	message: { title: string; body: string; entity: { type: string; id: string } },
+): Promise<void> {
+	if (!organizationId) return;
+	try {
+		for (const userId of await leerlingCoachRecipients(context.db, leerlingId, organizationId)) {
+			await notify(context.db, {
+				userId,
+				organizationId,
+				type: "course_activity",
+				...message,
+			});
+		}
+	} catch (err) {
+		console.error("notify(course_activity for coach) failed", err);
+	}
+}
+
 const submitAssignment = protectedProcedure
 	.route({ method: "POST", path: "/assignments/{assignmentId}/submit", tags: ["courses"] })
 	.input(
@@ -1824,6 +1859,13 @@ const submitAssignment = protectedProcedure
 			{ type: "task.changed", payload: { leerlingId } },
 			await taskChangedRecipients(context, leerlingId),
 		);
+		if (actor.role === "leerling") {
+			await notifyCoachesOf(context, leerlingId, crs.organizationId, {
+				title: "Opdracht ingeleverd",
+				body: `${await nameOf(context, leerlingId)} heeft "${asg.name}" ingeleverd.`,
+				entity: { type: "assignment_submission", id: row.id },
+			});
+		}
 		return {
 			...row,
 			fileStorageKeys: (row.fileStorageKeys as string[] | null) ?? [],
@@ -2034,6 +2076,11 @@ const proposeAssignment = protectedProcedure
 			{ type: "course.changed", payload: { courseId: crs.id } },
 			await courseChangedRecipients(context, crs),
 		);
+		await notifyCoachesOf(context, actor.userId, crs.organizationId, {
+			title: "Voorstel voor een opdracht",
+			body: `${await nameOf(context, actor.userId)} stelt een eigen opdracht voor: "${input.title}".`,
+			entity: { type: "course", id: crs.id },
+		});
 		return row;
 	});
 

@@ -150,10 +150,14 @@ flowchart LR
 
 ### D. Taken
 
-- Leerling ziet **Vandaag** (vandaag of vastgepind), **Toekomst** en **Klaar**;
-  kan zelf taken toevoegen, afvinken en vastpinnen.
+- Leerling ziet **Vandaag** (vandaag, vastgepind of te laat — die laatste met het
+  label "Te laat"), **Toekomst** en **Klaar**; kan zelf taken toevoegen,
+  afvinken en vastpinnen. "Vandaag" is de Nederlandse kalenderdag.
+- Elke ochtend vanaf 07:00 krijgt een leerling met taken voor vandaag één
+  melding (niet als een coach de lijst heeft verborgen).
 - Coach of keyuser beheert de takenlijst van een leerling (profiel → Taken), kan
-  taken toevoegen (leerling krijgt een melding) en de lijst tijdelijk verbergen.
+  taken toevoegen (leerling krijgt een melding) en de lijst tijdelijk verbergen
+  (geldt voor de leerling, ook bij meerdere coaches).
 - Taken uit een cursusopdracht gaan op klaar door in te leveren, niet door afvinken.
 
 ### E. Chat en meldingen
@@ -163,11 +167,17 @@ flowchart LR
 
 | Melding | Wanneer | Voor |
 | --- | --- | --- |
-| Coachplan ingeleverd | leerling levert in | gekoppelde coaches |
+| Coachplan ingeleverd (met het aantal vragen om te bespreken) | leerling levert in | coaches* |
 | Coachplan gedeeld | coach deelt | leerling |
-| Nieuwe taak | coach voegt een taak toe | leerling |
+| Opdracht ingeleverd | leerling levert een opdracht in | coaches* |
+| Voorstel voor een opdracht | leerling stelt een eigen opdracht voor | coaches* |
 | Opdracht beoordeeld | coach geeft feedback | leerling |
+| Nieuwe taak | coach voegt een taak toe | leerling |
+| Je taken voor vandaag | dagelijks vanaf 07:00 | leerling |
 | Nieuw bericht | chatbericht | de ander |
+
+\* De gekoppelde coaches; heeft de leerling geen coach, dan de keyusers van de
+school (`leerlingCoachRecipients`).
 
 ### F. Hoe gaat het vandaag (stemming)
 
@@ -186,57 +196,50 @@ De coach ziet alleen gedeelde stemmingen (dashboard, profiel).
 
 ## 3. Wat kan beter
 
-### Moet — fouten en lekken
+### Opgelost (01-10-2026)
 
-1. **Een leerling kan antwoorden in het coach-gedeelte schrijven.** `saveAnswer`
-   (`coachplan/index.ts:793`) controleert niet of de vraag bij het leerlinggedeelte
-   hoort. Via de API kan een leerling dus het POPP van de coach invullen (ook
-   in een nieuwe versie, waar die antwoorden worden meegenomen).
-2. **Meldingen volgen alleen de koppeling.** Een leerling zonder gekoppelde coach
-   levert een plan in en niemand krijgt een melding; de keyuser ziet alle plannen
-   maar krijgt alleen meldingen voor leerlingen aan wie hij gekoppeld is.
-3. **"Takenlijst verbergen" bij meerdere coaches** schrijft op een willekeurige
-   koppeling (`tasks/index.ts:~124`), dus de instelling is onbetrouwbaar zodra een
-   leerling twee coaches heeft.
-4. **Verouderde commentaren** zeggen nog dat de superadmin leerlingen ziet
-   (`coachplan/index.ts:~1124`, `chat/index.ts:93`).
+- Een leerling kan geen antwoorden meer in het coach-gedeelte schrijven.
+- Meldingen voor een leerling zonder coach gaan naar de keyusers.
+- "Takenlijst verbergen" geldt voor de leerling, ook bij meerdere coaches.
+- Verouderde commentaren over de superadmin bijgewerkt.
+- Taken over tijd staan onder Vandaag als "Te laat"; de dagelijkse melding
+  "Je taken voor vandaag" wordt verstuurd; "vandaag" en "over tijd" volgen de
+  Nederlandse kalenderdag (ook op het dashboard, dat een taak die vandaag af moet
+  ten onrechte al als over tijd telde).
+- De coach krijgt een melding bij een ingeleverde opdracht, een voorstel en
+  (in de melding bij het inleveren) vragen om te bespreken.
 
 ### Moet voor livegang — gaten in de flow
 
-5. **Taken over tijd** vallen onder "Toekomst": er is geen "Te laat". Het
-   dashboard telt ze wel als "over tijd". De melding "taak voor vandaag"
-   (`task_due_today`) wordt nooit verstuurd.
-6. **Coach krijgt geen melding** bij een ingeleverde opdracht, een voorstel van de
-   leerling of een "bespreken met coach".
-7. **Server kan het, scherm ontbreekt:**
+1. **Server kan het, scherm ontbreekt:**
    - een ander formulier voor één leerling (`assignToLeerling`);
    - een deadline van een taak verplaatsen (`tasks.setDueDate`);
    - een cursus, sectie of blok bewerken of verwijderen (`courses.update`,
      `updateBlock`, …) — labels zijn na het aanmaken niet meer te wijzigen;
    - chat als gelezen markeren (`chat.markRead`).
-8. **Geaccepteerd voorstel doet niets:** het wordt geen opdracht en geen taak.
-9. **Groepsgesprekken (forums, #6) bestaan niet:** er is geen bloktype en geen code
+2. **Geaccepteerd voorstel doet niets:** het wordt geen opdracht en geen taak.
+3. **Groepsgesprekken (forums, #6) bestaan niet:** er is geen bloktype en geen code
    die ze aanmaakt, terwijl het meelezen voor coaches wel is gebouwd.
-10. **Nieuwe formulierversie** wordt niet vanzelf de standaard, en leerlingen met
+4. **Nieuwe formulierversie** wordt niet vanzelf de standaard, en leerlingen met
     een eigen formulier blijven op de oude versie.
-11. **Inleveren controleert verplichte vragen niet.**
+5. **Inleveren controleert verplichte vragen niet.**
 
 ### Kan — beter maken
 
-12. **Coach kan een gedeeld plan niet heropenen**; alleen de leerling kan een
+6. **Coach kan een gedeeld plan niet heropenen**; alleen de leerling kan een
     nieuwe versie starten.
-13. **Bron gewijzigd** biedt alleen "nieuwe kopie maken", geen bijwerken met
+7. **Bron gewijzigd** biedt alleen "nieuwe kopie maken", geen bijwerken met
     behoud van wat de school aanpaste.
-14. **Melding aanklikken** gaat alleen bij chatberichten naar de juiste plek.
-15. **Stemming en "vandaag"** gebruiken de tijdzone van de server, niet
-    Europe/Amsterdam.
-16. **Dode statussen** opruimen: coachplan `completed`, inzending `draft` en
+8. **Melding aanklikken** gaat alleen bij chatberichten naar de juiste plek.
+9. **Stemming** gebruikt nog de tijdzone van de server voor "vandaag"; taken
+   gebruiken al de Nederlandse dag (`apps/server/src/time.ts`).
+10. **Dode statussen** opruimen: coachplan `completed`, inzending `draft` en
     `returned`, transcriptie `pending`, `ai.deleteAudio` (er wordt geen audio
     opgeslagen).
 
 ### Besluit nodig (Mark)
 
-17. School verwijderen en leerlingen verplaatsen tussen scholen (wie wordt
+11. School verwijderen en leerlingen verplaatsen tussen scholen (wie wordt
     eigenaar van de historie?).
-18. Groepsgesprekken: wel of niet in de eerste versie?
-19. Supporttoegang voor Ondivera tot een school (met toestemming en audit-log).
+12. Groepsgesprekken: wel of niet in de eerste versie?
+13. Supporttoegang voor Ondivera tot een school (met toestemming en audit-log).
