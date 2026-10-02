@@ -1,5 +1,6 @@
 {
   "lockfileVersion": 1,
+  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "incluvo",
@@ -71,6 +72,7 @@
         "@incluvo/server": "workspace:*",
         "@orpc/server": "^1.13.5",
         "@tailwindcss/typography": "^0.5.19",
+        "@types/bun": "latest",
         "@types/node": "^22.15.0",
         "autoprefixer": "^10.4.21",
         "playwright": "^1.57.0",

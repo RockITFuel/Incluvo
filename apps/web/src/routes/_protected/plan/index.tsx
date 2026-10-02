@@ -21,6 +21,7 @@ import { client, orpc } from "../../../lib/orpc";
 import { ErrorState } from "../../../components/ui/error-state";
 import { friendlyError } from "../../../lib/errors";
 import { RequireRole } from "../../../lib/auth/role-guard";
+import { createAnswerSaver } from "../../../lib/coachplan/answer-saver";
 
 /**
  * `/plan` entry point. Role-aware: a coach sees the inbox of submitted plans
@@ -277,27 +278,54 @@ function PlanWizard(props: { onSubmitted: () => void }) {
 	const flagFor = (id: string): Flags =>
 		flags[id] ?? { discussWithCoach: false, deliberatelySkipped: false };
 
-	const save = async (
-		questionId: string,
-		patch: Partial<AnswerValue & Flags>,
-		onSaved?: () => void,
-	) => {
-		const sub = submissionId();
-		if (!sub) return;
-		try {
+	// Ordered autosave (INC-1): per question one request at a time, newest
+	// value last — a slow older save can never overwrite what was typed after.
+	const saver = createAnswerSaver(
+		async (questionId, patch) => {
+			const sub = submissionId();
+			if (!sub) return;
+			const p = patch as Partial<AnswerValue & Flags>;
 			await client.coachplan.saveAnswer({
 				submissionId: sub,
 				questionId,
-				value: patch.value,
-				valueJson: patch.valueJson ?? undefined,
-				discussWithCoach: patch.discussWithCoach,
-				deliberatelySkipped: patch.deliberatelySkipped,
+				value: p.value,
+				valueJson: p.valueJson ?? undefined,
+				discussWithCoach: p.discussWithCoach,
+				deliberatelySkipped: p.deliberatelySkipped,
 			});
-			onSaved?.();
-		} catch {
-			toast({ title: "Opslaan lukte even niet", tone: "danger" });
+		},
+		() =>
+			toast({
+				title: "Opslaan lukte even niet",
+				description: "We proberen het opnieuw. Je antwoord blijft staan.",
+				tone: "danger",
+			}),
+	);
+	const save = (
+		questionId: string,
+		patch: Partial<AnswerValue & Flags>,
+		onSaved?: () => void,
+	) => saver.save(questionId, patch, onSaved);
+
+	/** Wait until every answer is saved; tells the leerling when it can't. */
+	const saveAll = async (): Promise<boolean> => {
+		const ok = await saver.flush();
+		if (!ok) {
+			toast({
+				title: "Nog niet alles is opgeslagen",
+				description: "Controleer je internetverbinding en probeer het opnieuw.",
+				tone: "danger",
+			});
 		}
+		return ok;
 	};
+
+	// Closing the tab with unsaved typing: let the browser ask first.
+	const beforeUnload = (e: BeforeUnloadEvent) => {
+		if (saver.busy()) e.preventDefault();
+	};
+	window.addEventListener("beforeunload", beforeUnload);
+	onCleanup(() => window.removeEventListener("beforeunload", beforeUnload));
 
 	// Debounced "Opgeslagen"-bevestiging: bij typen worden de autosaves per
 	// toetsaanslag samengevat tot één rustige toast in plaats van een stortvloed.
@@ -353,6 +381,8 @@ function PlanWizard(props: { onSubmitted: () => void }) {
 	const submit = async () => {
 		const sub = submissionId();
 		if (!sub) return;
+		// Hand in only what is actually saved.
+		if (!(await saveAll())) return;
 		try {
 			await client.coachplan.submit({ submissionId: sub });
 			setSubmitted(true);
@@ -427,7 +457,9 @@ function PlanWizard(props: { onSubmitted: () => void }) {
 										<Button
 											variant="ghost"
 											size="sm"
-											onClick={() => navigate({ to: "/welkom" })}
+											onClick={async () => {
+												if (await saveAll()) navigate({ to: "/welkom" });
+											}}
 										>
 											Opslaan & afsluiten
 										</Button>
