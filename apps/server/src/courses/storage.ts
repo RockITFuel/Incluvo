@@ -60,7 +60,7 @@ export function hasS3(): boolean {
 const LOCAL_UPLOAD_DIR = resolve(process.cwd(), "uploads");
 
 /** Allowed key scopes (the leading path segment). */
-const KEY_SCOPES = ["bestand", "submission", "feedback"] as const;
+const KEY_SCOPES = ["bestand", "submission", "feedback", "chat"] as const;
 
 /**
  * A storage key must be exactly `<scope>/<uuid>-<safe-filename>` as produced by
@@ -355,6 +355,29 @@ export function presignedGetUrl(storageKey: string, expiresIn = 300): string {
 }
 
 /** Best-effort MIME type from a stored key's extension (local-dev getFile). */
+/**
+ * A URL to hand to the browser for a stored file the caller is allowed to
+ * read: a short-lived presigned GET in production, a data URL in local dev.
+ * Only allow-listed, non-scriptable types are served inline; anything else
+ * as octet-stream, so a file can't render in our origin (H1).
+ */
+export async function readableFileUrl(storageKey: string): Promise<string> {
+	if (hasS3()) return presignedGetUrl(storageKey, 300);
+	const bytes = await readLocalUpload(storageKey);
+	const guessed = guessContentType(storageKey);
+	const inline =
+		guessed in ALLOWED_UPLOAD_TYPES &&
+		!guessed.startsWith("text/") &&
+		guessed !== "image/svg+xml";
+	return `data:${inline ? guessed : "application/octet-stream"};base64,${bytes.toString("base64")}`;
+}
+
+/** The original file name inside a `<scope>/<uuid>-<name>` key. */
+export function storageKeyFileName(storageKey: string): string {
+	const last = storageKey.split("/").pop() ?? storageKey;
+	return last.replace(/^[0-9a-f-]{36}-/i, "");
+}
+
 export function guessContentType(storageKey: string): string {
 	const ext = storageKey.split(".").pop()?.toLowerCase() ?? "";
 	const map: Record<string, string> = {

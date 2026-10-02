@@ -1,14 +1,23 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/solid-query";
+import { coachesLeerlingen } from "@incluvo/permissions";
 import {
 	ClipboardList,
+	Download,
 	Eye,
+	FileText,
+	Paperclip,
 	Plus,
 	Search,
 	Send,
 	Users,
+	X,
 } from "lucide-solid";
 import { createEffect, createMemo, createSignal, For, on, Show } from "solid-js";
-import { orpc } from "../../lib/orpc";
+import { friendlyError } from "../../lib/errors";
+import { client, orpc } from "../../lib/orpc";
+import { uploadFile } from "../courses/upload";
+import { Dialog } from "../ui/dialog";
+import { Tooltip } from "../ui/tooltip";
 import { useMe } from "../../lib/auth/use-me";
 import { useServerEvent } from "../../lib/sse/use-events";
 import { toast } from "../ui/toast";
@@ -25,12 +34,11 @@ import { ErrorState } from "../../components/ui/error-state";
  * only, no posting). Supervised chats show the "Coach kijkt mee" indicator
  * (transparantie / AVG) both in the list and as a banner in the thread.
  *
- * The prototype's "online" dot, calling and per-message task cards have no
- * backend support: there is no presence concept in the API at all (so the
- * dot is never fabricated — simply omitted), phone/video render as
- * decorative buttons, and the task card only renders if a message actually
- * carries `taskTitle` (chat.messages doesn't select the message table's task
- * columns yet, so today it never does — see #7).
+ * Files can be sent with a message (INC-8; uploaded with scope "chat", read
+ * back through `chat.attachmentUrl`). The prototype's calling buttons and
+ * "online" dot are left out: there is no calling or presence in the app. The
+ * task card only renders if a message actually carries `taskTitle`
+ * (chat.messages doesn't select the message table's task columns yet — #7).
  */
 
 type Conversation = {
@@ -53,9 +61,15 @@ type ChatMessage = {
 	senderId: string;
 	senderName: string;
 	body: string;
+	attachment: { name: string; contentType: string } | null;
 	createdAt: string | Date;
 	taskTitle?: string | null;
 };
+
+/** File types the server accepts for an upload (courses/storage.ts). */
+const ACCEPT =
+	"image/png,image/jpeg,image/webp,application/pdf,.doc,.docx,.ppt,.pptx,.xlsx,audio/mpeg,audio/webm,video/mp4,video/webm";
+const MAX_BYTES = 50 * 1024 * 1024;
 
 function initials(name: string): string {
 	return name
@@ -97,6 +111,8 @@ export function ChatPanel(props: {
 	const queryClient = useQueryClient();
 	const [activeId, setActiveId] = createSignal<string | null>(null);
 	const [query, setQuery] = createSignal("");
+	const [newOpen, setNewOpen] = createSignal(false);
+	const [partnerQuery, setPartnerQuery] = createSignal("");
 	// Track which deep-link we've already handled, so re-renders don't re-trigger.
 	let handledDeepLink: string | null = null;
 
@@ -169,8 +185,74 @@ export function ChatPanel(props: {
 		return (partnersQuery.data ?? []).filter((p) => !existing.has(p.id));
 	});
 
+	/** Open the chat with a partner: the existing one, or start it. */
+	const openChatWith = (partnerId: string) => {
+		setNewOpen(false);
+		setPartnerQuery("");
+		const existing = conversations().find(
+			(c) => c.kind === "direct" && c.otherUserId === partnerId,
+		);
+		if (existing) setActiveId(existing.id);
+		else ensureDirect.mutate({ otherUserId: partnerId });
+	};
+	const shownPartners = createMemo(() => {
+		const q = partnerQuery().trim().toLowerCase();
+		const all = partnersQuery.data ?? [];
+		return q ? all.filter((p) => p.name.toLowerCase().includes(q)) : all;
+	});
+	const coaching = () => {
+		const r = me.role();
+		return r !== null && coachesLeerlingen(r);
+	};
+
 	return (
 		<div class="grid h-[calc(100vh-12rem)] grid-cols-1 overflow-hidden rounded-3 border border-line bg-surface md:grid-cols-[20rem_1fr]">
+			<Dialog
+				open={newOpen()}
+				onOpenChange={setNewOpen}
+				title="Nieuw gesprek"
+				description={coaching() ? "Kies een leerling." : "Kies je coach."}
+			>
+				<div class="flex flex-col gap-2">
+					<Show when={(partnersQuery.data?.length ?? 0) > 6}>
+						<label class="flex items-center gap-2 rounded-2 border border-line px-3 py-2">
+							<Search size={14} class="text-muted" aria-hidden="true" />
+							<input
+								class="w-full bg-transparent text-small outline-none"
+								placeholder="Zoek op naam…"
+								aria-label="Zoek op naam"
+								value={partnerQuery()}
+								onInput={(e) => setPartnerQuery(e.currentTarget.value)}
+							/>
+						</label>
+					</Show>
+					<ul class="flex max-h-80 flex-col gap-1 overflow-y-auto">
+						<For
+							each={shownPartners()}
+							fallback={<li class="px-2 py-2 text-small text-muted">Niemand gevonden.</li>}
+						>
+							{(p) => (
+								<li>
+									<button
+										type="button"
+										class="flex w-full items-center gap-2 rounded-2 px-2 py-2 text-left text-body text-ink hover:bg-bg-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+										disabled={ensureDirect.isPending}
+										onClick={() => openChatWith(p.id)}
+									>
+										<div
+											class="avatar shrink-0"
+											style={{ width: "28px", height: "28px", "font-size": "0.6875rem" }}
+										>
+											{initials(p.name)}
+										</div>
+										<span class="truncate">{p.name}</span>
+									</button>
+								</li>
+							)}
+						</For>
+					</ul>
+				</div>
+			</Dialog>
 			{/* Conversation list */}
 			<aside class="flex min-h-0 flex-col border-line border-r">
 				<div style={{ padding: "14px 16px", "border-bottom": "1px solid rgb(var(--line))" }}>
@@ -185,16 +267,23 @@ export function ChatPanel(props: {
 						<h1 class="font-head text-ink" style={{ "font-size": "1.0625rem" }}>
 							Chat
 						</h1>
-						{/* Decorative — starting a new chat happens via the list below. */}
-						<button
-							type="button"
-							class="icon-btn"
-							style={{ width: "30px", height: "30px" }}
-							tabIndex={-1}
-							aria-hidden="true"
-						>
-							<Plus size={14} />
-						</button>
+						{/* Hidden when there is nobody to chat with (INC-8 AC3). */}
+						<Show when={(partnersQuery.data?.length ?? 0) > 0}>
+							<Tooltip content="Nieuw gesprek">
+								{(trigger) => (
+									<button
+										{...trigger}
+										type="button"
+										class="icon-btn"
+										style={{ width: "30px", height: "30px" }}
+										aria-label="Nieuw gesprek"
+										onClick={() => setNewOpen(true)}
+									>
+										<Plus size={14} aria-hidden="true" />
+									</button>
+								)}
+							</Tooltip>
+						</Show>
 					</div>
 					<div
 						style={{
@@ -270,7 +359,7 @@ export function ChatPanel(props: {
 					<Show when={partnersWithoutChat().length > 0}>
 						<div style={{ "border-top": "1px solid rgb(var(--line))", padding: "12px 16px" }}>
 							<p class="mb-2 font-medium text-micro text-muted uppercase tracking-wide">
-								{me.is("coach") ? "Start met leerling" : "Start met coach"}
+								{coaching() ? "Start met leerling" : "Start met coach"}
 							</p>
 							<ul class="flex flex-col gap-1">
 								<For each={partnersWithoutChat()}>
@@ -413,25 +502,42 @@ function ChatThread(props: { conversation: Conversation }) {
 		queryClient.invalidateQueries({ queryKey: orpc.chat.list.key() });
 	});
 
-	const send = useMutation(() =>
-		orpc.chat.send.mutationOptions({
-			onSuccess: () => {
-				setDraft("");
-				queryClient.invalidateQueries({ queryKey: messagesKey() });
-				queryClient.invalidateQueries({ queryKey: orpc.chat.list.key() });
-			},
-			onError: () => toast({ title: "Bericht niet verzonden", tone: "danger" }),
-		}),
-	);
+	const [file, setFile] = createSignal<File | null>(null);
+	const [sending, setSending] = createSignal(false);
+	let fileInput: HTMLInputElement | undefined;
+	createEffect(on(conversationId, () => setFile(null), { defer: true }));
+
+	const pickFile = (f: File | undefined) => {
+		if (!f) return;
+		if (f.size > MAX_BYTES) {
+			toast({ title: "Bestand is te groot", description: "Maximaal 50 MB.", tone: "danger" });
+			return;
+		}
+		setFile(f);
+	};
 
 	// A supervising coach reads along but cannot post into a forum they don't
 	// belong to (memberRole "coach" = read-along only).
 	const canPost = () => props.conversation.memberRole !== "coach";
 
-	const submit = () => {
+	const submit = async () => {
 		const body = draft().trim();
-		if (!body || send.isPending) return;
-		send.mutate({ conversationId: conversationId(), body });
+		const attach = file();
+		if ((!body && !attach) || sending()) return;
+		setSending(true);
+		try {
+			const attachmentStorageKey = attach ? await uploadFile(attach, "chat") : undefined;
+			await client.chat.send({ conversationId: conversationId(), body, attachmentStorageKey });
+			setDraft("");
+			setFile(null);
+			queryClient.invalidateQueries({ queryKey: messagesKey() });
+			queryClient.invalidateQueries({ queryKey: orpc.chat.list.key() });
+		} catch (err) {
+			// Draft and file stay, so nothing has to be redone.
+			toast({ title: "Bericht niet verzonden", description: friendlyError(err), tone: "danger" });
+		} finally {
+			setSending(false);
+		}
 	};
 
 	return (
@@ -537,7 +643,12 @@ function ChatThread(props: { conversation: Conversation }) {
 												"line-height": "1.4",
 											}}
 										>
-											{m.body}
+											<Show when={m.body}>
+												<p style={{ margin: "0", "white-space": "pre-wrap" }}>{m.body}</p>
+											</Show>
+											<Show when={m.attachment}>
+												{(a) => <Attachment messageId={m.id} attachment={a()} mine={mine()} />}
+											</Show>
 										</div>
 										{/* Only rendered once/if chat.messages starts exposing a task link. */}
 										<Show when={m.taskTitle}>
@@ -604,16 +715,63 @@ function ChatThread(props: { conversation: Conversation }) {
 					}}
 					onSubmit={(e) => {
 						e.preventDefault();
-						submit();
+						void submit();
 					}}
 				>
+					<input
+						ref={fileInput}
+						type="file"
+						accept={ACCEPT}
+						class="sr-only"
+						tabIndex={-1}
+						aria-hidden="true"
+						onChange={(e) => {
+							pickFile(e.currentTarget.files?.[0]);
+							e.currentTarget.value = "";
+						}}
+					/>
+					<Tooltip content="Bestand toevoegen">
+						{(trigger) => (
+							<button
+								{...trigger}
+								type="button"
+								class="icon-btn"
+								style={{ width: "42px", height: "42px", "flex-shrink": "0" }}
+								aria-label="Bestand toevoegen"
+								disabled={sending()}
+								onClick={() => fileInput?.click()}
+							>
+								<Paperclip size={15} aria-hidden="true" />
+							</button>
+						)}
+					</Tooltip>
+					<div style={{ flex: "1", display: "flex", "flex-direction": "column", gap: "6px" }}>
+						<Show when={file()}>
+							{(f) => (
+								<div
+									class="chip"
+									style={{ "align-self": "flex-start", gap: "6px", "max-width": "100%" }}
+								>
+									<FileText size={13} aria-hidden="true" />
+									<span class="truncate">{f().name}</span>
+									<button
+										type="button"
+										aria-label={`${f().name} weghalen`}
+										onClick={() => setFile(null)}
+										class="rounded-full p-0.5 hover:bg-line-2"
+									>
+										<X size={12} aria-hidden="true" />
+									</button>
+								</div>
+							)}
+						</Show>
 					<label class="sr-only" for="chat-composer">
 						Schrijf een bericht
 					</label>
 					<textarea
 						id="chat-composer"
 						class="textarea"
-						style={{ "min-height": "42px", padding: "10px 12px", flex: "1" }}
+						style={{ "min-height": "42px", padding: "10px 12px", width: "100%" }}
 						placeholder="Schrijf een bericht…"
 						rows={1}
 						value={draft()}
@@ -621,14 +779,15 @@ function ChatThread(props: { conversation: Conversation }) {
 						onKeyDown={(e) => {
 							if (e.key === "Enter" && !e.shiftKey) {
 								e.preventDefault();
-								submit();
+								void submit();
 							}
 						}}
 					/>
+					</div>
 					<button
 						type="submit"
 						class="btn primary"
-						disabled={send.isPending || !draft().trim()}
+						disabled={sending() || (!draft().trim() && !file())}
 						aria-label="Verstuur bericht"
 					>
 						<Send size={14} aria-hidden="true" />
@@ -636,5 +795,80 @@ function ChatThread(props: { conversation: Conversation }) {
 				</form>
 			</Show>
 		</section>
+	);
+}
+
+/**
+ * A file in a message. Images show inline; other files as a chip that opens
+ * them. The URL is fetched only when needed and only for readers of the chat.
+ */
+function Attachment(props: {
+	messageId: string;
+	attachment: { name: string; contentType: string };
+	mine: boolean;
+}) {
+	const isImage = () => props.attachment.contentType.startsWith("image/");
+	const image = useQuery(() => ({
+		...orpc.chat.attachmentUrl.queryOptions({ input: { messageId: props.messageId } }),
+		enabled: isImage(),
+		staleTime: 4 * 60_000,
+	}));
+
+	const open = async () => {
+		try {
+			const { url, name } = await client.chat.attachmentUrl({ messageId: props.messageId });
+			const a = document.createElement("a");
+			a.href = url;
+			a.download = name;
+			a.target = "_blank";
+			a.rel = "noopener";
+			a.click();
+		} catch (err) {
+			toast({ title: "Bestand openen lukte niet", description: friendlyError(err), tone: "danger" });
+		}
+	};
+
+	return (
+		<Show
+			when={isImage() && image.data}
+			fallback={
+				<button
+					type="button"
+					onClick={() => void open()}
+					style={{
+						display: "flex",
+						"align-items": "center",
+						gap: "8px",
+						"margin-top": "6px",
+						padding: "8px 10px",
+						"border-radius": "10px",
+						background: props.mine ? "rgb(255 255 255 / 0.15)" : "rgb(var(--bg-2))",
+						color: "inherit",
+						"font-size": "0.8125rem",
+						"text-align": "left",
+					}}
+					aria-label={`${props.attachment.name} openen`}
+				>
+					<FileText size={16} aria-hidden="true" />
+					<span class="truncate" style={{ "max-width": "16rem" }}>
+						{props.attachment.name}
+					</span>
+					<Download size={14} aria-hidden="true" />
+				</button>
+			}
+		>
+			<button
+				type="button"
+				onClick={() => void open()}
+				aria-label={`${props.attachment.name} openen`}
+				style={{ display: "block", "margin-top": "6px" }}
+			>
+				<img
+					src={image.data?.url}
+					alt={props.attachment.name}
+					style={{ "max-width": "240px", "max-height": "240px", "border-radius": "10px" }}
+				/>
+			</button>
+		</Show>
 	);
 }

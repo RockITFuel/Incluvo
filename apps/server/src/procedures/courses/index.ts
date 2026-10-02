@@ -26,14 +26,11 @@ import {
 	ALLOWED_UPLOAD_TYPES,
 	assertValidStorageKey,
 	contentMatchesBytes,
-	guessContentType,
-	hasS3,
 	MAX_UPLOAD_BYTES,
 	makeStorageKey,
-	presignedGetUrl,
 	presignPut,
+	readableFileUrl,
 	publicUrl,
-	readLocalUpload,
 	statUpload,
 	writeLocalUpload,
 } from "../../courses/storage";
@@ -1169,7 +1166,7 @@ const presignUpload = protectedProcedure
 		z.object({
 			filename: z.string().min(1),
 			contentType: z.string().min(1),
-			scope: z.enum(["bestand", "submission", "feedback"]).default("bestand"),
+			scope: z.enum(["bestand", "submission", "feedback", "chat"]).default("bestand"),
 		}),
 	)
 	.output(
@@ -1229,7 +1226,7 @@ const uploadLocal = protectedProcedure
 		z.object({
 			filename: z.string().min(1),
 			contentType: z.string().min(1),
-			scope: z.enum(["bestand", "submission", "feedback"]).default("bestand"),
+			scope: z.enum(["bestand", "submission", "feedback", "chat"]).default("bestand"),
 			/** base64-encoded file bytes. */
 			data: z.string().min(1),
 		}),
@@ -1389,28 +1386,8 @@ const getFile = protectedProcedure
 		// Authorize against the owning row (IDOR fix).
 		await authorizeFileAccess(context, input.storageKey);
 
-		if (hasS3()) {
-			// Short-lived presigned GET — never a permanent public URL for pupil data.
-			return { url: presignedGetUrl(input.storageKey, 300) };
-		}
-		const bytes = await readLocalUpload(input.storageKey);
-		// Derive the MIME from the extension. Only allow a known/allow-listed
-		// content type to be served inline as a data URL; anything else (or an
-		// unknown extension) falls back to a non-executable octet-stream so it
-		// can't render in the victim's origin (H1). Combined with the upload-time
-		// magic-byte sniff, the served type is server-derived, never client-trusted.
-		const guessed = guessContentType(input.storageKey);
-		const inlineAllowed = new Set(
-			Object.keys(ALLOWED_UPLOAD_TYPES).filter(
-				(t) => !t.startsWith("text/") && t !== "image/svg+xml",
-			),
-		);
-		const safeMime = inlineAllowed.has(guessed)
-			? guessed
-			: "application/octet-stream";
-		return {
-			url: `data:${safeMime};base64,${bytes.toString("base64")}`,
-		};
+		// Short-lived presigned GET (prod) or a safe data URL (dev).
+		return { url: await readableFileUrl(input.storageKey) };
 	});
 
 // ---------------------------------------------------------------------------
