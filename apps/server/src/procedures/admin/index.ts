@@ -17,7 +17,7 @@ import {
 } from "@incluvo/permissions";
 import type { Database } from "@incluvo/drizzle";
 import { ORPCError } from "@orpc/server";
-import { and, count, countDistinct, desc, eq, inArray, max } from "drizzle-orm";
+import { and, count, countDistinct, desc, eq, inArray, max, ne } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import { assertNotArchived } from "../../access";
@@ -575,6 +575,8 @@ const templatesCourses = protectedProcedure
 				createdAt: course.createdAt,
 			})
 			.from(course)
+			// Templates only: a leerling's own copy is pupil data (sameSchool).
+			.where(ne(course.kind, "student_execution"))
 			.orderBy(course.kind, course.title);
 
 		if (isSuperadmin(actor.role)) return rows;

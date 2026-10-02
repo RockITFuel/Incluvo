@@ -35,7 +35,7 @@ flowchart TD
 
 | Rol | Wie | Startpagina | Menu |
 | --- | --- | --- | --- |
-| superadmin | Ondivera | Overzicht (alle scholen) | Overzicht, Cursussen, Beheer, Formulieren |
+| superadmin | Ondivera | Overzicht (alle scholen) | Overzicht, Cursussen (catalogus), Beheer, Formulieren |
 | keyuser | beheerder van een school | Dashboard | Dashboard, Coachplannen, Cursussen, Chat, Assistent, Beheer, Formulieren |
 | coach | coach / docent | Dashboard | Dashboard, Coachplannen, Cursussen, Chat, Assistent |
 | ontwikkelaar | bouwt cursussen voor de school | Cursussen | Cursussen, Mijn profiel |
@@ -138,6 +138,10 @@ flowchart LR
 
 1. **Bouwen:** secties en blokken (tekst, media, bestand, opdracht), met labels per
    leervoorkeur.
+   **Catalogus (Ondivera):** een nieuw Ondivera-sjabloon staat dicht; Ondivera
+   maakt het beschikbaar voor alle of voor geselecteerde scholen en deelt het in
+   categorieën in (`/beheer/cursussen`, of per school op de schoolpagina). Zie
+   `docs/decisions/cursuscatalogus.md`.
 2. **Afleiden voor een leerling** maakt een eigen kopie; elke opdracht wordt een
    taak in de takenlijst van de leerling.
 3. **Leerling werkt:** voortgang per blok; aanbevolen inhoud volgens de

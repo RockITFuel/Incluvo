@@ -12,7 +12,13 @@ import {
 	task,
 	user,
 } from "@incluvo/drizzle/schema";
-import { atLeast, canBuildCourses, checkPermission, policies } from "@incluvo/permissions";
+import {
+	atLeast,
+	canBuildCourses,
+	checkPermission,
+	isSuperadmin,
+	policies,
+} from "@incluvo/permissions";
 import { ORPCError } from "@orpc/server";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -43,6 +49,12 @@ import {
 	requireTenantMember,
 } from "../../access";
 import { type AuthedContext, base, protectedProcedure } from "../base";
+import {
+	availableTemplateIds,
+	catalogRouter,
+	categoryIdsByCourse,
+	schoolIdsByTemplate,
+} from "./catalog";
 
 /**
  * A Drizzle transaction handle (the `tx` passed to `db.transaction`). Helpers
@@ -95,6 +107,15 @@ const CourseSchema = z.object({
 	sourceContentAt: z.date().nullable(),
 	createdAt: z.date(),
 	updatedAt: z.date(),
+});
+
+/** A course in the list: also its categories and, for Ondivera, who may use it. */
+const ListCourseSchema = CourseSchema.extend({
+	categoryIds: z.array(z.string()),
+	/** Ondivera templates, superadmin only: open to all, or these schools. */
+	availability: z
+		.object({ allSchools: z.boolean(), organizationIds: z.array(z.string()) })
+		.nullable(),
 });
 
 const blockType = z.enum([
@@ -170,6 +191,14 @@ async function loadReadable(context: AuthedContext, id: string) {
 	}
 	const sharedTemplate =
 		row.kind === "ondivera_template" && row.organizationId === null;
+	// A school only reads the Ondivera templates made available to it.
+	if (
+		sharedTemplate &&
+		!isSuperadmin(context.actor.role) &&
+		!(await availableTemplateIds(context.db, context.actor.organizationId, [row.id])).has(row.id)
+	) {
+		throw new ORPCError("FORBIDDEN", { message: "Deze cursus is niet beschikbaar voor jouw school" });
+	}
 	if (
 		!sharedTemplate &&
 		!checkPermission(policies.readCourse, context.actor, courseResource(row))
@@ -326,16 +355,18 @@ const list = protectedProcedure
 			})
 			.optional(),
 	)
-	.output(z.array(CourseSchema))
+	.output(z.array(ListCourseSchema))
 	.handler(async ({ input, context }) => {
 		const { actor } = context;
 
-		// Visible courses: Ondivera templates (org null), the actor's own tenant's
-		// courses, and — for a leerling — their own student_execution courses.
+		// Visible courses: Ondivera templates available to the school, the
+		// actor's own tenant's courses, and — for a leerling — their own
+		// student_execution courses.
 		const rows = await context.db
-			.select(courseColumns)
+			.select({ ...courseColumns, availableToAllSchools: course.availableToAllSchools })
 			.from(course)
 			.orderBy(asc(course.kind), asc(course.title));
+		const openTemplates = await availableTemplateIds(context.db, actor.organizationId);
 
 		const visible = rows.filter((row) => {
 			// Superadmin sees everything.
@@ -347,8 +378,8 @@ const list = protectedProcedure
 					row.kind === "student_execution" && row.leerlingId === actor.userId
 				);
 			}
-			// Ondivera templates are readable by any (non-leerling) user authed in a school.
-			if (row.kind === "ondivera_template") return true;
+			// Ondivera templates: only those Ondivera made available to the school.
+			if (row.kind === "ondivera_template") return openTemplates.has(row.id);
 			// Same-tenant courses.
 			if (
 				row.organizationId &&
@@ -380,7 +411,24 @@ const list = protectedProcedure
 			if (input?.leerlingId && row.leerlingId !== input.leerlingId) return false;
 			return true;
 		});
-		return filtered;
+
+		const ids = filtered.map((r) => r.id);
+		const categories = await categoryIdsByCourse(context.db, ids);
+		const superadmin = isSuperadmin(actor.role);
+		const schools = superadmin
+			? await schoolIdsByTemplate(
+					context.db,
+					filtered.filter((r) => r.kind === "ondivera_template").map((r) => r.id),
+				)
+			: new Map<string, string[]>();
+		return filtered.map(({ availableToAllSchools, ...row }) => ({
+			...row,
+			categoryIds: categories.get(row.id) ?? [],
+			availability:
+				superadmin && row.kind === "ondivera_template"
+					? { allSchools: availableToAllSchools, organizationIds: schools.get(row.id) ?? [] }
+					: null,
+		}));
 	});
 
 const get = protectedProcedure
@@ -2194,4 +2242,6 @@ export const coursesRouter = base.router({
 	respondProposal,
 	// #34 stub
 	importOndiveraContent,
+	// Cursuscatalogus: categories + availability per school
+	catalog: catalogRouter,
 });

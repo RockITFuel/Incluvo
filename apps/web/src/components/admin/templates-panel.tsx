@@ -97,7 +97,9 @@ export function CoursesPanel(props: { organizationId?: string }) {
 	return (
 		<section class="flex flex-col gap-4">
 			<div>
-				<h2 class="font-head text-h3 text-ink">Cursussen</h2>
+				<h2 class="font-head text-h3 text-ink">
+					{props.organizationId ? "Eigen cursussen van de school" : "Cursussen"}
+				</h2>
 				<p class="mt-1 text-small text-muted">
 					Cursussen en sjablonen van deze school. Bewerken doe je onder Cursussen.
 				</p>

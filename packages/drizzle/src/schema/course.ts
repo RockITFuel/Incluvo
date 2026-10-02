@@ -67,9 +67,58 @@ export const course = pgTable("course", {
 	 */
 	contentUpdatedAt: timestamp("content_updated_at").notNull().defaultNow(),
 	sourceContentAt: timestamp("source_content_at"),
+	/**
+	 * Ondivera templates only: open to every school, or just the schools in
+	 * `courseSchoolAvailability`. A new template starts closed so Ondivera can
+	 * finish it first (docs/decisions/cursuscatalogus.md).
+	 */
+	availableToAllSchools: boolean("available_to_all_schools").notNull().default(false),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 	updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
+
+/** Which schools may use an Ondivera template (when not open to all). */
+export const courseSchoolAvailability = pgTable(
+	"course_school_availability",
+	{
+		courseId: uuid("course_id")
+			.notNull()
+			.references(() => course.id, { onDelete: "cascade" }),
+		organizationId: uuid("organization_id")
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		createdAt: timestamp("created_at").notNull().defaultNow(),
+	},
+	(t) => [
+		uniqueIndex("course_school_availability_uq").on(t.courseId, t.organizationId),
+		index("course_school_availability_org_idx").on(t.organizationId),
+	],
+);
+
+/** Course categories, managed by Ondivera, for filtering the catalogue. */
+export const courseCategory = pgTable("course_category", {
+	id: uuid("id").primaryKey().defaultRandom(),
+	name: text("name").notNull().unique(),
+	createdAt: timestamp("created_at").notNull().defaultNow(),
+	updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+/** A course can be in several categories. */
+export const courseCategoryLink = pgTable(
+	"course_category_link",
+	{
+		courseId: uuid("course_id")
+			.notNull()
+			.references(() => course.id, { onDelete: "cascade" }),
+		categoryId: uuid("category_id")
+			.notNull()
+			.references(() => courseCategory.id, { onDelete: "cascade" }),
+	},
+	(t) => [
+		uniqueIndex("course_category_link_uq").on(t.courseId, t.categoryId),
+		index("course_category_link_category_idx").on(t.categoryId),
+	],
+);
 
 export const courseSection = pgTable("course_section", {
 	id: uuid("id").primaryKey().defaultRandom(),

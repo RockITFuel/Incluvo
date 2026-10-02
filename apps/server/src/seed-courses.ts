@@ -112,6 +112,7 @@ async function main() {
 				title: ONDIVERA_TITLE,
 				description:
 					"Een voorbeeldcursus van Ondivera. Kopieer naar je school en pas aan.",
+				availableToAllSchools: true,
 				createdById: ontwikkelaar,
 			})
 			.returning({ id: course.id });

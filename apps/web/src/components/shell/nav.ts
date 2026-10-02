@@ -41,7 +41,7 @@ export function navForRole(role: UserRole | null, badges: NavBadges = {}): NavSe
 				label: "Navigatie",
 				items: [
 					{ label: "Overzicht", href: "/dashboard", icon: LayoutDashboard },
-					{ label: "Cursussen", href: "/cursussen", icon: GraduationCap },
+					{ label: "Cursussen", href: "/beheer/cursussen", icon: GraduationCap },
 				],
 			},
 			{

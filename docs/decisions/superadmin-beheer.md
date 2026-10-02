@@ -95,7 +95,7 @@ De superadmin heeft daarom **geen toegang tot inhoudelijke leerlinggegevens**
 | ontwikkelaar | Cursussen, Mijn profiel | /cursussen |
 | coach | Dashboard, Coachplannen, Cursussen, Chat, Assistent | /dashboard |
 | keyuser | coach + Beheer, Formulieren | /dashboard |
-| superadmin | Overzicht, Cursussen, Beheer, Formulieren | /dashboard (platformoverzicht) |
+| superadmin | Overzicht, Cursussen (catalogus, `/beheer/cursussen`), Beheer, Formulieren | /dashboard (platformoverzicht) |
 
 Later, als het nodig blijkt: tijdelijke supporttoegang tot één school, met
 toestemming van de keyuser en vastgelegd in de audit-log.

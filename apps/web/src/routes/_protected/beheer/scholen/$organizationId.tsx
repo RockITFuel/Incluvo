@@ -18,10 +18,8 @@ import {
 import { createSignal, Show } from "solid-js";
 import { AssignmentsPanel } from "../../../../components/admin/assignments-panel";
 import { formatDate, kindLabel } from "../../../../components/admin/format";
-import {
-	CoursesPanel,
-	FormsPanel,
-} from "../../../../components/admin/templates-panel";
+import { SchoolCoursesPanel } from "../../../../components/admin/school-courses-panel";
+import { FormsPanel } from "../../../../components/admin/templates-panel";
 import { UsersPanel } from "../../../../components/admin/users-panel";
 import { KPI } from "../../../../components/dashboard/kpi";
 import { relativeTime } from "../../../../components/dashboard/plan-status";
@@ -281,7 +279,9 @@ function SchoolPage() {
 								{
 									value: "courses",
 									label: "Cursussen",
-									content: <CoursesPanel organizationId={o().id} />,
+									content: (
+										<SchoolCoursesPanel organizationId={o().id} readOnly={isArchived()} />
+									),
 								},
 							]}
 						/>

@@ -28,6 +28,7 @@ import { Route as ProtectedPlanSubmissionIdRouteImport } from './routes/_protect
 import { Route as ProtectedDashboardLeerlingIdRouteImport } from './routes/_protected/dashboard/$leerlingId'
 import { Route as ProtectedCursussenCourseIdRouteImport } from './routes/_protected/cursussen/$courseId'
 import { Route as ProtectedPlanBeheerIndexRouteImport } from './routes/_protected/plan/beheer/index'
+import { Route as ProtectedBeheerCursussenIndexRouteImport } from './routes/_protected/beheer/cursussen/index'
 import { Route as ProtectedBeheerScholenOrganizationIdRouteImport } from './routes/_protected/beheer/scholen/$organizationId'
 
 const WachtwoordInstellenRoute = WachtwoordInstellenRouteImport.update({
@@ -130,6 +131,12 @@ const ProtectedPlanBeheerIndexRoute =
     path: '/plan/beheer/',
     getParentRoute: () => ProtectedRoute,
   } as any)
+const ProtectedBeheerCursussenIndexRoute =
+  ProtectedBeheerCursussenIndexRouteImport.update({
+    id: '/beheer/cursussen/',
+    path: '/beheer/cursussen/',
+    getParentRoute: () => ProtectedRoute,
+  } as any)
 const ProtectedBeheerScholenOrganizationIdRoute =
   ProtectedBeheerScholenOrganizationIdRouteImport.update({
     id: '/beheer/scholen/$organizationId',
@@ -156,6 +163,7 @@ export interface FileRoutesByFullPath {
   '/taken/': typeof ProtectedTakenIndexRoute
   '/welkom/': typeof ProtectedWelkomIndexRoute
   '/beheer/scholen/$organizationId': typeof ProtectedBeheerScholenOrganizationIdRoute
+  '/beheer/cursussen/': typeof ProtectedBeheerCursussenIndexRoute
   '/plan/beheer/': typeof ProtectedPlanBeheerIndexRoute
 }
 export interface FileRoutesByTo {
@@ -177,6 +185,7 @@ export interface FileRoutesByTo {
   '/taken': typeof ProtectedTakenIndexRoute
   '/welkom': typeof ProtectedWelkomIndexRoute
   '/beheer/scholen/$organizationId': typeof ProtectedBeheerScholenOrganizationIdRoute
+  '/beheer/cursussen': typeof ProtectedBeheerCursussenIndexRoute
   '/plan/beheer': typeof ProtectedPlanBeheerIndexRoute
 }
 export interface FileRoutesById {
@@ -200,6 +209,7 @@ export interface FileRoutesById {
   '/_protected/taken/': typeof ProtectedTakenIndexRoute
   '/_protected/welkom/': typeof ProtectedWelkomIndexRoute
   '/_protected/beheer/scholen/$organizationId': typeof ProtectedBeheerScholenOrganizationIdRoute
+  '/_protected/beheer/cursussen/': typeof ProtectedBeheerCursussenIndexRoute
   '/_protected/plan/beheer/': typeof ProtectedPlanBeheerIndexRoute
 }
 export interface FileRouteTypes {
@@ -223,6 +233,7 @@ export interface FileRouteTypes {
     | '/taken/'
     | '/welkom/'
     | '/beheer/scholen/$organizationId'
+    | '/beheer/cursussen/'
     | '/plan/beheer/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -244,6 +255,7 @@ export interface FileRouteTypes {
     | '/taken'
     | '/welkom'
     | '/beheer/scholen/$organizationId'
+    | '/beheer/cursussen'
     | '/plan/beheer'
   id:
     | '__root__'
@@ -266,6 +278,7 @@ export interface FileRouteTypes {
     | '/_protected/taken/'
     | '/_protected/welkom/'
     | '/_protected/beheer/scholen/$organizationId'
+    | '/_protected/beheer/cursussen/'
     | '/_protected/plan/beheer/'
   fileRoutesById: FileRoutesById
 }
@@ -411,6 +424,13 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof ProtectedPlanBeheerIndexRouteImport
       parentRoute: typeof ProtectedRoute
     }
+    '/_protected/beheer/cursussen/': {
+      id: '/_protected/beheer/cursussen/'
+      path: '/beheer/cursussen'
+      fullPath: '/beheer/cursussen/'
+      preLoaderRoute: typeof ProtectedBeheerCursussenIndexRouteImport
+      parentRoute: typeof ProtectedRoute
+    }
     '/_protected/beheer/scholen/$organizationId': {
       id: '/_protected/beheer/scholen/$organizationId'
       path: '/beheer/scholen/$organizationId'
@@ -437,6 +457,7 @@ interface ProtectedRouteChildren {
   ProtectedTakenIndexRoute: typeof ProtectedTakenIndexRoute
   ProtectedWelkomIndexRoute: typeof ProtectedWelkomIndexRoute
   ProtectedBeheerScholenOrganizationIdRoute: typeof ProtectedBeheerScholenOrganizationIdRoute
+  ProtectedBeheerCursussenIndexRoute: typeof ProtectedBeheerCursussenIndexRoute
   ProtectedPlanBeheerIndexRoute: typeof ProtectedPlanBeheerIndexRoute
 }
 
@@ -457,6 +478,7 @@ const ProtectedRouteChildren: ProtectedRouteChildren = {
   ProtectedWelkomIndexRoute: ProtectedWelkomIndexRoute,
   ProtectedBeheerScholenOrganizationIdRoute:
     ProtectedBeheerScholenOrganizationIdRoute,
+  ProtectedBeheerCursussenIndexRoute: ProtectedBeheerCursussenIndexRoute,
   ProtectedPlanBeheerIndexRoute: ProtectedPlanBeheerIndexRoute,
 }
 
