@@ -47,6 +47,9 @@ const ListTaskSchema = TaskSchema.extend({
 	overdue: z.boolean(),
 });
 
+export const TASK_TITLE_MAX = 64;
+export const TASK_DESCRIPTION_MAX = 1000;
+
 const taskColumns = {
 	id: task.id,
 	leerlingId: task.leerlingId,
@@ -208,8 +211,9 @@ const add = protectedProcedure
 	.input(
 		z.object({
 			leerlingId: z.string().optional(),
-			title: z.string().min(1),
-			description: z.string().optional(),
+			// INC-5: title max 64; toelichting max 1000 (AC7 left it open).
+			title: z.string().trim().min(1).max(TASK_TITLE_MAX),
+			description: z.string().trim().max(TASK_DESCRIPTION_MAX).optional(),
 			dueAt: z.coerce.date().optional(),
 		}),
 	)

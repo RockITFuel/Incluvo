@@ -4,15 +4,17 @@ import { useQuery } from "@tanstack/solid-query";
 import {
 	ArrowRight,
 	ListChecks,
+	Plus,
 	MessageSquare,
 	NotebookPen,
 	X,
 } from "lucide-solid";
-import { For, type JSX, Show } from "solid-js";
+import { createSignal, For, type JSX, Show } from "solid-js";
 import { cn } from "../../lib/cn";
 import { orpc } from "../../lib/orpc";
 import { PlanStatusBadge } from "./plan-status";
 import { ErrorState } from "../../components/ui/error-state";
+import { TaskCreateDialog } from "../tasks/task-create-dialog";
 
 /**
  * Quickpanel slide-over (#43) — a 1:1 port of the approved prototype's panel.
@@ -33,6 +35,7 @@ export function Quickpanel(props: {
 }) {
 	const isOpen = () => props.leerlingId !== null;
 
+	const [taskOpen, setTaskOpen] = createSignal(false);
 	const query = useQuery(() => ({
 		...orpc.dashboard.quickpanel.queryOptions({
 			input: { leerlingId: props.leerlingId ?? "" },
@@ -379,6 +382,14 @@ export function Quickpanel(props: {
 									</Show>
 								</div>
 								<Show when={props.leerlingId}>
+									<button
+										type="button"
+										class="btn primary"
+										style={{ "justify-content": "center" }}
+										onClick={() => setTaskOpen(true)}
+									>
+										<Plus class="size-3.5" aria-hidden="true" /> Taak aanmaken
+									</button>
 									<Link
 										to="/taken/$leerlingId"
 										params={{ leerlingId: props.leerlingId ?? "" }}
@@ -402,6 +413,12 @@ export function Quickpanel(props: {
 					</KDialog.Content>
 				</div>
 			</KDialog.Portal>
+			<TaskCreateDialog
+				leerlingId={props.leerlingId}
+				leerlingName={query.data?.leerling.name}
+				open={taskOpen()}
+				onOpenChange={setTaskOpen}
+			/>
 		</KDialog>
 	);
 }
