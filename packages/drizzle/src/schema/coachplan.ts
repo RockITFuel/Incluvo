@@ -77,6 +77,12 @@ export const formTemplate = pgTable("form_template", {
 	description: text("description"),
 	// Marks the school default form (#10); per-leerling overrides via #10 link.
 	isSchoolDefault: boolean("is_school_default").notNull().default(false),
+	/**
+	 * INC-7: null = concept (questions editable); set = published (questions
+	 * frozen). Only a published version can be used for plans, made the school
+	 * default, assigned or copied.
+	 */
+	publishedAt: timestamp("published_at"),
 	createdById: text("created_by_id").references(() => user.id, {
 		onDelete: "set null",
 	}),
@@ -115,6 +121,11 @@ export const formQuestion = pgTable("form_question", {
 	mapsToQuestionId: uuid("maps_to_question_id"),
 	// Options for choice/scale/leervoorkeur questions, as JSON.
 	options: jsonb("options"),
+	/**
+	 * INC-7: whether the leerling sees this question and its answer in their
+	 * coachplan — whoever answered it. Part of the version, like the label.
+	 */
+	visibleToLeerling: boolean("visible_to_leerling").notNull().default(true),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 	updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

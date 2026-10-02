@@ -66,6 +66,8 @@ export const QuestionSchema = z.object({
 	// Template-level correspondence to a coach (POPP) question (#18).
 	mapsToQuestionId: z.string().nullable(),
 	options: QuestionOptions,
+	/** INC-7: shown to the leerling in their coachplan (with its answer). */
+	visibleToLeerling: z.boolean(),
 });
 export type QuestionDTO = z.infer<typeof QuestionSchema>;
 
@@ -79,6 +81,8 @@ export const TemplateSchema = z.object({
 	name: z.string(),
 	description: z.string().nullable(),
 	isSchoolDefault: z.boolean(),
+	/** INC-7: null = concept; set = published (questions frozen). */
+	publishedAt: z.date().nullable(),
 	createdAt: z.date(),
 	updatedAt: z.date(),
 });

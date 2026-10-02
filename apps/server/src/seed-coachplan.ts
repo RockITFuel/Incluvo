@@ -414,6 +414,7 @@ async function ensureTemplate(): Promise<void> {
 				"De Ondivera-vragenlijst: Mijn Plan (leerling) en POPP (coach), met leervoorkeuren en leerling→coach correspondenties.",
 			scope: "ondivera",
 			organizationId: null,
+			publishedAt: new Date(),
 		});
 		if (!tpl) throw new Error("Failed to create Ondivera template");
 		await insertQuestions(tpl.id);
@@ -440,6 +441,7 @@ async function ensureTemplate(): Promise<void> {
 			organizationId: school.id,
 			parentTemplateId: tpl.id,
 			isSchoolDefault: true,
+			publishedAt: new Date(),
 		});
 		if (!schoolTpl) throw new Error("Failed to create school template");
 		await copyTemplateQuestions(db, tpl.id, schoolTpl.id);

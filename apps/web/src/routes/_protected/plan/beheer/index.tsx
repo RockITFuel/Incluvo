@@ -12,6 +12,8 @@ import { useMe } from "../../../../lib/auth/use-me";
 import { RequireRole } from "../../../../lib/auth/role-guard";
 import { client, orpc } from "../../../../lib/orpc";
 import { ErrorState } from "../../../../components/ui/error-state";
+import { friendlyError } from "../../../../lib/errors";
+import { Switch } from "../../../../components/ui/switch";
 
 /**
  * Formulierenmanager (#8/#9/#10) — keyuser+. Lists templates (Ondivera + own
@@ -105,8 +107,8 @@ function FormManager() {
 			await client.coachplan.templates.setSchoolDefault({ templateId: id });
 			invalidate();
 			toast({ title: "Standaardformulier ingesteld", tone: "success" });
-		} catch {
-			toast({ title: "Lukte niet (alleen schoolformulieren)", tone: "danger" });
+		} catch (err) {
+			toast({ title: "Instellen lukte niet", description: friendlyError(err), tone: "danger" });
 		}
 	};
 
@@ -116,14 +118,39 @@ function FormManager() {
 			setSelectedId(tpl.id);
 			invalidate();
 			toast({
-				title: `Versie ${tpl.version} gemaakt`,
-				description: "Pas de vragen aan en stel hem daarna in als standaard.",
+				title: `Concept versie ${tpl.version} gemaakt`,
+				description: "Pas de vragen aan en publiceer het concept daarna.",
 				tone: "success",
 			});
-		} catch (err) {
-			toast({ title: "Lukte niet", description: (err as Error).message, tone: "danger" });
-		}
-	};
+			} catch (err) {
+				toast({ title: "Lukte niet", description: friendlyError(err), tone: "danger" });
+			}
+			};
+			
+			// INC-7: a concept becomes usable (and frozen) once published.
+			const publish = async (id: string) => {
+				try {
+					const tpl = await client.coachplan.templates.publish({ id });
+					invalidate();
+					toast({
+						title: `Versie ${tpl.version} gepubliceerd`,
+						description: "Ingevulde plannen blijven op hun eigen versie.",
+						tone: "success",
+					});
+				} catch (err) {
+					toast({ title: "Publiceren lukte niet", description: friendlyError(err), tone: "danger" });
+				}
+			};
+			const discard = async (id: string) => {
+				try {
+					await client.coachplan.templates.discardDraft({ id });
+					setSelectedId(null);
+					invalidate();
+					toast({ title: "Concept verwijderd", tone: "success" });
+				} catch (err) {
+					toast({ title: "Verwijderen lukte niet", description: friendlyError(err), tone: "danger" });
+				}
+			};
 
 	const upgrade = async (id: string) => {
 		try {
@@ -132,7 +159,7 @@ function FormManager() {
 			invalidate();
 			toast({ title: `Bijgewerkt naar versie ${tpl.version}`, tone: "success" });
 		} catch (err) {
-			toast({ title: "Bijwerken lukte niet", description: (err as Error).message, tone: "danger" });
+			toast({ title: "Bijwerken lukte niet", description: friendlyError(err), tone: "danger" });
 		}
 	};
 
@@ -226,6 +253,9 @@ function FormManager() {
 									<div class="flex items-center gap-2">
 										<span class="font-medium text-ink">{tpl.name}</span>
 										<Badge variant="outline">v{tpl.version}</Badge>
+										<Show when={tpl.publishedAt} fallback={<Badge variant="warning">Concept</Badge>}>
+											<Badge variant="neutral">Gepubliceerd</Badge>
+										</Show>
 										<Show when={tpl.isSchoolDefault}>
 											<Badge variant="success">Standaard</Badge>
 										</Show>
@@ -235,7 +265,7 @@ function FormManager() {
 									</Badge>
 								</button>
 								<div class="flex flex-wrap gap-2">
-									<Show when={tpl.scope === "ondivera"}>
+									<Show when={tpl.scope === "ondivera" && tpl.publishedAt}>
 										<Button
 											size="sm"
 											variant="ghost"
@@ -259,7 +289,7 @@ function FormManager() {
 											</div>
 										)}
 									</Show>
-									<Show when={tpl.scope === "school" && !tpl.isSchoolDefault}>
+									<Show when={tpl.scope === "school" && !tpl.isSchoolDefault && tpl.publishedAt}>
 										<Button
 											size="sm"
 											variant="subtle"
@@ -310,6 +340,25 @@ function FormManager() {
 											</p>
 										</Card>
 									</Show>
+									<Show when={mayManage && !tpl?.publishedAt}>
+										<Card
+											padding="sm"
+											class="flex flex-wrap items-center justify-between gap-3 border-warning bg-warning-100"
+										>
+											<p class="text-small text-ink-2">
+												Dit is een concept. Pas de vragen aan en publiceer het daarna; vanaf dan
+												liggen de vragen van deze versie vast en kan hij gebruikt worden.
+											</p>
+											<div class="flex gap-2">
+												<Button size="sm" variant="ghost" onClick={() => tpl && discard(tpl.id)}>
+													Concept verwijderen
+												</Button>
+												<Button size="sm" onClick={() => tpl && publish(tpl.id)}>
+													Publiceren
+												</Button>
+											</div>
+										</Card>
+									</Show>
 									<Show when={mayManage && tpl?.inUse}>
 										<Card
 											padding="sm"
@@ -337,6 +386,9 @@ function FormManager() {
 													<Badge variant="outline">{q.type}</Badge>
 													<Show when={q.options?.theme}>
 														<Badge variant="primary">{q.options?.theme}</Badge>
+													</Show>
+													<Show when={!q.visibleToLeerling}>
+														<Badge variant="warning">Verborgen voor leerling</Badge>
 													</Show>
 												</div>
 												<Input
@@ -369,6 +421,13 @@ function FormManager() {
 														}
 													/>
 												</div>
+												<Switch
+													label="Zichtbaar voor leerling"
+													description="Toont deze vraag en het antwoord in het coachplan van de leerling, ook als de coach hem beantwoordt."
+													checked={q.visibleToLeerling}
+													disabled={readOnly}
+													onChange={(on) => !readOnly && updateQuestion(q.id, { visibleToLeerling: on })}
+												/>
 												<Show when={!readOnly}>
 													<div class="flex justify-end">
 														<Button

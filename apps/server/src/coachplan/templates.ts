@@ -20,7 +20,7 @@ import {
 } from "@incluvo/drizzle/schema";
 import type { Database } from "@incluvo/drizzle";
 import { ORPCError } from "@orpc/server";
-import { asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 
 type Db = Pick<Database, "select" | "insert" | "update" | "delete">;
 export type Template = typeof formTemplate.$inferSelect;
@@ -65,6 +65,7 @@ export async function copyQuestions(db: Db, fromTemplateId: string, toTemplateId
 			position: q.position,
 			options: q.options,
 			mapsToQuestionId: q.mapsToQuestionId ? (newId.get(q.mapsToQuestionId) ?? null) : null,
+			visibleToLeerling: q.visibleToLeerling,
 		})),
 	);
 }
@@ -81,10 +82,32 @@ export async function latestVersion(db: Db, familyId: string): Promise<Template>
 	return row;
 }
 
+/** The newest published version in a family, or null when there is none. */
+export async function latestPublished(db: Db, familyId: string): Promise<Template | null> {
+	const [row] = await db
+		.select()
+		.from(formTemplate)
+		.where(and(eq(formTemplate.familyId, familyId), isNotNull(formTemplate.publishedAt)))
+		.orderBy(desc(formTemplate.version))
+		.limit(1);
+	return row ?? null;
+}
+
+/** CONFLICT unless the version is published (only those may be used). */
+export function assertPublished(tpl: Template): void {
+	if (!tpl.publishedAt) {
+		throw new ORPCError("CONFLICT", {
+			message: "Dit formulier is nog een concept. Publiceer het eerst.",
+		});
+	}
+}
+
 /** Why a template can't be edited in place, or null when it can. */
 export async function inUseReason(db: Db, tpl: Template): Promise<string | null> {
 	const latest = await latestVersion(db, tpl.familyId);
 	if (latest.id !== tpl.id) return "Er is al een nieuwere versie van dit formulier.";
+	// INC-7: a published version is frozen.
+	if (tpl.publishedAt) return "Dit formulier is gepubliceerd.";
 	const [used] = await db
 		.select({ n: sql<number>`1` })
 		.from(formSubmission)
@@ -139,7 +162,10 @@ export async function newVersion(
 	return row;
 }
 
-/** For a school copy: the newer Ondivera version it could upgrade to, if any. */
+/**
+ * For a school copy: the newer published Ondivera version it could upgrade
+ * to, if any (a concept at Ondivera is not offered).
+ */
 export async function sourceUpdate(db: Db, tpl: Template): Promise<Template | null> {
 	if (!tpl.parentTemplateId) return null;
 	const [parent] = await db
@@ -147,8 +173,8 @@ export async function sourceUpdate(db: Db, tpl: Template): Promise<Template | nu
 		.from(formTemplate)
 		.where(eq(formTemplate.id, tpl.parentTemplateId));
 	if (!parent) return null;
-	const latest = await latestVersion(db, parent.familyId);
-	return latest.version > parent.version ? latest : null;
+	const latest = await latestPublished(db, parent.familyId);
+	return latest && latest.version > parent.version ? latest : null;
 }
 
 /**
@@ -162,7 +188,17 @@ export async function upgradeFromSource(db: Db, tpl: Template): Promise<Template
 	const source = await sourceUpdate(db, tpl);
 	if (!source) throw new ORPCError("CONFLICT", { message: "Er is geen nieuwere versie van de bron" });
 	const latest = await latestVersion(db, tpl.familyId);
+	if (!latest.publishedAt) {
+		throw new ORPCError("CONFLICT", {
+			message: "Er staat nog een concept klaar. Publiceer of verwijder dat eerst.",
+		});
+	}
 	const next = await newVersion(db, latest, { copyFrom: source, parentTemplateId: source.id });
+	// A copy of a published source is ready to use as it is.
+	await db
+		.update(formTemplate)
+		.set({ publishedAt: new Date() })
+		.where(eq(formTemplate.id, next.id));
 	// Whichever version of this form was the school default or assigned to
 	// leerlingen (not necessarily the newest), the upgrade takes its place.
 	const family = await db

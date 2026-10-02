@@ -76,7 +76,7 @@ describe("form versions (D5)", () => {
 	test("a form with plans on it can't be edited in place; a new version can", async () => {
 		const keyuser = await asUser("keyuser");
 		const current = await schoolDefault();
-		expect(current.inUse).toContain("plannen");
+		expect(current.inUse).toContain("gepubliceerd");
 		const detail = await keyuser.client.coachplan.templates.get({ id: current.id });
 		const q = detail.questions[0]!;
 		expect(await code(() => keyuser.client.coachplan.questions.update({ id: q.id, label: "Anders" }))).toBe(
@@ -88,13 +88,46 @@ describe("form versions (D5)", () => {
 		expect(v2.familyId).toBe(current.familyId);
 		const v2detail = await keyuser.client.coachplan.templates.get({ id: v2.id });
 		expect(v2detail.inUse).toBeNull();
+		expect(v2detail.publishedAt).toBeNull();
 		await keyuser.client.coachplan.questions.update({ id: v2detail.questions[0]!.id, label: "Anders" });
+		// INC-7: one concept at a time; a concept can't be the default.
+		expect(await code(() => keyuser.client.coachplan.templates.newVersion({ id: current.id }))).toBe(
+			"CONFLICT",
+		);
+		expect(
+			await code(() => keyuser.client.coachplan.templates.setSchoolDefault({ templateId: v2.id })),
+		).toBe("CONFLICT");
 		// The list shows one entry per form: the newest version.
 		const list = await keyuser.client.coachplan.templates.list();
 		expect(list.filter((t) => t.familyId === current.familyId).map((t) => t.id)).toEqual([v2.id]);
 		// Plans keep their version: the old one is unchanged.
 		const old = await keyuser.client.coachplan.templates.get({ id: current.id });
 		expect(old.questions[0]!.label).toBe(q.label);
+
+		// Publishing freezes the concept (INC-7 AC3/AC4).
+		const published = await keyuser.client.coachplan.templates.publish({ id: v2.id });
+		expect(published.publishedAt).toBeInstanceOf(Date);
+		expect(
+			await code(() =>
+				keyuser.client.coachplan.questions.update({ id: v2detail.questions[0]!.id, label: "Weer anders" }),
+			),
+		).toBe("CONFLICT");
+		expect(await code(() => keyuser.client.coachplan.templates.discardDraft({ id: v2.id }))).toBe(
+			"CONFLICT",
+		);
+	});
+
+	test("a concept can be thrown away; the published version stays", async () => {
+		const keyuser = await asUser("keyuser");
+		const current = (await keyuser.client.coachplan.templates.list()).find(
+			(t) => t.scope === "school" && t.publishedAt,
+		)!;
+		const concept = await keyuser.client.coachplan.templates.newVersion({ id: current.id });
+		await keyuser.client.coachplan.templates.discardDraft({ id: concept.id });
+		const after = (await keyuser.client.coachplan.templates.list()).find(
+			(t) => t.familyId === current.familyId,
+		)!;
+		expect(after.id).toBe(current.id);
 	});
 
 	test("a school upgrades to a newer Ondivera version when it chooses; revised plans carry answers over", async () => {
@@ -115,6 +148,12 @@ describe("form versions (D5)", () => {
 		const v2qs = (await superadmin.client.coachplan.templates.get({ id: ondiveraV2.id })).questions;
 		const reworded = v2qs.find((q) => q.section === "leerling")!;
 		await superadmin.client.coachplan.questions.update({ id: reworded.id, label: "Wat doe je graag?" });
+		// A concept at Ondivera isn't offered to schools; published, it is.
+		const before = (await keyuser.client.coachplan.templates.list()).find(
+			(t) => t.familyId === schoolV1!.familyId,
+		)!;
+		expect(before.sourceUpdateVersion).toBeNull();
+		await superadmin.client.coachplan.templates.publish({ id: ondiveraV2.id });
 
 		const listed = (await keyuser.client.coachplan.templates.list()).find(
 			(t) => t.familyId === schoolV1!.familyId,

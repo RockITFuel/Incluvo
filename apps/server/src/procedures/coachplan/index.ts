@@ -42,9 +42,11 @@ import { rateLimit } from "../../rate-limit";
 import { publishTo } from "../../sse";
 import {
 	assertEditable,
+	assertPublished,
 	copyQuestions,
 	inUseReason,
 	insertTemplate,
+	latestVersion as latestTemplateVersion,
 	newVersion,
 	sourceUpdate,
 	upgradeFromSource,
@@ -106,6 +108,7 @@ function templateDto(row: typeof formTemplate.$inferSelect) {
 		name: row.name,
 		description: row.description,
 		isSchoolDefault: row.isSchoolDefault,
+		publishedAt: row.publishedAt,
 		createdAt: row.createdAt,
 		updatedAt: row.updatedAt,
 	};
@@ -124,6 +127,7 @@ function questionDto(row: typeof formQuestion.$inferSelect) {
 		position: row.position,
 		mapsToQuestionId: row.mapsToQuestionId,
 		options: (row.options ?? null) as never,
+		visibleToLeerling: row.visibleToLeerling,
 	};
 }
 
@@ -317,6 +321,9 @@ const templatesCopyToSchool = protectedProcedure
 		if (src.scope === "school" && !sameTenant(actor, src)) {
 			throw new ORPCError("FORBIDDEN");
 		}
+		// INC-7: only a published version; the copy is published as it is (to
+		// change it, the school makes a new concept version).
+		assertPublished(src);
 
 		// Template + questions commit together: never a half-copied form. The
 		// copy records which Ondivera version it came from (D5 upgrades).
@@ -328,6 +335,7 @@ const templatesCopyToSchool = protectedProcedure
 				organizationId,
 				parentTemplateId: src.id,
 				createdById: actor.userId,
+				publishedAt: new Date(),
 			});
 			await copyQuestions(tx, src.id, copy.id);
 			return copy;
@@ -376,6 +384,7 @@ const questionsCreate = protectedProcedure
 			// #18 — optional correspondence to a coach (POPP) question.
 			mapsToQuestionId: z.string().uuid().nullable().optional(),
 			options: QuestionOptions.optional(),
+			visibleToLeerling: z.boolean().optional(),
 		}),
 	)
 	.output(QuestionSchema)
@@ -402,6 +411,7 @@ const questionsCreate = protectedProcedure
 				position,
 				mapsToQuestionId: input.mapsToQuestionId ?? null,
 				options: (input.options ?? null) as never,
+				visibleToLeerling: input.visibleToLeerling ?? true,
 			})
 			.returning();
 		if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
@@ -427,6 +437,7 @@ const questionsUpdate = protectedProcedure
 			// #18 — optional correspondence to a coach (POPP) question.
 			mapsToQuestionId: z.string().uuid().nullable().optional(),
 			options: QuestionOptions.optional(),
+			visibleToLeerling: z.boolean().optional(),
 		}),
 	)
 	.output(QuestionSchema)
@@ -496,6 +507,7 @@ const setSchoolDefault = protectedProcedure
 		if (!can(actor, policies.manageForms, tpl) || tpl.scope !== "school") {
 			throw new ORPCError("FORBIDDEN");
 		}
+		assertPublished(tpl);
 		// Clear any other default in the tenant, then set this one — together,
 		// so the school is never left without (or with two) defaults.
 		await context.db.transaction(async (tx) => {
@@ -534,13 +546,70 @@ const templatesNewVersion = protectedProcedure
 	.output(TemplateSchema)
 	.handler(async ({ input, context }) => {
 		const tpl = await loadManageableTemplate(context, input.id);
-		if (!(await inUseReason(context.db, tpl))) {
+		// INC-7: one concept at a time; it starts from the newest version.
+		const latest = await latestTemplateVersion(context.db, tpl.familyId);
+		if (!latest.publishedAt) {
 			throw new ORPCError("CONFLICT", {
-				message: "Dit formulier is nog niet in gebruik; je kunt het direct aanpassen.",
+				message: "Er staat al een concept klaar voor dit formulier.",
 			});
 		}
-		const next = await context.db.transaction((tx) => newVersion(tx, tpl));
+		const next = await context.db.transaction((tx) => newVersion(tx, latest));
 		return templateDto(next);
+	});
+
+/**
+ * Publish a concept (INC-7): from now on its questions are fixed and it can
+ * be used for plans, made the school default, assigned and copied. Existing
+ * plans stay on the version they were filled in on.
+ */
+const templatesPublish = protectedProcedure
+	.use(withPolicy(policies.manageForms, (c) => ({ organizationId: c.actor.organizationId })))
+	.route({ method: "POST", path: "/coachplan/templates/{id}/publish", tags: ["coachplan"] })
+	.input(z.object({ id: z.string().uuid() }))
+	.output(TemplateSchema)
+	.handler(async ({ input, context }) => {
+		const tpl = await loadManageableTemplate(context, input.id);
+		if (tpl.publishedAt) {
+			throw new ORPCError("CONFLICT", { message: "Deze versie is al gepubliceerd." });
+		}
+		const [question] = await context.db
+			.select({ id: formQuestion.id })
+			.from(formQuestion)
+			.where(eq(formQuestion.templateId, tpl.id))
+			.limit(1);
+		if (!question) {
+			throw new ORPCError("BAD_REQUEST", { message: "Voeg eerst minstens één vraag toe." });
+		}
+		const [row] = await context.db
+			.update(formTemplate)
+			.set({ publishedAt: new Date(), updatedAt: new Date() })
+			.where(eq(formTemplate.id, tpl.id))
+			.returning();
+		if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
+		publishTo(
+			{ type: "coachplan.template.changed", payload: { id: row.id } },
+			[context.actor.userId],
+		);
+		return templateDto(row);
+	});
+
+/** Throw away a concept version (never a published one). */
+const templatesDiscardDraft = protectedProcedure
+	.use(withPolicy(policies.manageForms, (c) => ({ organizationId: c.actor.organizationId })))
+	.route({ method: "DELETE", path: "/coachplan/templates/{id}/draft", tags: ["coachplan"] })
+	.input(z.object({ id: z.string().uuid() }))
+	.output(z.object({ ok: z.boolean() }))
+	.handler(async ({ input, context }) => {
+		const tpl = await loadManageableTemplate(context, input.id);
+		if (tpl.publishedAt) {
+			throw new ORPCError("CONFLICT", { message: "Een gepubliceerde versie blijft bewaard." });
+		}
+		await context.db.delete(formTemplate).where(eq(formTemplate.id, tpl.id));
+		publishTo(
+			{ type: "coachplan.template.changed", payload: { id: tpl.id } },
+			[context.actor.userId],
+		);
+		return { ok: true };
 	});
 
 /**
@@ -584,6 +653,7 @@ const assignToLeerling = protectedProcedure
 		if (!tpl || tpl.scope !== "school" || !sameTenant(actor, tpl)) {
 			throw new ORPCError("FORBIDDEN");
 		}
+		assertPublished(tpl);
 		// One assignment per leerling (unique on organization + leerling).
 		const [row] = await context.db
 			.insert(formAssignment)
@@ -1032,10 +1102,22 @@ function coachPartVisible(
 	return actor.userId !== submission.leerlingId || SHARED_STATUSES.includes(submission.status);
 }
 
+/**
+ * INC-7 AC10–12: what the leerling may see of a question. A question hidden
+ * from the leerling (and its answer) never reaches them — whoever answered
+ * it. Their own hidden questions stay in the wizard while they fill in.
+ */
+function hiddenFromLeerling(
+	q: typeof formQuestion.$inferSelect,
+	submission: typeof formSubmission.$inferSelect,
+): boolean {
+	return !q.visibleToLeerling && (q.section === "coach" || submission.status !== "draft");
+}
+
 async function buildOverview(
 	db: typeof import("@incluvo/drizzle").db,
 	submission: typeof formSubmission.$inferSelect,
-	opts: { includeCoachPart: boolean },
+	opts: { includeCoachPart: boolean; forLeerling: boolean },
 ) {
 	const [tpl] = await db
 		.select()
@@ -1059,11 +1141,16 @@ async function buildOverview(
 	const coachQuestionIds = new Set(
 		questions.filter((q) => q.section === "coach").map((q) => q.id),
 	);
+	const shown = opts.forLeerling
+		? questions.filter((q) => !hiddenFromLeerling(q, submission))
+		: questions;
+	const shownIds = new Set(shown.map((q) => q.id));
 	return {
 		submission: submissionDto(submission),
 		template: tpl ? templateDto(tpl) : null,
-		questions: questions.map(questionDto),
+		questions: shown.map(questionDto),
 		answers: answers
+			.filter((a) => shownIds.has(a.questionId))
 			.filter((a) => opts.includeCoachPart || !coachQuestionIds.has(a.questionId))
 			.map(answerDto),
 		learningPreferences: opts.includeCoachPart ? prefs.map((p) => p.label) : [],
@@ -1096,6 +1183,7 @@ const getSubmission = protectedProcedure
 		await assertAssignedToLeerling(context, sub.leerlingId);
 		return buildOverview(context.db, sub, {
 			includeCoachPart: coachPartVisible(actor, sub),
+			forLeerling: actor.userId === sub.leerlingId,
 		});
 	});
 
@@ -1481,13 +1569,18 @@ const generatePdf = protectedProcedure
 			.select()
 			.from(formTemplate)
 			.where(eq(formTemplate.id, sub.templateId));
-		const questions = tpl
+		const allQuestions = tpl
 			? await context.db
 					.select()
 					.from(formQuestion)
 					.where(eq(formQuestion.templateId, tpl.id))
 					.orderBy(asc(formQuestion.position))
 			: [];
+		// The leerling's PDF leaves out what is hidden from them (INC-7).
+		const questions =
+			actor.userId === sub.leerlingId
+				? allQuestions.filter((q) => !hiddenFromLeerling(q, sub))
+				: allQuestions;
 		const answers = await context.db
 			.select()
 			.from(formAnswer)
@@ -1570,6 +1663,8 @@ const templatesRouter = base.router({
 	update: templatesUpdate,
 	copyToSchool: templatesCopyToSchool,
 	newVersion: templatesNewVersion,
+	publish: templatesPublish,
+	discardDraft: templatesDiscardDraft,
 	upgradeFromSource: templatesUpgradeFromSource,
 	setSchoolDefault,
 	assignToLeerling,
