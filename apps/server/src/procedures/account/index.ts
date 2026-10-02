@@ -15,6 +15,7 @@ import { ORPCError } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { assertNotArchived } from "../../access";
+import { rateLimit } from "../../rate-limit";
 import { createAccount, hasPassword, sendInvite } from "../../users";
 import { base, ownTenant, protectedProcedure, withPolicy } from "../base";
 
@@ -460,10 +461,52 @@ const usersInvite = protectedProcedure
 		};
 	});
 
+/**
+ * Send the invite mail again (INC-6) — only while the user hasn't set a
+ * password yet. Limited per user so a mailbox can't be flooded.
+ */
+const usersResendInvite = protectedProcedure
+	.use(withPolicy(policies.manageUsers, ownTenant))
+	.route({ method: "POST", path: "/account/users/resend-invite", tags: ["account"] })
+	.input(z.object({ userId: z.string() }))
+	.output(z.object({ email: z.string(), mailSent: z.boolean() }))
+	.handler(async ({ input, context }) => {
+		const [target] = await context.db
+			.select({
+				id: user.id,
+				name: user.name,
+				email: user.email,
+				organizationId: user.organizationId,
+			})
+			.from(user)
+			.where(eq(user.id, input.userId));
+		if (!target) throw new ORPCError("NOT_FOUND");
+		assertCanManage(context.actor, target);
+		if (target.organizationId) await assertNotArchived(context.db, target.organizationId);
+		if (await hasPassword(target.id)) {
+			throw new ORPCError("BAD_REQUEST", {
+				message: "Deze gebruiker heeft de uitnodiging al geaccepteerd.",
+			});
+		}
+		if (!rateLimit(`invite:resend:${target.id}`, { max: 5, windowMs: 60 * 60_000 })) {
+			throw new ORPCError("TOO_MANY_REQUESTS", {
+				message: "De uitnodiging is net een paar keer verstuurd. Probeer het over een uur opnieuw.",
+			});
+		}
+		try {
+			await sendInvite({ id: target.id, email: target.email, name: target.name });
+			return { email: target.email, mailSent: true };
+		} catch (error) {
+			console.error("[invite] resend failed", error);
+			return { email: target.email, mailSent: false };
+		}
+	});
+
 const usersRouter = base.router({
 	listInTenant: usersList,
 	setRole: usersSetRole,
 	invite: usersInvite,
+	resendInvite: usersResendInvite,
 });
 
 // ---------------------------------------------------------------------------

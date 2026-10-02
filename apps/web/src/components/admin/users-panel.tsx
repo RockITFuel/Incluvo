@@ -119,6 +119,7 @@ export function UsersPanel(props: {
 			schoolFilter() !== ALL_SCHOOLS ? schoolFilter() : undefined,
 		);
 		setInviteRole(props.defaultInviteRole ?? "leerling");
+		setEmailError(undefined);
 		setInviteOpen(true);
 	};
 
@@ -170,10 +171,39 @@ export function UsersPanel(props: {
 		}),
 	);
 
+	// AC6: a missing or malformed address gets a message at the field.
+	const [emailError, setEmailError] = createSignal<string | undefined>();
+	const validEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
 	const canInvite = () =>
-		!invite.isPending &&
-		inviteEmail().includes("@") &&
-		(!crossTenant() || inviteSchool() !== undefined);
+		!invite.isPending && (!crossTenant() || inviteSchool() !== undefined);
+	const sendInvite = () => {
+		const email = inviteEmail().trim();
+		if (!email) return setEmailError("Vul een e-mailadres in.");
+		if (!validEmail(email)) return setEmailError("Dit is geen geldig e-mailadres.");
+		invite.mutate({
+			email,
+			name: inviteName().trim() || undefined,
+			role: inviteRole() as never,
+			organizationId: inviteTarget(),
+		});
+	};
+
+	const resend = useMutation(() =>
+		orpc.account.users.resendInvite.mutationOptions({
+			onSuccess: (res) =>
+				toast(
+					res.mailSent
+						? { title: "Uitnodiging opnieuw verstuurd", description: res.email, tone: "success" }
+						: {
+								title: "E-mail niet verstuurd",
+								description: "Probeer het later opnieuw.",
+								tone: "danger",
+							},
+				),
+			onError: (error) =>
+				toast({ title: "Opnieuw versturen mislukt", description: friendlyError(error), tone: "danger" }),
+		}),
+	);
 
 	return (
 		<section class="flex flex-col gap-4">
@@ -256,6 +286,24 @@ export function UsersPanel(props: {
 												{u.organizationName ?? "Geen school"}
 											</Badge>
 										</Show>
+										{/* INC-6: until the invite link is used. */}
+										<Show
+											when={u.status === "invited"}
+											fallback={<Badge variant="success">Actief</Badge>}
+										>
+											<Badge variant="warning">Uitgenodigd</Badge>
+											<Show when={!props.readOnly}>
+												<Button
+													size="sm"
+													variant="ghost"
+													disabled={resend.isPending}
+													aria-label={`Uitnodiging opnieuw versturen naar ${u.email}`}
+													onClick={() => resend.mutate({ userId: u.id })}
+												>
+													Opnieuw versturen
+												</Button>
+											</Show>
+										</Show>
 										<Select
 											aria-label={`Rol voor ${u.name}`}
 											options={roleOptions()}
@@ -311,17 +359,7 @@ export function UsersPanel(props: {
 						>
 							Annuleren
 						</Button>
-						<Button
-							disabled={!canInvite()}
-							onClick={() =>
-								invite.mutate({
-									email: inviteEmail(),
-									name: inviteName().trim() || undefined,
-									role: inviteRole() as never,
-									organizationId: inviteTarget(),
-								})
-							}
-						>
+						<Button disabled={!canInvite()} onClick={sendInvite}>
 							Uitnodigen
 						</Button>
 					</>
@@ -344,7 +382,11 @@ export function UsersPanel(props: {
 						required
 						placeholder="naam@school.nl"
 						value={inviteEmail()}
-						onInput={(e) => setInviteEmail(e.currentTarget.value)}
+						error={emailError()}
+						onInput={(e) => {
+							setInviteEmail(e.currentTarget.value);
+							setEmailError(undefined);
+						}}
 					/>
 					<Input
 						label="Naam"

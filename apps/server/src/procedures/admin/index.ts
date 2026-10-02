@@ -1,4 +1,5 @@
 import {
+	account,
 	auditLog,
 	coachAssignment,
 	course,
@@ -17,7 +18,7 @@ import {
 } from "@incluvo/permissions";
 import type { Database } from "@incluvo/drizzle";
 import { ORPCError } from "@orpc/server";
-import { and, count, countDistinct, desc, eq, inArray, max, ne } from "drizzle-orm";
+import { and, count, countDistinct, desc, eq, inArray, max, ne, sql } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import { assertNotArchived } from "../../access";
@@ -450,6 +451,8 @@ const AdminUserRowSchema = z.object({
 	role: z.string(),
 	organizationId: z.string().nullable(),
 	organizationName: z.string().nullable(),
+	/** INC-6: "invited" until the user has set a password via the invite link. */
+	status: z.enum(["invited", "active"]),
 	createdAt: z.date(),
 });
 
@@ -484,6 +487,12 @@ const usersOverview = protectedProcedure
 				role: user.role,
 				organizationId: user.organizationId,
 				organizationName: organization.name,
+				status: sql<"invited" | "active">`case when exists (
+					select 1 from ${account}
+					where ${account.userId} = ${user.id}
+						and ${account.providerId} = 'credential'
+						and ${account.password} is not null
+				) then 'active' else 'invited' end`,
 				createdAt: user.createdAt,
 			})
 			.from(user)
