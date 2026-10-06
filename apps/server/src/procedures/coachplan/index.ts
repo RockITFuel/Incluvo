@@ -52,6 +52,8 @@ import {
 	upgradeFromSource,
 } from "../../coachplan/templates";
 import {
+	FILLABLE,
+	LEERLING_EDITABLE,
 	REVIEWABLE,
 	SHARED,
 	type Status,
@@ -826,8 +828,15 @@ const revise = protectedProcedure
 		return submissionDto(created);
 	});
 
-/** Load a submission row and assert the actor may fill it (own + tenant). */
-async function loadFillable(context: AuthedContext, submissionId: string) {
+/**
+ * Load a submission row and assert the actor may fill it (own + tenant) in its
+ * current status: by default only a draft.
+ */
+async function loadFillable(
+	context: AuthedContext,
+	submissionId: string,
+	allowed: readonly Status[] = FILLABLE,
+) {
 	const [sub] = await context.db
 		.select()
 		.from(formSubmission)
@@ -836,10 +845,54 @@ async function loadFillable(context: AuthedContext, submissionId: string) {
 	if (!can(context.actor, policies.fillCoachplan, sub)) {
 		throw new ORPCError("FORBIDDEN");
 	}
-	if (sub.status !== "draft") {
-		throw new ORPCError("CONFLICT", { message: "Inzending is al verstuurd" });
+	if (!allowed.includes(sub.status)) {
+		throw new ORPCError("CONFLICT", { message: leerlingLockedMessage(sub.status) });
 	}
 	return sub;
+}
+
+/** Why the leerling can't change this version (any more). */
+function leerlingLockedMessage(status: Status): string {
+	if (status === "coach_review") {
+		return "Je coach is begonnen met het invullen van jullie plan. Je kunt je antwoorden nu alleen nog bekijken.";
+	}
+	if (status === "shared_with_leerling" || status === "completed") {
+		return "Je coach heeft het plan aan je aangeboden. Je kunt het nu alleen nog bekijken.";
+	}
+	return "Inzending is al verstuurd";
+}
+
+/**
+ * INC-14 AC4: a leerling changes a handed-in answer before the coach started.
+ * A coach answer pre-filled from it (#18) still holds the old answer, so it
+ * follows; one the coach wrote differs and is left alone. An answer that was
+ * empty at hand-in gets its pre-fill now.
+ */
+async function followMappedPrefill(
+	tx: CoachplanTx,
+	sub: typeof formSubmission.$inferSelect,
+	coachQuestionId: string,
+	before: typeof formAnswer.$inferSelect | undefined,
+	after: typeof formAnswer.$inferSelect,
+): Promise<void> {
+	const [coachAnswer] = await tx
+		.select()
+		.from(formAnswer)
+		.where(and(eq(formAnswer.submissionId, sub.id), eq(formAnswer.questionId, coachQuestionId)));
+	if (!coachAnswer) {
+		await applyCorrespondenceMappings(tx, sub);
+		return;
+	}
+	if (coachAnswer.value !== (before?.value ?? null)) return;
+	await tx
+		.update(formAnswer)
+		.set({
+			value: after.deliberatelySkipped ? null : after.value,
+			valueJson: after.deliberatelySkipped ? null : after.valueJson,
+			updatedAt: new Date(),
+		})
+		.where(eq(formAnswer.id, coachAnswer.id));
+	await applyCorrespondenceMappings(tx, sub);
 }
 
 /**
@@ -861,13 +914,16 @@ const saveAnswer = protectedProcedure
 	)
 	.output(AnswerSchema)
 	.handler(async ({ input, context }) => {
-		const sub = await loadFillable(context, input.submissionId);
+		// After handing in, the leerling may still change answers until the coach
+		// starts on the coach part or shares the plan (INC-14).
+		const sub = await loadFillable(context, input.submissionId, LEERLING_EDITABLE);
 		// Question must belong to the submission's template.
 		const [q] = await context.db
 			.select({
 				id: formQuestion.id,
 				templateId: formQuestion.templateId,
 				section: formQuestion.section,
+				mapsToQuestionId: formQuestion.mapsToQuestionId,
 			})
 			.from(formQuestion)
 			.where(eq(formQuestion.id, input.questionId));
@@ -896,31 +952,87 @@ const saveAnswer = protectedProcedure
 				: {}),
 		};
 
-		// One statement, so overlapping autosaves can't insert the answer twice
-		// (unique on submission + question).
-		const [row] = await context.db
-			.insert(formAnswer)
-			.values({
-				submissionId: input.submissionId,
-				questionId: input.questionId,
-				value: input.value ?? null,
-				valueJson: (input.valueJson ?? null) as never,
-				discussWithCoach: input.discussWithCoach ?? false,
-				deliberatelySkipped: input.deliberatelySkipped ?? false,
-			})
-			.onConflictDoUpdate({
-				target: [formAnswer.submissionId, formAnswer.questionId],
-				set: { ...patch, updatedAt: new Date() },
-			})
-			.returning();
-		if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
-		// Touch the submission so coach lists re-sort.
-		await context.db
-			.update(formSubmission)
-			.set({ updatedAt: new Date() })
-			.where(eq(formSubmission.id, input.submissionId));
+		const { row, status } = await context.db.transaction(async (tx) => {
+			// Lock the version: a coach starting on the coach part or sharing it
+			// waits for this save, or this save sees the new status and is
+			// refused (INC-14 AC8) — never both.
+			const [locked] = await tx
+				.select()
+				.from(formSubmission)
+				.where(eq(formSubmission.id, sub.id))
+				.for("update");
+			if (!locked) throw new ORPCError("NOT_FOUND");
+			if (!LEERLING_EDITABLE.includes(locked.status)) {
+				throw new ORPCError("CONFLICT", { message: leerlingLockedMessage(locked.status) });
+			}
+			const handedIn = locked.status === "submitted";
+			const [before] =
+				handedIn && q.mapsToQuestionId
+					? await tx
+							.select()
+							.from(formAnswer)
+							.where(
+								and(
+									eq(formAnswer.submissionId, sub.id),
+									eq(formAnswer.questionId, input.questionId),
+								),
+							)
+					: [];
+			const saved = await upsertLeerlingAnswer(tx, input, patch);
+			// Touch the submission so coach lists re-sort.
+			await tx
+				.update(formSubmission)
+				.set({ updatedAt: new Date() })
+				.where(eq(formSubmission.id, input.submissionId));
+			if (handedIn && q.mapsToQuestionId) {
+				await followMappedPrefill(tx, locked, q.mapsToQuestionId, before, saved);
+			}
+			return { row: saved, status: locked.status };
+		});
+		// The coach may have the plan open: show the newest answers (AC4).
+		if (status === "submitted") {
+			publishTo(
+				{ type: "coachplan.answers", payload: { id: sub.id, leerlingId: sub.leerlingId } },
+				await leerlingCoachRecipients(context.db, sub.leerlingId, sub.organizationId),
+			);
+		}
 		return answerDto(row);
 	});
+
+/**
+ * One statement, so overlapping autosaves can't insert the answer twice
+ * (unique on submission + question).
+ */
+async function upsertLeerlingAnswer(
+	tx: CoachplanTx,
+	input: {
+	submissionId: string;
+	questionId: string;
+	value?: string | null;
+	valueJson?: unknown;
+	discussWithCoach?: boolean;
+	deliberatelySkipped?: boolean;
+	},
+	patch: Partial<typeof formAnswer.$inferInsert>,
+) {
+	const [row] = await tx
+		.insert(formAnswer)
+		.values({
+			submissionId: input.submissionId,
+			questionId: input.questionId,
+			value: input.value ?? null,
+			valueJson: (input.valueJson ?? null) as never,
+			discussWithCoach: input.discussWithCoach ?? false,
+			deliberatelySkipped: input.deliberatelySkipped ?? false,
+		})
+		.onConflictDoUpdate({
+			target: [formAnswer.submissionId, formAnswer.questionId],
+			set: { ...patch, updatedAt: new Date() },
+		})
+		.returning();
+	if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
+	return row;
+}
 
 /**
  * Submit the wizard (#11/#14): flips status to `submitted`, stamps
@@ -1367,17 +1479,8 @@ const saveCoachAnswer = protectedProcedure
 			throw new ORPCError("BAD_REQUEST", { message: "Geen coachvraag" });
 		}
 		// Atomic: the review-state flip + the coach-answer upsert commit together (H2).
-		const row = await context.db.transaction(async (tx) => {
-			if (sub.status === "submitted") {
-				await tx
-					.update(formSubmission)
-					.set({
-						status: "coach_review",
-						coachId: sub.coachId ?? context.actor.userId,
-						updatedAt: new Date(),
-					})
-					.where(eq(formSubmission.id, sub.id));
-			}
+		const { saved: row, started } = await context.db.transaction(async (tx) => {
+			const started = await startReview(tx, sub, context.actor.userId);
 			const [saved] = await tx
 				.insert(formAnswer)
 				.values({
@@ -1397,10 +1500,60 @@ const saveCoachAnswer = protectedProcedure
 					},
 				})
 				.returning();
-			return saved;
+			return { saved, started };
 		});
 		if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
+		if (started) publishLocked(sub);
 		return answerDto(row);
+	});
+
+/**
+ * The coach's first real input in the coach part (typing, pasting, choosing an
+ * option or leervoorkeur) moves a handed-in version to `coach_review`: from
+ * then on the leerling can only read their answers (INC-14 AC5). Opening or
+ * reading the plan doesn't. Returns whether this call made the move.
+ */
+async function startReview(
+	tx: CoachplanTx,
+	sub: typeof formSubmission.$inferSelect,
+	coachId: string,
+): Promise<boolean> {
+	const [moved] = await tx
+		.update(formSubmission)
+		.set({ status: "coach_review", coachId: sub.coachId ?? coachId, updatedAt: new Date() })
+		.where(and(eq(formSubmission.id, sub.id), eq(formSubmission.status, "submitted")))
+		.returning({ id: formSubmission.id });
+	return Boolean(moved);
+}
+
+/** Tell the leerling (an open "Antwoorden aanpassen" tab) the plan is locked. */
+function publishLocked(sub: typeof formSubmission.$inferSelect): void {
+	publishTo(
+		{ type: "coachplan.locked", payload: { id: sub.id, leerlingId: sub.leerlingId } },
+		[sub.leerlingId],
+	);
+}
+
+/**
+ * The coach UI calls this on the first keystroke or paste in a coach text
+ * field, before anything is saved (INC-14 AC5). Idempotent.
+ */
+const startCoachReview = protectedProcedure
+	.route({ method: "POST", path: "/coachplan/start-review", tags: ["coachplan"] })
+	.input(z.object({ submissionId: z.string().uuid() }))
+	.output(SubmissionSchema)
+	.handler(async ({ input, context }) => {
+		const sub = await loadReviewable(context, input.submissionId, REVIEWABLE);
+		const started = await context.db.transaction((tx) =>
+			startReview(tx, sub, context.actor.userId),
+		);
+		if (started) publishLocked(sub);
+		const [row] = await context.db
+			.select()
+			.from(formSubmission)
+			.where(eq(formSubmission.id, sub.id));
+		if (!row) throw new ORPCError("NOT_FOUND");
+		return submissionDto(row);
 	});
 
 /** Offer the completed plan back to the leerling (#17). */
@@ -1461,7 +1614,9 @@ const setLearningPreferences = protectedProcedure
 		const unique = [...new Set(input.labels.filter((l) => l.trim()))];
 		// Atomic delete-all-then-insert so a failed insert never wipes the
 		// leerling's existing leervoorkeuren (H2 - highest data-loss risk).
-		await context.db.transaction(async (tx) => {
+		const started = await context.db.transaction(async (tx) => {
+			// Choosing a leervoorkeur is coach input too (INC-14 AC5).
+			const started = await startReview(tx, sub, context.actor.userId);
 			await tx
 				.delete(learningPreferenceLabel)
 				.where(eq(learningPreferenceLabel.submissionId, sub.id));
@@ -1470,7 +1625,9 @@ const setLearningPreferences = protectedProcedure
 					unique.map((label) => ({ submissionId: sub.id, label })),
 				);
 			}
+			return started;
 		});
+		if (started) publishLocked(sub);
 		// Realtime to the leerling (+ acting coach) only (C1); leervoorkeuren
 		// drive the leerling's course recommendations.
 		publishTo(
@@ -1691,6 +1848,7 @@ export const coachplanRouter = base.router({
 	inbox,
 	listMappings,
 	saveCoachAnswer,
+	startCoachReview,
 	shareWithLeerling,
 	defaultLabels,
 	setLearningPreferences,

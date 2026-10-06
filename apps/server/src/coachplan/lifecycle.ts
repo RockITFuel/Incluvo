@@ -27,6 +27,12 @@ export type Status = Submission["status"];
 
 /** The leerling fills these in. */
 export const FILLABLE: readonly Status[] = ["draft"];
+/**
+ * The leerling may still change their answers (INC-14): while filling in, and
+ * after handing in until the coach starts on the coach part or shares the
+ * plan — both move the version on from `submitted`.
+ */
+export const LEERLING_EDITABLE: readonly Status[] = ["draft", "submitted"];
 /** The coach works on these (coach answers, leervoorkeuren, sharing). */
 export const REVIEWABLE: readonly Status[] = ["submitted", "coach_review"];
 /** Shared with the leerling: read-only. `completed` is legacy. */

@@ -22,6 +22,11 @@ import { ErrorState } from "../../../components/ui/error-state";
 import { friendlyError } from "../../../lib/errors";
 import { RequireRole } from "../../../lib/auth/role-guard";
 import { createAnswerSaver } from "../../../lib/coachplan/answer-saver";
+import { useServerEvent } from "../../../lib/sse/use-events";
+
+/** INC-14 AC7: shown once the coach has started on the coach part. */
+const COACH_STARTED =
+	"Je coach is begonnen met het invullen van jullie plan. Je kunt je antwoorden nu alleen nog bekijken.";
 
 /**
  * `/plan` entry point. Role-aware: a coach sees the inbox of submitted plans
@@ -115,6 +120,7 @@ function LeerlingPlan() {
 	const queryClient = useQueryClient();
 	const state = useQuery(() => orpc.coachplan.mine.queryOptions());
 	const [revising, setRevising] = createSignal(false);
+	const [editing, setEditing] = createSignal(false);
 	const [pdfBusy, setPdfBusy] = createSignal(false);
 	const latest = () => state.data?.latest ?? null;
 	const current = () => state.data?.current ?? null;
@@ -126,6 +132,14 @@ function LeerlingPlan() {
 	};
 	const refresh = () =>
 		queryClient.invalidateQueries({ queryKey: orpc.coachplan.mine.key() });
+	// The coach started on the plan or shared it: no more changes (INC-14).
+	const onLocked = () => {
+		void refresh();
+		void queryClient.invalidateQueries({ queryKey: orpc.coachplan.getSubmission.key() });
+	};
+	useServerEvent("coachplan.locked", onLocked);
+	useServerEvent("coachplan.shared", onLocked);
+	const canEdit = () => latest()?.status === "submitted";
 
 	const revise = async () => {
 		setRevising(true);
@@ -173,7 +187,23 @@ function LeerlingPlan() {
 				<PlanWizard onSubmitted={refresh} />
 			</Show>
 
-			<Show when={phase() === "with_coach"}>
+			{/* Changing handed-in answers; stays open when the coach locks the plan
+			    meanwhile, so unsaved input remains visible (AC8). */}
+			<Show when={editing() && latest()}>
+				{(l) => (
+					<PlanWizard
+						editId={l().id}
+						locked={!canEdit()}
+						onSubmitted={refresh}
+						onDone={() => {
+							setEditing(false);
+							onLocked();
+						}}
+					/>
+				)}
+			</Show>
+
+			<Show when={!editing() && phase() === "with_coach"}>
 				<section class="mx-auto flex w-full max-w-3xl flex-col gap-6" data-page-title="Mijn plan">
 					<Card class="border-primary bg-primary text-primary-fg">
 						<h1 class="font-head text-h1">Je plan ligt bij je coach</h1>
@@ -182,29 +212,49 @@ function LeerlingPlan() {
 							coach het plan met je, en dan zie je het hier.
 						</p>
 					</Card>
+					<Show
+						when={canEdit()}
+						fallback={
+							<Card role="status" class="border-line bg-bg-2">
+								<p class="text-body text-ink-2">{COACH_STARTED}</p>
+							</Card>
+						}
+					>
+						<Card role="status" class="flex flex-wrap items-center justify-between gap-3">
+							<p class="flex-1 text-body text-ink-2">
+								Je kunt je antwoorden nog aanpassen, tot je coach begint met
+								invullen.
+							</p>
+							<Button onClick={() => setEditing(true)}>Antwoorden aanpassen</Button>
+						</Card>
+					</Show>
+					<h2 class="font-head text-h2 text-ink">Wat je hebt ingeleverd</h2>
+					<PlanView submissionId={latest()!.id} />
 					<Show when={current()}>
 						{(c) => (
-							<>
-								<h2 class="font-head text-h2 text-ink">Je huidige plan</h2>
-								<PlanView submissionId={c().id} />
-							</>
+							<details class="rounded-2 border border-line p-4">
+								<summary class="cursor-pointer font-medium text-ink-2">
+									Je huidige plan (versie {c().version}) bekijken
+								</summary>
+								<div class="mt-4">
+									<PlanView submissionId={c().id} />
+								</div>
+							</details>
 						)}
-					</Show>
-					<Show when={!current()}>
-						<h2 class="font-head text-h2 text-ink">Wat je hebt ingevuld</h2>
-						<PlanView submissionId={latest()!.id} />
 					</Show>
 				</section>
 			</Show>
 
-			<Show when={phase() === "shared" && current()}>
+			<Show when={!editing() && phase() === "shared" && current()}>
 				{(c) => (
 					<section class="mx-auto flex w-full max-w-3xl flex-col gap-6" data-page-title="Mijn plan">
 						<div class="flex flex-wrap items-end justify-between gap-3">
 							<div>
 								<h1 class="font-head text-h1 text-ink">Mijn plan</h1>
 								<p class="mt-1 text-body text-muted">
-									Versie {c().version}, gedeeld door je coach.
+									Versie {c().version}. Je coach heeft dit plan aan je aangeboden;
+									je kunt het alleen nog bekijken. Wil je iets veranderen, kies dan
+									Plan bijwerken.
 								</p>
 							</div>
 							<div class="flex gap-2">
@@ -226,11 +276,24 @@ function LeerlingPlan() {
 
 type Flags = { discussWithCoach: boolean; deliberatelySkipped: boolean };
 
-function PlanWizard(props: { onSubmitted: () => void }) {
+/**
+ * The fill wizard. With `editId` it edits a handed-in version (INC-14): it
+ * opens on the overview, and once `locked` (the coach started or shared) or a
+ * save is refused, nothing is saved any more but what was typed stays.
+ */
+function PlanWizard(props: {
+	onSubmitted: () => void;
+	editId?: string;
+	locked?: boolean;
+	onDone?: () => void;
+}) {
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 	const [step, setStep] = createSignal(0);
-	const [reviewing, setReviewing] = createSignal(false);
+	const [reviewing, setReviewing] = createSignal(Boolean(props.editId));
+	const [refused, setRefused] = createSignal(false);
+	const [unsaved, setUnsaved] = createSignal(false);
+	const locked = () => Boolean(props.locked) || refused();
 	const [submitted, setSubmitted] = createSignal(false);
 	const [submissionId, setSubmissionId] = createSignal<string | null>(null);
 
@@ -250,10 +313,14 @@ function PlanWizard(props: { onSubmitted: () => void }) {
 
 	const boot = async () => {
 		try {
-			const res = await client.coachplan.startMine();
+			const res = props.editId
+				? await client.coachplan.getSubmission({ id: props.editId })
+				: await client.coachplan.startMine();
 			setSubmissionId(res.submission.id);
-			setTemplateName(res.template.name);
-			setQuestions(res.template.questions as unknown as QuestionDTO[]);
+			setTemplateName(res.template?.name ?? "");
+			setQuestions(
+				("questions" in res ? res.questions : res.template.questions) as unknown as QuestionDTO[],
+			);
 			for (const a of res.answers) {
 				setAnswers(a.questionId, {
 					value: a.value,
@@ -294,18 +361,31 @@ function PlanWizard(props: { onSubmitted: () => void }) {
 				deliberatelySkipped: p.deliberatelySkipped,
 			});
 		},
-		() =>
+		(error) => {
+			// The coach started or shared meanwhile (AC8): this can't be saved.
+			if ((error as { code?: string } | null)?.code === "CONFLICT") {
+				setRefused(true);
+				setUnsaved(true);
+				return;
+			}
 			toast({
 				title: "Opslaan lukte even niet",
 				description: "We proberen het opnieuw. Je antwoord blijft staan.",
 				tone: "danger",
-			}),
+			});
+		},
 	);
 	const save = (
 		questionId: string,
 		patch: Partial<AnswerValue & Flags>,
 		onSaved?: () => void,
-	) => saver.save(questionId, patch, onSaved);
+	) => {
+		if (locked()) {
+			setUnsaved(true);
+			return;
+		}
+		saver.save(questionId, patch, onSaved);
+	};
 
 	/** Wait until every answer is saved; tells the leerling when it can't. */
 	const saveAll = async (): Promise<boolean> => {
@@ -418,6 +498,21 @@ function PlanWizard(props: { onSubmitted: () => void }) {
 				</Card>
 			</Show>
 
+			<Show when={locked()}>
+				<Card role="alert" class="border-warning bg-warning-100/40">
+					<p class="text-body text-ink">{COACH_STARTED}</p>
+					<Show when={unsaved()}>
+						<p class="mt-2 text-small text-ink-2">
+							Je laatste wijziging is niet opgeslagen. Je ziet hem hieronder nog,
+							zodat je hem kunt kopiëren. Wat je eerder opsloeg, blijft bewaard.
+						</p>
+					</Show>
+					<Button class="mt-3" variant="ghost" onClick={() => props.onDone?.()}>
+						Terug naar mijn plan
+					</Button>
+				</Card>
+			</Show>
+
 			<Show when={submitted()}>
 				<Card class="border-primary bg-primary text-primary-fg">
 					<h1 class="font-head text-h1">Mooi gedaan! 🎉</h1>
@@ -458,7 +553,11 @@ function PlanWizard(props: { onSubmitted: () => void }) {
 											variant="ghost"
 											size="sm"
 											onClick={async () => {
-												if (await saveAll()) navigate({ to: "/welkom" });
+												if (locked()) props.onDone?.();
+												else if (await saveAll()) {
+													if (props.onDone) props.onDone();
+													else navigate({ to: "/welkom" });
+												}
 											}}
 										>
 											Opslaan & afsluiten
@@ -538,6 +637,11 @@ function PlanWizard(props: { onSubmitted: () => void }) {
 						onEdit={editFrom}
 						onSubmit={submit}
 						onBack={() => setReviewing(false)}
+						editing={Boolean(props.editId)}
+						locked={locked()}
+						onDone={async () => {
+							if (locked() || (await saveAll())) props.onDone?.();
+						}}
 					/>
 				</Show>
 			</Show>
@@ -552,6 +656,10 @@ function Overview(props: {
 	onEdit: (q: QuestionDTO) => void;
 	onSubmit: () => void;
 	onBack: () => void;
+	/** Changing a handed-in plan: "Klaar" instead of "Verzenden". */
+	editing?: boolean;
+	locked?: boolean;
+	onDone?: () => void;
 }) {
 	const themes = createMemo(() => {
 		const order: string[] = [];
@@ -565,9 +673,13 @@ function Overview(props: {
 	return (
 		<div class="flex flex-col gap-5">
 			<div>
-				<h1 class="font-head text-h1 text-ink">Bekijk je antwoorden</h1>
+				<h1 class="font-head text-h1 text-ink">
+					{props.editing ? "Je antwoorden aanpassen" : "Bekijk je antwoorden"}
+				</h1>
 				<p class="mt-1 text-body text-muted">
-					Je kunt ze nog aanpassen voordat je verstuurt.
+					{props.editing
+						? "Wijzigingen worden meteen opgeslagen en je coach ziet ze direct. Dit kan tot je coach begint met invullen."
+						: "Je kunt ze nog aanpassen voordat je verstuurt."}
 				</p>
 			</div>
 
@@ -588,13 +700,15 @@ function Overview(props: {
 										<div class="border-line-2 border-b pb-3.5 last:border-b-0">
 											<div class="flex items-start justify-between gap-3">
 												<p class="flex-1 font-medium text-ink-2">{q.label}</p>
-												<Button
-													size="sm"
-													variant="ghost"
-													onClick={() => props.onEdit(q)}
-												>
-													Wijzig
-												</Button>
+												<Show when={!props.locked}>
+													<Button
+														size="sm"
+														variant="ghost"
+														onClick={() => props.onEdit(q)}
+													>
+														Wijzig
+													</Button>
+												</Show>
 											</div>
 											<div class="mt-2 text-body">
 												<Show when={f?.deliberatelySkipped}>
@@ -636,22 +750,31 @@ function Overview(props: {
 				)}
 			</For>
 
-			<Card class="flex items-center justify-between gap-4 border-primary bg-primary text-primary-fg">
-				<div>
-					<h3 class="font-head text-h3">Verzend naar je coach</h3>
-					<p class="mt-1 text-small opacity-85">
-						Je coach krijgt een bericht en jullie bespreken dit samen.
-					</p>
-				</div>
-				<div class="flex shrink-0 gap-2">
-					<Button variant="ghost" class="bg-white/15 text-white border-white/30" onClick={props.onBack}>
-						Terug
-					</Button>
-					<Button class="bg-white text-primary-700 hover:bg-white/90" onClick={props.onSubmit}>
-						Verzenden
+			<Show when={props.editing}>
+				<div class="flex justify-end">
+					<Button size="lg" onClick={() => props.onDone?.()}>
+						{props.locked ? "Terug naar mijn plan" : "Klaar met aanpassen"}
 					</Button>
 				</div>
-			</Card>
+			</Show>
+			<Show when={!props.editing}>
+				<Card class="flex items-center justify-between gap-4 border-primary bg-primary text-primary-fg">
+					<div>
+						<h3 class="font-head text-h3">Verzend naar je coach</h3>
+						<p class="mt-1 text-small opacity-85">
+							Je coach krijgt een bericht en jullie bespreken dit samen.
+						</p>
+					</div>
+					<div class="flex shrink-0 gap-2">
+						<Button variant="ghost" class="bg-white/15 text-white border-white/30" onClick={props.onBack}>
+							Terug
+						</Button>
+						<Button class="bg-white text-primary-700 hover:bg-white/90" onClick={props.onSubmit}>
+							Verzenden
+						</Button>
+					</div>
+				</Card>
+			</Show>
 		</div>
 	);
 }

@@ -9,26 +9,30 @@ import { ErrorState } from "../../components/ui/error-state";
 /**
  * A plan version, read-only, as the leerling sees it: their own answers per
  * theme, then — once the coach has shared the plan — the coach's part and
- * the leervoorkeuren (the server leaves those out before sharing).
+ * the leervoorkeuren (the server leaves those out before sharing). With
+ * `leerlingOnly`, just the leerling's answers (the coach's review page, INC-12).
  */
-export function PlanView(props: { submissionId: string }) {
+export function PlanView(props: { submissionId: string; leerlingOnly?: boolean }) {
 	const query = useQuery(() =>
 		orpc.coachplan.getSubmission.queryOptions({ input: { id: props.submissionId } }),
 	);
 	const answers = createMemo(() => {
-		const map: Record<string, AnswerValue & { skipped: boolean }> = {};
+		const map: Record<string, AnswerValue & { skipped: boolean; discuss: boolean }> = {};
 		for (const a of query.data?.answers ?? []) {
 			map[a.questionId] = {
 				value: a.value,
 				valueJson: (a.valueJson as string[] | null) ?? null,
 				skipped: a.deliberatelySkipped,
+				discuss: a.discussWithCoach,
 			};
 		}
 		return map;
 	});
 	const questions = () => (query.data?.questions ?? []) as unknown as QuestionDTO[];
 	const coachQuestions = () =>
-		questions().filter((q) => q.section === "coach" && answers()[q.id]);
+		props.leerlingOnly
+			? []
+			: questions().filter((q) => q.section === "coach" && answers()[q.id]);
 	const themes = createMemo(() => {
 		const order: string[] = [];
 		for (const q of questions()) {
@@ -63,6 +67,11 @@ export function PlanView(props: { submissionId: string }) {
 						</Show>
 					</Show>
 				</div>
+				<Show when={p.q.section === "leerling" && a()?.discuss}>
+					<div class="mt-2">
+						<Badge variant="accent">Bespreken met coach</Badge>
+					</div>
+				</Show>
 			</div>
 		);
 	};

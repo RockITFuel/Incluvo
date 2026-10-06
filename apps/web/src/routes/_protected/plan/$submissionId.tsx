@@ -11,7 +11,7 @@ import {
 	Send,
 	Sparkles,
 } from "lucide-solid";
-import { createMemo, createSignal, For, Match, Show, Switch } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Match, Show, Switch } from "solid-js";
 import { createStore } from "solid-js/store";
 import { AssistantPanel } from "../../../components/ai/assistant-panel";
 import { TranscriptionPanel } from "../../../components/ai/transcription-panel";
@@ -20,7 +20,9 @@ import {
 	type QuestionDTO,
 	renderAnswerText,
 } from "../../../components/coachplan/question-input";
+import { PlanView } from "../../../components/coachplan/plan-view";
 import { toast } from "../../../components/ui/toast";
+import { useServerEvent } from "../../../lib/sse/use-events";
 import { requireRole } from "../../../lib/auth/require-role";
 import { RequireRole } from "../../../lib/auth/role-guard";
 import { useMe } from "../../../lib/auth/use-me";
@@ -121,6 +123,8 @@ function CoachReview() {
 	const seed = () => {
 		const data = submissionQuery.data;
 		if (!data || seeded()) return;
+		// A re-seed (the leerling changed a pre-filled answer) starts clean.
+		for (const q of coachQ()) setCoachAnswers(q.id, "");
 		for (const a of data.answers) {
 			if (a.value != null) setCoachAnswers(a.questionId, a.value);
 		}
@@ -128,8 +132,31 @@ function CoachReview() {
 		setSeeded(true);
 	};
 
+	createEffect(seed);
+
 	const queryClient = useQueryClient();
 	const refresh = () => submissionQuery.refetch();
+
+	// INC-14: until the coach's first input the leerling may still change their
+	// answers. That first keystroke, paste or choice locks them (server-side);
+	// opening or reading the plan doesn't.
+	const [started, setStarted] = createSignal(false);
+	const startReview = () => {
+		if (started() || status() !== "submitted") return;
+		setStarted(true);
+		client.coachplan
+			.startCoachReview({ submissionId: id() })
+			.then(() => refresh())
+			.catch(() => setStarted(false));
+	};
+	// The leerling saved a change: show it (AC4). Pre-filled coach answers
+	// follow it while the coach hasn't started.
+	useServerEvent("coachplan.answers", (payload) => {
+		if ((payload as { id?: string } | null)?.id !== id()) return;
+		if (!started() && status() === "submitted") setSeeded(false);
+		void refresh();
+		void mappingsQuery.refetch();
+	});
 
 	// ── Wizard steps: real coach questions + one leervoorkeuren step (#19) ──────
 	const steps = createMemo<Step[]>(() => {
@@ -214,6 +241,7 @@ function CoachReview() {
 	// ── Mutations (all real oRPC) ──────────────────────────────────────────────
 	const togglePref = async (value: string) => {
 		if (readOnly()) return;
+		setStarted(true);
 		const next = prefs().includes(value)
 			? prefs().filter((p) => p !== value)
 			: [...prefs(), value];
@@ -223,6 +251,7 @@ function CoachReview() {
 				submissionId: id(),
 				labels: next,
 			});
+			if (status() === "submitted") refresh();
 		} catch {
 			toast({ title: "Opslaan lukte niet", tone: "danger" });
 		}
@@ -255,6 +284,8 @@ function CoachReview() {
 	// Autosave a non-text coach question (registry input) via saveCoachAnswer.
 	const saveChoice = (questionId: string, next: { value?: string | null; valueJson?: string[] | null }) => {
 		if (readOnly()) return;
+		const first = status() === "submitted";
+		setStarted(true);
 		if (next.value !== undefined) setCoachAnswers(questionId, next.value ?? "");
 		client.coachplan
 			.saveCoachAnswer({
@@ -262,6 +293,9 @@ function CoachReview() {
 				questionId,
 				value: next.value ?? null,
 				valueJson: next.valueJson ?? undefined,
+			})
+			.then(() => {
+				if (first) refresh();
 			})
 			.catch(() => toast({ title: "Opslaan lukte niet", tone: "danger" }));
 	};
@@ -327,10 +361,6 @@ function CoachReview() {
 			</Show>
 
 			<Show when={isCoach() && submissionQuery.data}>
-				{(() => {
-					seed();
-					return null;
-				})()}
 
 				{/* Header row */}
 				<div class="ds-row" style={{ "margin-bottom": "14px" }}>
@@ -381,8 +411,14 @@ function CoachReview() {
 						{isShared()
 							? "Deze versie is gedeeld met de leerling en is alleen-lezen. Wil de leerling iets aanpassen, dan maakt die een nieuwe versie via 'Plan bijwerken'."
 							: "De leerling vult dit plan nog in. Je kunt het coachgedeelte invullen zodra het is ingeleverd."}
-					</div>
-				</Show>
+						</div>
+					</Show>
+					<Show when={status() === "submitted"}>
+						<div class="card" role="status" style={{ "margin-bottom": "14px" }}>
+							De leerling kan de eigen antwoorden nog aanpassen. Zodra jij iets typt
+							of kiest in het coachgedeelte, staan ze vast.
+						</div>
+					</Show>
 
 				<div class="ds-grid-main">
 					{/* LEFT — wizard */}
@@ -515,9 +551,10 @@ function CoachReview() {
 															aria-label={s.q.label}
 															placeholder="Schrijf hier je observatie. Antwoorden worden tussentijds opgeslagen."
 															value={coachAnswers[s.q.id] ?? ""}
-															onInput={(e) =>
-																setCoachAnswers(s.q.id, e.currentTarget.value)
-															}
+															onInput={(e) => {
+																startReview();
+																setCoachAnswers(s.q.id, e.currentTarget.value);
+															}}
 														/>
 													</Match>
 													<Match when={true}>
@@ -654,9 +691,17 @@ function CoachReview() {
 									<span class="slider" />
 								</span>{" "}
 								Afgestemd met ouders
-							</label>
+								</label>
+							</div>
+
+							{/* INC-12: everything the leerling filled in, with their markers. */}
+							<section aria-labelledby="leerling-antwoorden" class="ds-col" style={{ gap: "10px" }}>
+								<h2 id="leerling-antwoorden" style={{ "font-size": "1.125rem" }}>
+								Antwoorden van {leerlingName()}
+								</h2>
+								<PlanView submissionId={id()} leerlingOnly />
+							</section>
 						</div>
-					</div>
 
 					{/* RIGHT — AI sidebar + voortgang */}
 					<div class="ds-col" style={{ gap: "16px" }}>
