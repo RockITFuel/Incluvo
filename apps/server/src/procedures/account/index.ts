@@ -1,7 +1,9 @@
-import { membership, organization, user } from "@incluvo/drizzle/schema";
+import { coachAssignment, organization, user } from "@incluvo/drizzle/schema";
 import {
 	atLeast,
+	canBuildCourses,
 	can,
+	coachesLeerlingen,
 	INCLUVO_ROLES,
 	type IncluvoRole,
 	isSuperadmin,
@@ -10,8 +12,11 @@ import {
 	type UserRole,
 } from "@incluvo/permissions";
 import { ORPCError } from "@orpc/server";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
+import { assertNotArchived } from "../../access";
+import { rateLimit } from "../../rate-limit";
+import { createAccount, hasPassword, sendInvite } from "../../users";
 import { base, ownTenant, protectedProcedure, withPolicy } from "../base";
 
 /**
@@ -113,7 +118,7 @@ const me = protectedProcedure
 				canManageTenant: can(actor, policies.manageTenant),
 				canReadUsers: atLeast(actor.role, "coach"),
 				canManageUsers: atLeast(actor.role, "keyuser"),
-				canManageCourses: atLeast(actor.role, "ontwikkelaar"),
+				canManageCourses: canBuildCourses(actor.role),
 				isSuperadmin: isSuperadmin(actor.role),
 			},
 		};
@@ -312,6 +317,9 @@ const usersSetRole = protectedProcedure
 				message: `Not allowed to assign role "${input.role}"`,
 			});
 		}
+		if (target.organizationId) {
+			await assertNotArchived(context.db, target.organizationId);
+		}
 
 		const [row] = await context.db
 			.update(user)
@@ -326,29 +334,32 @@ const usersSetRole = protectedProcedure
 			});
 		if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
 
-		// Keep the explicit membership row in sync with the denormalised role.
-		if (row.organizationId) {
+		// Koppelingen only make sense for a coach and a leerling: drop the ones
+		// the new role no longer fits.
+		if (!coachesLeerlingen(input.role)) {
 			await context.db
-				.update(membership)
-				.set({ role: input.role, updatedAt: new Date() })
-				.where(
-					and(
-						eq(membership.userId, row.id),
-						eq(membership.organizationId, row.organizationId),
-					),
-				);
+				.delete(coachAssignment)
+				.where(eq(coachAssignment.coachId, input.userId));
 		}
-
+		if (input.role !== "leerling") {
+			await context.db
+				.delete(coachAssignment)
+				.where(eq(coachAssignment.leerlingId, input.userId));
+		}
 		return row;
 	});
 
 /**
- * Invite / create a user inside a tenant (keyuser+ via manageUsers). A keyuser
- * may only create in their own org; superadmin may target any org. This records
- * the intended user + role + tenant via a `membership` row and (for an existing
- * account) flips their tenant/role. Actual credential provisioning (better-auth
- * signup / magic link, QUESTIONS 3.4) is wired by the auth flow / seed; here we
- * keep it idempotent on email.
+ * Invite a user into a tenant (keyuser+ via manageUsers). A keyuser may only
+ * invite into their own org; superadmin may target any org.
+ *
+ * - New e-mail: creates the account (no password) and mails a set-password
+ *   link. This is the only way accounts are created; public sign-up is off.
+ * - Existing account in the same tenant: updates the role, and re-sends the
+ *   link while they haven't set a password yet (so "invite again" = resend).
+ * - Existing account without a tenant, or in another tenant: refused. Such an
+ *   account was not created by an invite, and attaching it would hand the
+ *   invited role to whoever registered that address.
  */
 const usersInvite = protectedProcedure
 	.use(withPolicy(policies.manageUsers, ownTenant))
@@ -356,6 +367,7 @@ const usersInvite = protectedProcedure
 	.input(
 		z.object({
 			email: z.string().email(),
+			name: z.string().trim().min(1).max(200).optional(),
 			role: RoleSchema.default("leerling"),
 			organizationId: z.string().uuid().optional(),
 		}),
@@ -365,11 +377,15 @@ const usersInvite = protectedProcedure
 			email: z.string(),
 			role: RoleSchema,
 			organizationId: z.string(),
-			existingUserId: z.string().nullable(),
+			userId: z.string(),
+			created: z.boolean(),
+			/** False when the set-password mail could not be sent (SMTP down). */
+			mailSent: z.boolean(),
 		}),
 	)
 	.handler(async ({ input, context }) => {
 		const { actor } = context;
+		const email = input.email.toLowerCase();
 
 		// Target tenant: default to the actor's own org.
 		const organizationId = input.organizationId ?? actor.organizationId;
@@ -386,64 +402,111 @@ const usersInvite = protectedProcedure
 				message: `Not allowed to assign role "${input.role}"`,
 			});
 		}
+		await assertNotArchived(context.db, organizationId);
 
-		// If the account already exists, attach it to the tenant + role.
 		const [existing] = await context.db
-			.select({ id: user.id, organizationId: user.organizationId })
+			.select({
+				id: user.id,
+				name: user.name,
+				organizationId: user.organizationId,
+			})
 			.from(user)
-			.where(eq(user.email, input.email));
+			.where(eq(user.email, email));
 
-		if (existing) {
-			// Re-check tenant against the existing row (can't steal another tenant's user).
-			if (
-				existing.organizationId &&
-				!sameTenant(actor, { organizationId: existing.organizationId })
-			) {
-				throw new ORPCError("FORBIDDEN", {
-					message: "User belongs to another tenant",
-				});
-			}
-			await context.db
-				.update(user)
-				.set({ role: input.role, organizationId, updatedAt: new Date() })
-				.where(eq(user.id, existing.id));
+		if (existing && existing.organizationId !== organizationId) {
+			throw new ORPCError(existing.organizationId ? "FORBIDDEN" : "CONFLICT", {
+				message: existing.organizationId
+					? "Deze gebruiker hoort bij een andere organisatie"
+					: "Er bestaat al een account met dit e-mailadres dat niet via een uitnodiging is aangemaakt. Neem contact op met Ondivera.",
+			});
 		}
 
-		// Upsert an explicit membership row (idempotent on user/org).
+		let userId: string;
+		let name: string;
 		if (existing) {
-			const [m] = await context.db
-				.select({ id: membership.id })
-				.from(membership)
-				.where(
-					and(
-						eq(membership.userId, existing.id),
-						eq(membership.organizationId, organizationId),
-					),
-				);
-			if (m) {
-				await context.db
-					.update(membership)
-					.set({ role: input.role, updatedAt: new Date() })
-					.where(eq(membership.id, m.id));
-			} else {
-				await context.db
-					.insert(membership)
-					.values({ userId: existing.id, organizationId, role: input.role });
+			userId = existing.id;
+			name = existing.name;
+		} else {
+			name = input.name ?? email.split("@")[0]!;
+			userId = await createAccount({
+				email,
+				name,
+				role: input.role,
+				organizationId,
+			});
+		}
+
+		await context.db
+			.update(user)
+			.set({ role: input.role, updatedAt: new Date() })
+			.where(eq(user.id, userId));
+
+		let mailSent = true;
+		if (!existing || !(await hasPassword(userId))) {
+			try {
+				await sendInvite({ id: userId, email, name });
+			} catch (error) {
+				console.error("[invite] set-password mail failed", error);
+				mailSent = false;
 			}
 		}
 
 		return {
-			email: input.email,
+			email,
 			role: input.role,
 			organizationId,
-			existingUserId: existing?.id ?? null,
+			userId,
+			created: !existing,
+			mailSent,
 		};
+	});
+
+/**
+ * Send the invite mail again (INC-6) — only while the user hasn't set a
+ * password yet. Limited per user so a mailbox can't be flooded.
+ */
+const usersResendInvite = protectedProcedure
+	.use(withPolicy(policies.manageUsers, ownTenant))
+	.route({ method: "POST", path: "/account/users/resend-invite", tags: ["account"] })
+	.input(z.object({ userId: z.string() }))
+	.output(z.object({ email: z.string(), mailSent: z.boolean() }))
+	.handler(async ({ input, context }) => {
+		const [target] = await context.db
+			.select({
+				id: user.id,
+				name: user.name,
+				email: user.email,
+				organizationId: user.organizationId,
+			})
+			.from(user)
+			.where(eq(user.id, input.userId));
+		if (!target) throw new ORPCError("NOT_FOUND");
+		assertCanManage(context.actor, target);
+		if (target.organizationId) await assertNotArchived(context.db, target.organizationId);
+		if (await hasPassword(target.id)) {
+			throw new ORPCError("BAD_REQUEST", {
+				message: "Deze gebruiker heeft de uitnodiging al geaccepteerd.",
+			});
+		}
+		if (!rateLimit(`invite:resend:${target.id}`, { max: 5, windowMs: 60 * 60_000 })) {
+			throw new ORPCError("TOO_MANY_REQUESTS", {
+				message: "De uitnodiging is net een paar keer verstuurd. Probeer het over een uur opnieuw.",
+			});
+		}
+		try {
+			await sendInvite({ id: target.id, email: target.email, name: target.name });
+			return { email: target.email, mailSent: true };
+		} catch (error) {
+			console.error("[invite] resend failed", error);
+			return { email: target.email, mailSent: false };
+		}
 	});
 
 const usersRouter = base.router({
 	listInTenant: usersList,
 	setRole: usersSetRole,
 	invite: usersInvite,
+	resendInvite: usersResendInvite,
 });
 
 // ---------------------------------------------------------------------------

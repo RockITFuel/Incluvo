@@ -1,6 +1,5 @@
 import {
 	answerCoachMapping,
-	coachAssignment,
 	formAnswer,
 	formAssignment,
 	formQuestion,
@@ -14,10 +13,11 @@ import {
 	can,
 	isSuperadmin,
 	policies,
+	sameSchool,
 	sameTenant,
 } from "@incluvo/permissions";
 import { ORPCError } from "@orpc/server";
-import { and, asc, desc, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { z } from "zod";
 import {
 	type PdfPlan,
@@ -33,12 +33,38 @@ import {
 	QuestionSchema,
 	QuestionType,
 	SubmissionSchema,
+	TemplateListItemSchema,
 	TemplateSchema,
 	TemplateWithQuestionsSchema,
 } from "../../coachplan/schema";
-import { notify } from "../../notifications/notify";
+import { leerlingCoachRecipients, notify } from "../../notifications";
 import { rateLimit } from "../../rate-limit";
 import { publishTo } from "../../sse";
+import {
+	assertEditable,
+	assertPublished,
+	copyQuestions,
+	inUseReason,
+	insertTemplate,
+	latestVersion as latestTemplateVersion,
+	newVersion,
+	sourceUpdate,
+	upgradeFromSource,
+} from "../../coachplan/templates";
+import {
+	FILLABLE,
+	LEERLING_EDITABLE,
+	REVIEWABLE,
+	SHARED,
+	type Status,
+	assertStatus,
+	createVersion,
+	currentVersion,
+	ensurePlan,
+	latestVersion,
+	transition,
+} from "../../coachplan/lifecycle";
+import { reachableLeerlingen, requireLeerlingAccess } from "../../access";
 import { type AuthedContext, base, protectedProcedure, withPolicy } from "../base";
 
 /**
@@ -67,27 +93,9 @@ import { type AuthedContext, base, protectedProcedure, withPolicy } from "../bas
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** A leerling's assigned coach ids (for per-recipient SSE fan-out, C1). */
-async function coachIdsFor(
-	context: AuthedContext,
-	leerlingId: string,
-): Promise<string[]> {
-	const rows = await context.db
-		.select({ coachId: coachAssignment.coachId })
-		.from(coachAssignment)
-		.where(eq(coachAssignment.leerlingId, leerlingId));
-	return [...new Set(rows.map((r) => r.coachId))];
-}
-
-/** Non-superadmin actors other than the owning leerling must hold a coach_assignment to the leerling. */
+/** Only actors who may see this leerling's data (`requireLeerlingAccess`). */
 async function assertAssignedToLeerling(context: AuthedContext, leerlingId: string): Promise<void> {
-	const { actor } = context;
-	if (isSuperadmin(actor.role) || actor.userId === leerlingId) return;
-	const [link] = await context.db
-		.select({ id: coachAssignment.id })
-		.from(coachAssignment)
-		.where(and(eq(coachAssignment.coachId, actor.userId), eq(coachAssignment.leerlingId, leerlingId)));
-	if (!link) throw new ORPCError("FORBIDDEN", { message: "Leerling is niet aan jou gekoppeld" });
+	await requireLeerlingAccess(context, leerlingId);
 }
 
 /** Map a template row to the DTO shape (Date columns pass through). */
@@ -97,9 +105,12 @@ function templateDto(row: typeof formTemplate.$inferSelect) {
 		scope: row.scope,
 		organizationId: row.organizationId,
 		parentTemplateId: row.parentTemplateId,
+		familyId: row.familyId,
+		version: row.version,
 		name: row.name,
 		description: row.description,
 		isSchoolDefault: row.isSchoolDefault,
+		publishedAt: row.publishedAt,
 		createdAt: row.createdAt,
 		updatedAt: row.updatedAt,
 	};
@@ -109,6 +120,7 @@ function questionDto(row: typeof formQuestion.$inferSelect) {
 	return {
 		id: row.id,
 		templateId: row.templateId,
+		key: row.key,
 		section: row.section,
 		type: row.type,
 		label: row.label,
@@ -117,12 +129,15 @@ function questionDto(row: typeof formQuestion.$inferSelect) {
 		position: row.position,
 		mapsToQuestionId: row.mapsToQuestionId,
 		options: (row.options ?? null) as never,
+		visibleToLeerling: row.visibleToLeerling,
 	};
 }
 
 function submissionDto(row: typeof formSubmission.$inferSelect) {
 	return {
 		id: row.id,
+		coachplanId: row.coachplanId,
+		version: row.version,
 		templateId: row.templateId,
 		organizationId: row.organizationId,
 		leerlingId: row.leerlingId,
@@ -153,25 +168,37 @@ function answerDto(row: typeof formAnswer.$inferSelect) {
 
 /**
  * List templates the actor may use: Ondivera templates (visible to everyone for
- * copying) + the actor's own school templates. Superadmin sees all.
+ * copying) + the actor's own school templates. Superadmin sees all. One entry
+ * per form: its latest version.
  */
 const templatesList = protectedProcedure
 	.use(withPolicy(policies.readForm, (c) => ({ organizationId: c.actor.organizationId })))
 	.route({ method: "GET", path: "/coachplan/templates", tags: ["coachplan"] })
-	.output(z.array(TemplateSchema))
+	.output(z.array(TemplateListItemSchema))
 	.handler(async ({ context }) => {
 		const { actor } = context;
 		const rows = await context.db
 			.select()
 			.from(formTemplate)
 			.orderBy(desc(formTemplate.updatedAt));
-		const visible = rows.filter(
+		const latestByFamily = new Map<string, (typeof rows)[number]>();
+		for (const t of rows) {
+			const seen = latestByFamily.get(t.familyId);
+			if (!seen || t.version > seen.version) latestByFamily.set(t.familyId, t);
+		}
+		const visible = [...latestByFamily.values()].filter(
 			(t) =>
 				isSuperadmin(actor.role) ||
 				t.scope === "ondivera" ||
 				(t.organizationId && sameTenant(actor, t)),
 		);
-		return visible.map(templateDto);
+		return Promise.all(
+			visible.map(async (t) => ({
+				...templateDto(t),
+				inUse: await inUseReason(context.db, t),
+				sourceUpdateVersion: (await sourceUpdate(context.db, t))?.version ?? null,
+			})),
+		);
 	});
 
 /** Get one template with its questions (ordered). */
@@ -196,7 +223,11 @@ const templatesGet = protectedProcedure
 			.from(formQuestion)
 			.where(eq(formQuestion.templateId, tpl.id))
 			.orderBy(asc(formQuestion.position));
-		return { ...templateDto(tpl), questions: questions.map(questionDto) };
+		return {
+			...templateDto(tpl),
+			inUse: await inUseReason(context.db, tpl),
+			questions: questions.map(questionDto),
+		};
 	});
 
 /** Create a school template (#9). Keyuser+ within their own tenant. */
@@ -221,17 +252,13 @@ const templatesCreate = protectedProcedure
 		if (scope === "school" && !organizationId) {
 			throw new ORPCError("BAD_REQUEST", { message: "No tenant" });
 		}
-		const [row] = await context.db
-			.insert(formTemplate)
-			.values({
-				name: input.name,
-				description: input.description ?? null,
-				scope,
-				organizationId,
-				createdById: actor.userId,
-			})
-			.returning();
-		if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
+		const row = await insertTemplate(context.db, {
+			name: input.name,
+			description: input.description ?? null,
+			scope,
+			organizationId,
+			createdById: actor.userId,
+		});
 		publishTo(
 			{ type: "coachplan.template.changed", payload: { id: row.id } },
 			[context.actor.userId],
@@ -296,39 +323,25 @@ const templatesCopyToSchool = protectedProcedure
 		if (src.scope === "school" && !sameTenant(actor, src)) {
 			throw new ORPCError("FORBIDDEN");
 		}
+		// INC-7: only a published version; the copy is published as it is (to
+		// change it, the school makes a new concept version).
+		assertPublished(src);
 
-		const [copy] = await context.db
-			.insert(formTemplate)
-			.values({
+		// Template + questions commit together: never a half-copied form. The
+		// copy records which Ondivera version it came from (D5 upgrades).
+		const copy = await context.db.transaction(async (tx) => {
+			const copy = await insertTemplate(tx, {
 				name: input.name ?? `${src.name} (kopie)`,
 				description: src.description,
 				scope: "school",
 				organizationId,
 				parentTemplateId: src.id,
 				createdById: actor.userId,
-			})
-			.returning();
-		if (!copy) throw new ORPCError("INTERNAL_SERVER_ERROR");
-
-		const srcQuestions = await context.db
-			.select()
-			.from(formQuestion)
-			.where(eq(formQuestion.templateId, src.id))
-			.orderBy(asc(formQuestion.position));
-		if (srcQuestions.length) {
-			await context.db.insert(formQuestion).values(
-				srcQuestions.map((q) => ({
-					templateId: copy.id,
-					section: q.section,
-					type: q.type,
-					label: q.label,
-					helpText: q.helpText,
-					required: q.required,
-					position: q.position,
-					options: q.options,
-				})),
-			);
-		}
+				publishedAt: new Date(),
+			});
+			await copyQuestions(tx, src.id, copy.id);
+			return copy;
+		});
 		publishTo(
 			{ type: "coachplan.template.changed", payload: { id: copy.id } },
 			[context.actor.userId],
@@ -353,6 +366,8 @@ async function assertCanManageTemplate(
 	if (!can(context.actor, policies.manageForms, tpl)) {
 		throw new ORPCError("FORBIDDEN");
 	}
+	// Questions of a form in use are fixed (D5): plans must keep their meaning.
+	await assertEditable(context.db, tpl);
 	return tpl;
 }
 
@@ -371,6 +386,7 @@ const questionsCreate = protectedProcedure
 			// #18 — optional correspondence to a coach (POPP) question.
 			mapsToQuestionId: z.string().uuid().nullable().optional(),
 			options: QuestionOptions.optional(),
+			visibleToLeerling: z.boolean().optional(),
 		}),
 	)
 	.output(QuestionSchema)
@@ -397,6 +413,7 @@ const questionsCreate = protectedProcedure
 				position,
 				mapsToQuestionId: input.mapsToQuestionId ?? null,
 				options: (input.options ?? null) as never,
+				visibleToLeerling: input.visibleToLeerling ?? true,
 			})
 			.returning();
 		if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
@@ -422,6 +439,7 @@ const questionsUpdate = protectedProcedure
 			// #18 — optional correspondence to a coach (POPP) question.
 			mapsToQuestionId: z.string().uuid().nullable().optional(),
 			options: QuestionOptions.optional(),
+			visibleToLeerling: z.boolean().optional(),
 		}),
 	)
 	.output(QuestionSchema)
@@ -461,16 +479,8 @@ const questionsRemove = protectedProcedure
 			.from(formQuestion)
 			.where(eq(formQuestion.id, input.id));
 		if (!q) throw new ORPCError("NOT_FOUND");
+		// A form in use can't lose questions (assertEditable).
 		await assertCanManageTemplate(context, q.templateId);
-		// Refuse to delete a question that answers/mappings still reference: the FK now
-		// RESTRICTs, so this guard gives a friendly error instead of a raw FK violation.
-		const [hasAnswer] = await context.db.select({ id: formAnswer.id }).from(formAnswer)
-			.where(eq(formAnswer.questionId, input.id)).limit(1);
-		const [hasMapping] = await context.db.select({ id: answerCoachMapping.id }).from(answerCoachMapping)
-			.where(eq(answerCoachMapping.coachQuestionId, input.id)).limit(1);
-		if (hasAnswer || hasMapping) {
-			throw new ORPCError("CONFLICT", { message: "Deze vraag heeft al antwoorden en kan niet worden verwijderd." });
-		}
 		await context.db.delete(formQuestion).where(eq(formQuestion.id, input.id));
 		publishTo(
 			{ type: "coachplan.template.changed", payload: { id: q.templateId } },
@@ -499,20 +509,126 @@ const setSchoolDefault = protectedProcedure
 		if (!can(actor, policies.manageForms, tpl) || tpl.scope !== "school") {
 			throw new ORPCError("FORBIDDEN");
 		}
-		// Clear any other default in the tenant, then set this one.
-		await context.db
-			.update(formTemplate)
-			.set({ isSchoolDefault: false })
-			.where(eq(formTemplate.organizationId, tpl.organizationId ?? ""));
-		await context.db
-			.update(formTemplate)
-			.set({ isSchoolDefault: true, updatedAt: new Date() })
-			.where(eq(formTemplate.id, input.templateId));
+		assertPublished(tpl);
+		// Clear any other default in the tenant, then set this one — together,
+		// so the school is never left without (or with two) defaults.
+		await context.db.transaction(async (tx) => {
+			await tx
+				.update(formTemplate)
+				.set({ isSchoolDefault: false })
+				.where(eq(formTemplate.organizationId, tpl.organizationId ?? ""));
+			await tx
+				.update(formTemplate)
+				.set({ isSchoolDefault: true, updatedAt: new Date() })
+				.where(eq(formTemplate.id, input.templateId));
+		});
 		publishTo(
 			{ type: "coachplan.template.changed", payload: { id: input.templateId } },
 			[context.actor.userId],
 		);
 		return { templateId: input.templateId };
+	});
+
+/** Load a template the actor may manage (manageForms on its tenant). */
+async function loadManageableTemplate(context: AuthedContext, id: string) {
+	const [tpl] = await context.db.select().from(formTemplate).where(eq(formTemplate.id, id));
+	if (!tpl) throw new ORPCError("NOT_FOUND");
+	if (!can(context.actor, policies.manageForms, tpl)) throw new ORPCError("FORBIDDEN");
+	return tpl;
+}
+
+/**
+ * Start the next version of a form (D5) to change its questions. The current
+ * version stays as it is for the plans filled in on it.
+ */
+const templatesNewVersion = protectedProcedure
+	.use(withPolicy(policies.manageForms, (c) => ({ organizationId: c.actor.organizationId })))
+	.route({ method: "POST", path: "/coachplan/templates/{id}/new-version", tags: ["coachplan"] })
+	.input(z.object({ id: z.string().uuid() }))
+	.output(TemplateSchema)
+	.handler(async ({ input, context }) => {
+		const tpl = await loadManageableTemplate(context, input.id);
+		// INC-7: one concept at a time; it starts from the newest version.
+		const latest = await latestTemplateVersion(context.db, tpl.familyId);
+		if (!latest.publishedAt) {
+			throw new ORPCError("CONFLICT", {
+				message: "Er staat al een concept klaar voor dit formulier.",
+			});
+		}
+		const next = await context.db.transaction((tx) => newVersion(tx, latest));
+		return templateDto(next);
+	});
+
+/**
+ * Publish a concept (INC-7): from now on its questions are fixed and it can
+ * be used for plans, made the school default, assigned and copied. Existing
+ * plans stay on the version they were filled in on.
+ */
+const templatesPublish = protectedProcedure
+	.use(withPolicy(policies.manageForms, (c) => ({ organizationId: c.actor.organizationId })))
+	.route({ method: "POST", path: "/coachplan/templates/{id}/publish", tags: ["coachplan"] })
+	.input(z.object({ id: z.string().uuid() }))
+	.output(TemplateSchema)
+	.handler(async ({ input, context }) => {
+		const tpl = await loadManageableTemplate(context, input.id);
+		if (tpl.publishedAt) {
+			throw new ORPCError("CONFLICT", { message: "Deze versie is al gepubliceerd." });
+		}
+		const [question] = await context.db
+			.select({ id: formQuestion.id })
+			.from(formQuestion)
+			.where(eq(formQuestion.templateId, tpl.id))
+			.limit(1);
+		if (!question) {
+			throw new ORPCError("BAD_REQUEST", { message: "Voeg eerst minstens één vraag toe." });
+		}
+		const [row] = await context.db
+			.update(formTemplate)
+			.set({ publishedAt: new Date(), updatedAt: new Date() })
+			.where(eq(formTemplate.id, tpl.id))
+			.returning();
+		if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
+		publishTo(
+			{ type: "coachplan.template.changed", payload: { id: row.id } },
+			[context.actor.userId],
+		);
+		return templateDto(row);
+	});
+
+/** Throw away a concept version (never a published one). */
+const templatesDiscardDraft = protectedProcedure
+	.use(withPolicy(policies.manageForms, (c) => ({ organizationId: c.actor.organizationId })))
+	.route({ method: "DELETE", path: "/coachplan/templates/{id}/draft", tags: ["coachplan"] })
+	.input(z.object({ id: z.string().uuid() }))
+	.output(z.object({ ok: z.boolean() }))
+	.handler(async ({ input, context }) => {
+		const tpl = await loadManageableTemplate(context, input.id);
+		if (tpl.publishedAt) {
+			throw new ORPCError("CONFLICT", { message: "Een gepubliceerde versie blijft bewaard." });
+		}
+		await context.db.delete(formTemplate).where(eq(formTemplate.id, tpl.id));
+		publishTo(
+			{ type: "coachplan.template.changed", payload: { id: tpl.id } },
+			[context.actor.userId],
+		);
+		return { ok: true };
+	});
+
+/**
+ * Bring a school copy up to the newest version of its Ondivera source (D5:
+ * the school chooses when). The new version becomes the default and takes
+ * over the leerlingen assigned to the old one; plans keep their version.
+ */
+const templatesUpgradeFromSource = protectedProcedure
+	.use(withPolicy(policies.manageForms, (c) => ({ organizationId: c.actor.organizationId })))
+	.route({ method: "POST", path: "/coachplan/templates/{id}/upgrade", tags: ["coachplan"] })
+	.input(z.object({ id: z.string().uuid() }))
+	.output(TemplateSchema)
+	.handler(async ({ input, context }) => {
+		const tpl = await loadManageableTemplate(context, input.id);
+		if (tpl.scope !== "school") throw new ORPCError("BAD_REQUEST");
+		const next = await context.db.transaction((tx) => upgradeFromSource(tx, tpl));
+		return templateDto(next);
 	});
 
 /** Assign a specific template to a leerling, overriding the school default (#10). */
@@ -530,7 +646,7 @@ const assignToLeerling = protectedProcedure
 			.select({ id: user.id, organizationId: user.organizationId })
 			.from(user)
 			.where(eq(user.id, input.leerlingId));
-		if (!ll || !sameTenant(actor, ll)) throw new ORPCError("FORBIDDEN");
+		if (!ll || !sameSchool(actor, ll)) throw new ORPCError("FORBIDDEN");
 		// Template must be in the tenant.
 		const [tpl] = await context.db
 			.select()
@@ -539,26 +655,15 @@ const assignToLeerling = protectedProcedure
 		if (!tpl || tpl.scope !== "school" || !sameTenant(actor, tpl)) {
 			throw new ORPCError("FORBIDDEN");
 		}
-		// Upsert (one assignment per leerling).
-		const [existing] = await context.db
-			.select({ id: formAssignment.id })
-			.from(formAssignment)
-			.where(
-				and(
-					eq(formAssignment.organizationId, organizationId),
-					eq(formAssignment.leerlingId, input.leerlingId),
-				),
-			);
-		if (existing) {
-			await context.db
-				.update(formAssignment)
-				.set({ templateId: input.templateId, updatedAt: new Date() })
-				.where(eq(formAssignment.id, existing.id));
-			return { id: existing.id };
-		}
+		assertPublished(tpl);
+		// One assignment per leerling (unique on organization + leerling).
 		const [row] = await context.db
 			.insert(formAssignment)
 			.values({ organizationId, leerlingId: input.leerlingId, templateId: input.templateId })
+			.onConflictDoUpdate({
+				target: [formAssignment.organizationId, formAssignment.leerlingId],
+				set: { templateId: input.templateId, updatedAt: new Date() },
+			})
 			.returning({ id: formAssignment.id });
 		if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
 		return { id: row.id };
@@ -610,22 +715,23 @@ const startMine = protectedProcedure
 		}),
 	)
 	.handler(async ({ context }) => {
+		assertLeerling(context);
 		const { actor } = context;
 		const organizationId = actor.organizationId;
 		if (!organizationId) throw new ORPCError("BAD_REQUEST", { message: "No tenant" });
 
-		// Resume an existing draft if present.
-		let [submission] = await context.db
-			.select()
-			.from(formSubmission)
-			.where(
-				and(
-					eq(formSubmission.leerlingId, actor.userId),
-					eq(formSubmission.status, "draft"),
-				),
-			)
-			.orderBy(desc(formSubmission.createdAt));
-
+		// Resume the open draft, or start version 1. Once the plan has been
+		// handed in there is nothing to fill in until the leerling revises it
+		// (`revise`); the web checks `mine` first.
+		let submission = await latestVersion(context.db, actor.userId);
+		if (submission && submission.status !== "draft") {
+			throw new ORPCError("CONFLICT", {
+				message:
+					submission.status === "shared_with_leerling" || submission.status === "completed"
+						? "Je plan is gedeeld. Kies 'Plan bijwerken' om een nieuwe versie te maken."
+						: "Je plan ligt bij je coach.",
+			});
+		}
 		if (!submission) {
 			const templateId = await resolveTemplateForLeerling(
 				context.db,
@@ -637,17 +743,9 @@ const startMine = protectedProcedure
 					message: "Geen formulier gekoppeld aan deze leerling",
 				});
 			}
-			[submission] = await context.db
-				.insert(formSubmission)
-				.values({
-					templateId,
-					organizationId,
-					leerlingId: actor.userId,
-					status: "draft",
-				})
-				.returning();
+			const plan = await ensurePlan(context.db, organizationId, actor.userId);
+			submission = await createVersion(context.db, plan, templateId);
 		}
-		if (!submission) throw new ORPCError("INTERNAL_SERVER_ERROR");
 
 		const [tpl] = await context.db
 			.select()
@@ -671,8 +769,74 @@ const startMine = protectedProcedure
 		};
 	});
 
-/** Load a submission row and assert the actor may fill it (own + tenant). */
-async function loadFillable(context: AuthedContext, submissionId: string) {
+/** A coachplan is the leerling's own; other roles don't have one. */
+function assertLeerling(context: AuthedContext): void {
+	if (context.actor.role !== "leerling") {
+		throw new ORPCError("FORBIDDEN", { message: "Alleen een leerling heeft een coachplan" });
+	}
+}
+
+/**
+ * The leerling's plan at a glance: the version they're working on or waiting
+ * on (`latest`) and the version their coach last shared (`current`). The
+ * wizard page picks its screen from this.
+ */
+const mine = protectedProcedure
+	.route({ method: "GET", path: "/coachplan/mine/state", tags: ["coachplan"] })
+	.output(
+		z.object({
+			latest: SubmissionSchema.nullable(),
+			current: SubmissionSchema.nullable(),
+		}),
+	)
+	.handler(async ({ context }) => {
+		assertLeerling(context);
+		const { actor } = context;
+		const latest = await latestVersion(context.db, actor.userId);
+		const current = await currentVersion(context.db, actor.userId);
+		return {
+			latest: latest ? submissionDto(latest) : null,
+			current: current ? submissionDto(current) : null,
+		};
+	});
+
+/**
+ * "Plan bijwerken": start a new draft version from the shared plan, with its
+ * answers pre-filled. Only when the latest version is shared — there is at
+ * most one version in progress.
+ */
+const revise = protectedProcedure
+	.route({ method: "POST", path: "/coachplan/revise", tags: ["coachplan"] })
+	.output(SubmissionSchema)
+	.handler(async ({ context }) => {
+		assertLeerling(context);
+		const { actor } = context;
+		const latest = await latestVersion(context.db, actor.userId);
+		if (!latest || latest.leerlingId !== actor.userId) {
+			throw new ORPCError("NOT_FOUND", { message: "Nog geen plan om bij te werken" });
+		}
+		assertStatus(latest, SHARED);
+		// The revision uses the school's current form for this leerling (D5: a
+		// newer version if the school upgraded); answers carry over by key.
+		const templateId =
+			(await resolveTemplateForLeerling(context.db, latest.organizationId, actor.userId)) ??
+			latest.templateId;
+		const created = await context.db.transaction(async (tx) => {
+			const plan = await ensurePlan(tx, latest.organizationId, actor.userId);
+			return createVersion(tx, plan, templateId, latest);
+		});
+		return submissionDto(created);
+	});
+
+/**
+ * Load a submission row and assert the actor may fill it (own + tenant) in its
+ * current status: by default only a draft.
+ */
+async function loadFillable(
+	context: AuthedContext,
+	submissionId: string,
+	allowed: readonly Status[] = FILLABLE,
+) {
 	const [sub] = await context.db
 		.select()
 		.from(formSubmission)
@@ -681,10 +845,54 @@ async function loadFillable(context: AuthedContext, submissionId: string) {
 	if (!can(context.actor, policies.fillCoachplan, sub)) {
 		throw new ORPCError("FORBIDDEN");
 	}
-	if (sub.status !== "draft") {
-		throw new ORPCError("CONFLICT", { message: "Inzending is al verstuurd" });
+	if (!allowed.includes(sub.status)) {
+		throw new ORPCError("CONFLICT", { message: leerlingLockedMessage(sub.status) });
 	}
 	return sub;
+}
+
+/** Why the leerling can't change this version (any more). */
+function leerlingLockedMessage(status: Status): string {
+	if (status === "coach_review") {
+		return "Je coach is begonnen met het invullen van jullie plan. Je kunt je antwoorden nu alleen nog bekijken.";
+	}
+	if (status === "shared_with_leerling" || status === "completed") {
+		return "Je coach heeft het plan aan je aangeboden. Je kunt het nu alleen nog bekijken.";
+	}
+	return "Inzending is al verstuurd";
+}
+
+/**
+ * INC-14 AC4: a leerling changes a handed-in answer before the coach started.
+ * A coach answer pre-filled from it (#18) still holds the old answer, so it
+ * follows; one the coach wrote differs and is left alone. An answer that was
+ * empty at hand-in gets its pre-fill now.
+ */
+async function followMappedPrefill(
+	tx: CoachplanTx,
+	sub: typeof formSubmission.$inferSelect,
+	coachQuestionId: string,
+	before: typeof formAnswer.$inferSelect | undefined,
+	after: typeof formAnswer.$inferSelect,
+): Promise<void> {
+	const [coachAnswer] = await tx
+		.select()
+		.from(formAnswer)
+		.where(and(eq(formAnswer.submissionId, sub.id), eq(formAnswer.questionId, coachQuestionId)));
+	if (!coachAnswer) {
+		await applyCorrespondenceMappings(tx, sub);
+		return;
+	}
+	if (coachAnswer.value !== (before?.value ?? null)) return;
+	await tx
+		.update(formAnswer)
+		.set({
+			value: after.deliberatelySkipped ? null : after.value,
+			valueJson: after.deliberatelySkipped ? null : after.valueJson,
+			updatedAt: new Date(),
+		})
+		.where(eq(formAnswer.id, coachAnswer.id));
+	await applyCorrespondenceMappings(tx, sub);
 }
 
 /**
@@ -706,26 +914,30 @@ const saveAnswer = protectedProcedure
 	)
 	.output(AnswerSchema)
 	.handler(async ({ input, context }) => {
-		const sub = await loadFillable(context, input.submissionId);
+		// After handing in, the leerling may still change answers until the coach
+		// starts on the coach part or shares the plan (INC-14).
+		const sub = await loadFillable(context, input.submissionId, LEERLING_EDITABLE);
 		// Question must belong to the submission's template.
 		const [q] = await context.db
-			.select({ id: formQuestion.id, templateId: formQuestion.templateId })
+			.select({
+				id: formQuestion.id,
+				templateId: formQuestion.templateId,
+				section: formQuestion.section,
+				mapsToQuestionId: formQuestion.mapsToQuestionId,
+			})
 			.from(formQuestion)
 			.where(eq(formQuestion.id, input.questionId));
 		if (!q) throw new ORPCError("NOT_FOUND");
 		if (q.templateId !== sub.templateId) {
 			throw new ORPCError("BAD_REQUEST", { message: "Vraag hoort niet bij dit formulier" });
 		}
-
-		const [existing] = await context.db
-			.select()
-			.from(formAnswer)
-			.where(
-				and(
-					eq(formAnswer.submissionId, input.submissionId),
-					eq(formAnswer.questionId, input.questionId),
-				),
-			);
+		// Only the leerling fills in here (fillCoachplan); the coach-gedeelte is
+		// written through saveCoachAnswer.
+		if (q.section !== "leerling") {
+			throw new ORPCError("FORBIDDEN", {
+				message: "Deze vraag is voor de coach",
+			});
+		}
 
 		const patch = {
 			...(input.value !== undefined ? { value: input.value } : {}),
@@ -740,34 +952,87 @@ const saveAnswer = protectedProcedure
 				: {}),
 		};
 
-		let row: typeof formAnswer.$inferSelect | undefined;
-		if (existing) {
-			[row] = await context.db
-				.update(formAnswer)
-				.set({ ...patch, updatedAt: new Date() })
-				.where(eq(formAnswer.id, existing.id))
-				.returning();
-		} else {
-			[row] = await context.db
-				.insert(formAnswer)
-				.values({
-					submissionId: input.submissionId,
-					questionId: input.questionId,
-					value: input.value ?? null,
-					valueJson: (input.valueJson ?? null) as never,
-					discussWithCoach: input.discussWithCoach ?? false,
-					deliberatelySkipped: input.deliberatelySkipped ?? false,
-				})
-				.returning();
+		const { row, status } = await context.db.transaction(async (tx) => {
+			// Lock the version: a coach starting on the coach part or sharing it
+			// waits for this save, or this save sees the new status and is
+			// refused (INC-14 AC8) — never both.
+			const [locked] = await tx
+				.select()
+				.from(formSubmission)
+				.where(eq(formSubmission.id, sub.id))
+				.for("update");
+			if (!locked) throw new ORPCError("NOT_FOUND");
+			if (!LEERLING_EDITABLE.includes(locked.status)) {
+				throw new ORPCError("CONFLICT", { message: leerlingLockedMessage(locked.status) });
+			}
+			const handedIn = locked.status === "submitted";
+			const [before] =
+				handedIn && q.mapsToQuestionId
+					? await tx
+							.select()
+							.from(formAnswer)
+							.where(
+								and(
+									eq(formAnswer.submissionId, sub.id),
+									eq(formAnswer.questionId, input.questionId),
+								),
+							)
+					: [];
+			const saved = await upsertLeerlingAnswer(tx, input, patch);
+			// Touch the submission so coach lists re-sort.
+			await tx
+				.update(formSubmission)
+				.set({ updatedAt: new Date() })
+				.where(eq(formSubmission.id, input.submissionId));
+			if (handedIn && q.mapsToQuestionId) {
+				await followMappedPrefill(tx, locked, q.mapsToQuestionId, before, saved);
+			}
+			return { row: saved, status: locked.status };
+		});
+		// The coach may have the plan open: show the newest answers (AC4).
+		if (status === "submitted") {
+			publishTo(
+				{ type: "coachplan.answers", payload: { id: sub.id, leerlingId: sub.leerlingId } },
+				await leerlingCoachRecipients(context.db, sub.leerlingId, sub.organizationId),
+			);
 		}
-		if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
-		// Touch the submission so coach lists re-sort.
-		await context.db
-			.update(formSubmission)
-			.set({ updatedAt: new Date() })
-			.where(eq(formSubmission.id, input.submissionId));
 		return answerDto(row);
 	});
+
+/**
+ * One statement, so overlapping autosaves can't insert the answer twice
+ * (unique on submission + question).
+ */
+async function upsertLeerlingAnswer(
+	tx: CoachplanTx,
+	input: {
+	submissionId: string;
+	questionId: string;
+	value?: string | null;
+	valueJson?: unknown;
+	discussWithCoach?: boolean;
+	deliberatelySkipped?: boolean;
+	},
+	patch: Partial<typeof formAnswer.$inferInsert>,
+) {
+	const [row] = await tx
+		.insert(formAnswer)
+		.values({
+			submissionId: input.submissionId,
+			questionId: input.questionId,
+			value: input.value ?? null,
+			valueJson: (input.valueJson ?? null) as never,
+			discussWithCoach: input.discussWithCoach ?? false,
+			deliberatelySkipped: input.deliberatelySkipped ?? false,
+		})
+		.onConflictDoUpdate({
+			target: [formAnswer.submissionId, formAnswer.questionId],
+			set: { ...patch, updatedAt: new Date() },
+		})
+		.returning();
+	if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
+	return row;
+}
 
 /**
  * Submit the wizard (#11/#14): flips status to `submitted`, stamps
@@ -781,11 +1046,13 @@ type CoachplanTx = Parameters<
 /**
  * #18 — apply the template-level leerling→coach correspondences for a submission.
  *
- * For every leerling question that declares `mapsToQuestionId`, point the
- * leerling's answer at the corresponding coach (POPP) question via an
- * `answerCoachMapping` row, so the coach-gedeelte opens pre-filled. Idempotent
- * and non-destructive: it never overwrites an existing mapping (a coach edit),
- * and skips empty or deliberately-skipped answers.
+ * For every leerling question that declares `mapsToQuestionId`, copy the
+ * leerling's answer into the corresponding coach (POPP) question's answer, so
+ * the coach-gedeelte opens pre-filled and the coach edits one answer (which
+ * the PDF and AI read like any other). An `answerCoachMapping` row records
+ * where the pre-fill came from ("Gemapt vanuit leerling"). Idempotent and
+ * non-destructive: an existing coach answer is never overwritten, and empty or
+ * deliberately-skipped answers are skipped.
  */
 async function applyCorrespondenceMappings(
 	tx: CoachplanTx,
@@ -812,6 +1079,7 @@ async function applyCorrespondenceMappings(
 			id: formAnswer.id,
 			questionId: formAnswer.questionId,
 			value: formAnswer.value,
+			valueJson: formAnswer.valueJson,
 			skipped: formAnswer.deliberatelySkipped,
 		})
 		.from(formAnswer)
@@ -831,6 +1099,7 @@ async function applyCorrespondenceMappings(
 	const alreadyMapped = new Set(existing.map((m) => m.coachQuestionId));
 
 	const toInsert: (typeof answerCoachMapping.$inferInsert)[] = [];
+	const prefills: (typeof formAnswer.$inferInsert)[] = [];
 	for (const c of corr) {
 		if (!c.coachQuestionId || alreadyMapped.has(c.coachQuestionId)) continue;
 		const ans = answerByQuestion.get(c.leerlingQuestionId);
@@ -840,9 +1109,17 @@ async function applyCorrespondenceMappings(
 			sourceAnswerId: ans.id,
 			coachQuestionId: c.coachQuestionId,
 		});
+		prefills.push({
+			submissionId: submission.id,
+			questionId: c.coachQuestionId,
+			value: ans.value,
+			valueJson: ans.valueJson,
+		});
 	}
 	if (toInsert.length > 0) {
 		await tx.insert(answerCoachMapping).values(toInsert);
+		// Pre-fill only where the coach hasn't answered yet.
+		await tx.insert(formAnswer).values(prefills).onConflictDoNothing();
 	}
 }
 
@@ -853,11 +1130,15 @@ const submit = protectedProcedure
 	.handler(async ({ input, context }) => {
 		const sub = await loadFillable(context, input.submissionId);
 		const [row] = await context.db.transaction(async (tx) => {
+			// Only a draft can be submitted; a concurrent submit finds no draft.
 			const [updated] = await tx
 				.update(formSubmission)
 				.set({ status: "submitted", submittedAt: new Date(), updatedAt: new Date() })
-				.where(eq(formSubmission.id, sub.id))
+				.where(and(eq(formSubmission.id, sub.id), eq(formSubmission.status, "draft")))
 				.returning();
+			if (!updated) {
+				throw new ORPCError("CONFLICT", { message: "Dit plan is al ingeleverd" });
+			}
 			// #18 — auto-prefill the coach (POPP) fields from corresponding leerling
 			// answers. For every leerling question that declares a `mapsToQuestionId`,
 			// create an `answerCoachMapping` pointing the leerling's answer at the
@@ -873,7 +1154,7 @@ const submit = protectedProcedure
 				type: "coachplan.submitted",
 				payload: { id: row.id, leerlingId: row.leerlingId },
 			},
-			await coachIdsFor(context, row.leerlingId),
+			await leerlingCoachRecipients(context.db, row.leerlingId, row.organizationId),
 		);
 		// Notify the leerling's coach(es) that a coachplan was submitted (#3/#15).
 		// Best-effort: a notify failure must never break the submit mutation.
@@ -882,18 +1163,29 @@ const submit = protectedProcedure
 				.select({ name: user.name })
 				.from(user)
 				.where(eq(user.id, row.leerlingId));
-			const coaches = await context.db
-				.select({ coachId: coachAssignment.coachId })
-				.from(coachAssignment)
-				.where(eq(coachAssignment.leerlingId, row.leerlingId));
-			const coachIds = [...new Set(coaches.map((c) => c.coachId))];
-			for (const coachId of coachIds) {
+			// Questions the leerling wants to talk about, so the coach sees it
+			// without opening the plan.
+			const [flags] = await context.db
+				.select({ value: count() })
+				.from(formAnswer)
+				.where(and(eq(formAnswer.submissionId, row.id), eq(formAnswer.discussWithCoach, true)));
+			const discuss = flags?.value ?? 0;
+			const name = leerling?.name ?? "Een leerling";
+			const recipients = await leerlingCoachRecipients(
+				context.db,
+				row.leerlingId,
+				row.organizationId,
+			);
+			for (const userId of recipients) {
 				await notify(context.db, {
-					userId: coachId,
+					userId,
 					organizationId: row.organizationId,
 					type: "coachplan_submitted",
 					title: "Nieuw coachplan ontvangen",
-					body: `${leerling?.name ?? "Een leerling"} heeft een coachplan ingediend.`,
+					body:
+						discuss > 0
+							? `${name} heeft een coachplan ingediend en wil ${discuss === 1 ? "1 vraag" : `${discuss} vragen`} met je bespreken.`
+							: `${name} heeft een coachplan ingediend.`,
 					entity: { type: "form_submission", id: row.id },
 				});
 			}
@@ -908,9 +1200,36 @@ const submit = protectedProcedure
 // ---------------------------------------------------------------------------
 
 /** Build the answer-overview payload (questions + answers) for a submission. */
+/** Statuses in which the leerling may see the coach's part of their plan. */
+const SHARED_STATUSES: readonly string[] = ["shared_with_leerling", "completed"];
+
+/**
+ * The coach part (coach answers + leervoorkeuren) is the coach's work in
+ * progress until they share the plan; the leerling sees it only after that.
+ */
+function coachPartVisible(
+	actor: AuthedContext["actor"],
+	submission: typeof formSubmission.$inferSelect,
+): boolean {
+	return actor.userId !== submission.leerlingId || SHARED_STATUSES.includes(submission.status);
+}
+
+/**
+ * INC-7 AC10–12: what the leerling may see of a question. A question hidden
+ * from the leerling (and its answer) never reaches them — whoever answered
+ * it. Their own hidden questions stay in the wizard while they fill in.
+ */
+function hiddenFromLeerling(
+	q: typeof formQuestion.$inferSelect,
+	submission: typeof formSubmission.$inferSelect,
+): boolean {
+	return !q.visibleToLeerling && (q.section === "coach" || submission.status !== "draft");
+}
+
 async function buildOverview(
 	db: typeof import("@incluvo/drizzle").db,
 	submission: typeof formSubmission.$inferSelect,
+	opts: { includeCoachPart: boolean; forLeerling: boolean },
 ) {
 	const [tpl] = await db
 		.select()
@@ -931,12 +1250,22 @@ async function buildOverview(
 		.select({ label: learningPreferenceLabel.label })
 		.from(learningPreferenceLabel)
 		.where(eq(learningPreferenceLabel.submissionId, submission.id));
+	const coachQuestionIds = new Set(
+		questions.filter((q) => q.section === "coach").map((q) => q.id),
+	);
+	const shown = opts.forLeerling
+		? questions.filter((q) => !hiddenFromLeerling(q, submission))
+		: questions;
+	const shownIds = new Set(shown.map((q) => q.id));
 	return {
 		submission: submissionDto(submission),
 		template: tpl ? templateDto(tpl) : null,
-		questions: questions.map(questionDto),
-		answers: answers.map(answerDto),
-		learningPreferences: prefs.map((p) => p.label),
+		questions: shown.map(questionDto),
+		answers: answers
+			.filter((a) => shownIds.has(a.questionId))
+			.filter((a) => opts.includeCoachPart || !coachQuestionIds.has(a.questionId))
+			.map(answerDto),
+		learningPreferences: opts.includeCoachPart ? prefs.map((p) => p.label) : [],
 	};
 }
 
@@ -964,7 +1293,10 @@ const getSubmission = protectedProcedure
 		// Role+tenant alone isn't enough: a coach must be assigned to this leerling
 		// (the owning leerling passes via the self short-circuit).
 		await assertAssignedToLeerling(context, sub.leerlingId);
-		return buildOverview(context.db, sub);
+		return buildOverview(context.db, sub, {
+			includeCoachPart: coachPartVisible(actor, sub),
+			forLeerling: actor.userId === sub.leerlingId,
+		});
 	});
 
 /** List the leerling's own submissions (latest first). */
@@ -998,18 +1330,8 @@ const inbox = protectedProcedure
 	.output(z.array(InboxRowSchema))
 	.handler(async ({ context }) => {
 		const { actor } = context;
-		const organizationId = actor.organizationId;
-		if (!organizationId && !isSuperadmin(actor.role)) return [];
-		// A coach only sees plans of leerlingen assigned to them; superadmin sees all.
-		let assignedIds: string[] = [];
-		if (!isSuperadmin(actor.role)) {
-			const links = await context.db
-				.select({ leerlingId: coachAssignment.leerlingId })
-				.from(coachAssignment)
-				.where(eq(coachAssignment.coachId, actor.userId));
-			assignedIds = [...new Set(links.map((l) => l.leerlingId))];
-			if (assignedIds.length === 0) return [];
-		}
+		// Plans of leerlingen this actor may see: assigned (coach) or the
+		// whole school (keyuser, D1); none for the superadmin (sameSchool).
 		const rows = await context.db
 			.select({
 				submission: formSubmission,
@@ -1020,23 +1342,19 @@ const inbox = protectedProcedure
 			.innerJoin(user, eq(user.id, formSubmission.leerlingId))
 			.innerJoin(formTemplate, eq(formTemplate.id, formSubmission.templateId))
 			.where(
-				isSuperadmin(actor.role)
-					? inArray(formSubmission.status, [
-							"submitted",
-							"coach_review",
-							"shared_with_leerling",
-							"completed",
-						])
-					: and(
-							eq(formSubmission.organizationId, organizationId ?? ""),
-							inArray(formSubmission.leerlingId, assignedIds),
-							inArray(formSubmission.status, [
-								"submitted",
-								"coach_review",
-								"shared_with_leerling",
-								"completed",
-							]),
-						),
+				and(
+					await reachableLeerlingen(
+						context,
+						formSubmission.leerlingId,
+						formSubmission.organizationId,
+					),
+					inArray(formSubmission.status, [
+						"submitted",
+						"coach_review",
+						"shared_with_leerling",
+						"completed",
+					]),
+				),
 			)
 			.orderBy(desc(formSubmission.submittedAt));
 
@@ -1057,7 +1375,15 @@ const inbox = protectedProcedure
 		for (const f of flags) {
 			counts.set(f.submissionId, (counts.get(f.submissionId) ?? 0) + 1);
 		}
-		return rows
+		// One row per leerling: the newest handed-in version of their plan.
+		const newest = new Map<string, (typeof rows)[number]>();
+		for (const r of rows) {
+			const seen = newest.get(r.submission.coachplanId);
+			if (!seen || r.submission.version > seen.submission.version) {
+				newest.set(r.submission.coachplanId, r);
+			}
+		}
+		return [...newest.values()]
 			.filter((r) => sameTenant(actor, r.submission))
 			.map((r) => ({
 				submission: submissionDto(r.submission),
@@ -1076,11 +1402,18 @@ const MappingSchema = z.object({
 	submissionId: z.string(),
 	sourceAnswerId: z.string().nullable(),
 	coachQuestionId: z.string(),
-	overrideValue: z.string().nullable(),
 });
 
 /** Load a submission + assert the coach may review it (tenant + role). */
-async function loadReviewable(context: AuthedContext, submissionId: string) {
+/**
+ * Load a version and assert the actor may review it (coach+, may see the
+ * leerling). With `allowed`, also that it is in one of those statuses.
+ */
+async function loadReviewable(
+	context: AuthedContext,
+	submissionId: string,
+	allowed?: readonly Status[],
+) {
 	const [sub] = await context.db
 		.select()
 		.from(formSubmission)
@@ -1091,6 +1424,7 @@ async function loadReviewable(context: AuthedContext, submissionId: string) {
 	}
 	// Role+tenant alone isn't enough: the coach must be assigned to this leerling.
 	await assertAssignedToLeerling(context, sub.leerlingId);
+	if (allowed) assertStatus(sub, allowed);
 	return sub;
 }
 
@@ -1110,85 +1444,7 @@ const listMappings = protectedProcedure
 			submissionId: m.submissionId,
 			sourceAnswerId: m.sourceAnswerId,
 			coachQuestionId: m.coachQuestionId,
-			overrideValue: m.overrideValue,
 		}));
-	});
-
-/**
- * Upsert a mapping of a leerling answer onto a coach question, capturing the
- * coach's editable override (#16). Passing a null sourceAnswerId / overrideValue
- * lets the coach author the mapped value from scratch.
- */
-const upsertMapping = protectedProcedure
-	.route({ method: "POST", path: "/coachplan/mappings", tags: ["coachplan"] })
-	.input(
-		z.object({
-			submissionId: z.string().uuid(),
-			coachQuestionId: z.string().uuid(),
-			sourceAnswerId: z.string().uuid().nullable().optional(),
-			overrideValue: z.string().nullable().optional(),
-		}),
-	)
-	.output(MappingSchema)
-	.handler(async ({ input, context }) => {
-		const sub = await loadReviewable(context, input.submissionId);
-		// Atomic: the review-state flip + the mapping upsert must commit together (H2).
-		const row = await context.db.transaction(async (tx) => {
-			// Flip into review state on first coach edit.
-			if (sub.status === "submitted") {
-				await tx
-					.update(formSubmission)
-					.set({
-						status: "coach_review",
-						coachId: sub.coachId ?? context.actor.userId,
-						updatedAt: new Date(),
-					})
-					.where(eq(formSubmission.id, sub.id));
-			}
-			const [existing] = await tx
-				.select()
-				.from(answerCoachMapping)
-				.where(
-					and(
-						eq(answerCoachMapping.submissionId, input.submissionId),
-						eq(answerCoachMapping.coachQuestionId, input.coachQuestionId),
-					),
-				);
-			if (existing) {
-				const [updated] = await tx
-					.update(answerCoachMapping)
-					.set({
-						...(input.sourceAnswerId !== undefined
-							? { sourceAnswerId: input.sourceAnswerId }
-							: {}),
-						...(input.overrideValue !== undefined
-							? { overrideValue: input.overrideValue }
-							: {}),
-						updatedAt: new Date(),
-					})
-					.where(eq(answerCoachMapping.id, existing.id))
-					.returning();
-				return updated;
-			}
-			const [inserted] = await tx
-				.insert(answerCoachMapping)
-				.values({
-					submissionId: input.submissionId,
-					coachQuestionId: input.coachQuestionId,
-					sourceAnswerId: input.sourceAnswerId ?? null,
-					overrideValue: input.overrideValue ?? null,
-				})
-				.returning();
-			return inserted;
-		});
-		if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
-		return {
-			id: row.id,
-			submissionId: row.submissionId,
-			sourceAnswerId: row.sourceAnswerId,
-			coachQuestionId: row.coachQuestionId,
-			overrideValue: row.overrideValue,
-		};
 	});
 
 // ---------------------------------------------------------------------------
@@ -1212,52 +1468,20 @@ const saveCoachAnswer = protectedProcedure
 	)
 	.output(AnswerSchema)
 	.handler(async ({ input, context }) => {
-		const sub = await loadReviewable(context, input.submissionId);
-		// Must be a coach-section question.
+		const sub = await loadReviewable(context, input.submissionId, REVIEWABLE);
+		// Must be a coach-section question of this plan's own template.
 		const [q] = await context.db
-			.select({ section: formQuestion.section })
+			.select({ section: formQuestion.section, templateId: formQuestion.templateId })
 			.from(formQuestion)
 			.where(eq(formQuestion.id, input.questionId));
-		if (!q) throw new ORPCError("NOT_FOUND");
+		if (!q || q.templateId !== sub.templateId) throw new ORPCError("NOT_FOUND");
 		if (q.section !== "coach") {
 			throw new ORPCError("BAD_REQUEST", { message: "Geen coachvraag" });
 		}
 		// Atomic: the review-state flip + the coach-answer upsert commit together (H2).
-		const row = await context.db.transaction(async (tx) => {
-			if (sub.status === "submitted") {
-				await tx
-					.update(formSubmission)
-					.set({
-						status: "coach_review",
-						coachId: sub.coachId ?? context.actor.userId,
-						updatedAt: new Date(),
-					})
-					.where(eq(formSubmission.id, sub.id));
-			}
-			const [existing] = await tx
-				.select()
-				.from(formAnswer)
-				.where(
-					and(
-						eq(formAnswer.submissionId, input.submissionId),
-						eq(formAnswer.questionId, input.questionId),
-					),
-				);
-			if (existing) {
-				const [updated] = await tx
-					.update(formAnswer)
-					.set({
-						...(input.value !== undefined ? { value: input.value } : {}),
-						...(input.valueJson !== undefined
-							? { valueJson: input.valueJson as never }
-							: {}),
-						updatedAt: new Date(),
-					})
-					.where(eq(formAnswer.id, existing.id))
-					.returning();
-				return updated;
-			}
-			const [inserted] = await tx
+		const { saved: row, started } = await context.db.transaction(async (tx) => {
+			const started = await startReview(tx, sub, context.actor.userId);
+			const [saved] = await tx
 				.insert(formAnswer)
 				.values({
 					submissionId: input.submissionId,
@@ -1265,11 +1489,71 @@ const saveCoachAnswer = protectedProcedure
 					value: input.value ?? null,
 					valueJson: (input.valueJson ?? null) as never,
 				})
+				.onConflictDoUpdate({
+					target: [formAnswer.submissionId, formAnswer.questionId],
+					set: {
+						...(input.value !== undefined ? { value: input.value } : {}),
+						...(input.valueJson !== undefined
+							? { valueJson: input.valueJson as never }
+							: {}),
+						updatedAt: new Date(),
+					},
+				})
 				.returning();
-			return inserted;
+			return { saved, started };
 		});
 		if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
+		if (started) publishLocked(sub);
 		return answerDto(row);
+	});
+
+/**
+ * The coach's first real input in the coach part (typing, pasting, choosing an
+ * option or leervoorkeur) moves a handed-in version to `coach_review`: from
+ * then on the leerling can only read their answers (INC-14 AC5). Opening or
+ * reading the plan doesn't. Returns whether this call made the move.
+ */
+async function startReview(
+	tx: CoachplanTx,
+	sub: typeof formSubmission.$inferSelect,
+	coachId: string,
+): Promise<boolean> {
+	const [moved] = await tx
+		.update(formSubmission)
+		.set({ status: "coach_review", coachId: sub.coachId ?? coachId, updatedAt: new Date() })
+		.where(and(eq(formSubmission.id, sub.id), eq(formSubmission.status, "submitted")))
+		.returning({ id: formSubmission.id });
+	return Boolean(moved);
+}
+
+/** Tell the leerling (an open "Antwoorden aanpassen" tab) the plan is locked. */
+function publishLocked(sub: typeof formSubmission.$inferSelect): void {
+	publishTo(
+		{ type: "coachplan.locked", payload: { id: sub.id, leerlingId: sub.leerlingId } },
+		[sub.leerlingId],
+	);
+}
+
+/**
+ * The coach UI calls this on the first keystroke or paste in a coach text
+ * field, before anything is saved (INC-14 AC5). Idempotent.
+ */
+const startCoachReview = protectedProcedure
+	.route({ method: "POST", path: "/coachplan/start-review", tags: ["coachplan"] })
+	.input(z.object({ submissionId: z.string().uuid() }))
+	.output(SubmissionSchema)
+	.handler(async ({ input, context }) => {
+		const sub = await loadReviewable(context, input.submissionId, REVIEWABLE);
+		const started = await context.db.transaction((tx) =>
+			startReview(tx, sub, context.actor.userId),
+		);
+		if (started) publishLocked(sub);
+		const [row] = await context.db
+			.select()
+			.from(formSubmission)
+			.where(eq(formSubmission.id, sub.id));
+		if (!row) throw new ORPCError("NOT_FOUND");
+		return submissionDto(row);
 	});
 
 /** Offer the completed plan back to the leerling (#17). */
@@ -1278,15 +1562,13 @@ const shareWithLeerling = protectedProcedure
 	.input(z.object({ submissionId: z.string().uuid() }))
 	.output(SubmissionSchema)
 	.handler(async ({ input, context }) => {
-		const sub = await loadReviewable(context, input.submissionId);
-		const [row] = await context.db.transaction(async (tx) =>
-			tx
-				.update(formSubmission)
-				.set({ status: "shared_with_leerling", updatedAt: new Date() })
-				.where(eq(formSubmission.id, sub.id))
-				.returning(),
+		const sub = await loadReviewable(context, input.submissionId, REVIEWABLE);
+		// Shared = read-only and the leerling's current plan (lifecycle.ts).
+		const row = await context.db.transaction((tx) =>
+			transition(tx, sub.id, REVIEWABLE, "shared_with_leerling", {
+				coachId: sub.coachId ?? context.actor.userId,
+			}),
 		);
-		if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
 		// Realtime to the leerling (+ the acting coach) only (C1).
 		publishTo(
 			{
@@ -1328,11 +1610,13 @@ const setLearningPreferences = protectedProcedure
 	.input(z.object({ submissionId: z.string().uuid(), labels: z.array(z.string()) }))
 	.output(z.array(z.string()))
 	.handler(async ({ input, context }) => {
-		const sub = await loadReviewable(context, input.submissionId);
+		const sub = await loadReviewable(context, input.submissionId, REVIEWABLE);
 		const unique = [...new Set(input.labels.filter((l) => l.trim()))];
 		// Atomic delete-all-then-insert so a failed insert never wipes the
 		// leerling's existing leervoorkeuren (H2 - highest data-loss risk).
-		await context.db.transaction(async (tx) => {
+		const started = await context.db.transaction(async (tx) => {
+			// Choosing a leervoorkeur is coach input too (INC-14 AC5).
+			const started = await startReview(tx, sub, context.actor.userId);
 			await tx
 				.delete(learningPreferenceLabel)
 				.where(eq(learningPreferenceLabel.submissionId, sub.id));
@@ -1341,7 +1625,9 @@ const setLearningPreferences = protectedProcedure
 					unique.map((label) => ({ submissionId: sub.id, label })),
 				);
 			}
+			return started;
 		});
+		if (started) publishLocked(sub);
 		// Realtime to the leerling (+ acting coach) only (C1); leervoorkeuren
 		// drive the leerling's course recommendations.
 		publishTo(
@@ -1360,7 +1646,7 @@ const setApprovedWithParents = protectedProcedure
 	.input(z.object({ submissionId: z.string().uuid(), approved: z.boolean() }))
 	.output(SubmissionSchema)
 	.handler(async ({ input, context }) => {
-		const sub = await loadReviewable(context, input.submissionId);
+		const sub = await loadReviewable(context, input.submissionId, [...REVIEWABLE, ...SHARED]);
 		const [row] = await context.db
 			.update(formSubmission)
 			.set({ approvedWithParents: input.approved, updatedAt: new Date() })
@@ -1429,18 +1715,29 @@ const generatePdf = protectedProcedure
 		if (!can(actor, policies.readCoachplan, sub)) throw new ORPCError("FORBIDDEN");
 		// Role+tenant alone isn't enough: a coach must be assigned to this leerling.
 		await assertAssignedToLeerling(context, sub.leerlingId);
+		// The PDF includes the coach part, which the leerling sees once shared.
+		if (!coachPartVisible(actor, sub)) {
+			throw new ORPCError("FORBIDDEN", {
+				message: "Je coach heeft het plan nog niet met je gedeeld",
+			});
+		}
 
 		const [tpl] = await context.db
 			.select()
 			.from(formTemplate)
 			.where(eq(formTemplate.id, sub.templateId));
-		const questions = tpl
+		const allQuestions = tpl
 			? await context.db
 					.select()
 					.from(formQuestion)
 					.where(eq(formQuestion.templateId, tpl.id))
 					.orderBy(asc(formQuestion.position))
 			: [];
+		// The leerling's PDF leaves out what is hidden from them (INC-7).
+		const questions =
+			actor.userId === sub.leerlingId
+				? allQuestions.filter((q) => !hiddenFromLeerling(q, sub))
+				: allQuestions;
 		const answers = await context.db
 			.select()
 			.from(formAnswer)
@@ -1501,6 +1798,8 @@ const generatePdf = protectedProcedure
 			questions: pdfQuestions,
 		};
 
+		// Rendering launches headless Chromium; don't hold a DB connection for it.
+		await context.suspendDb();
 		const bytes = await renderPlanPdf(plan);
 		return {
 			filename: `coachplan-${(leerling?.name ?? "leerling").replace(/\s+/g, "-").toLowerCase()}.pdf`,
@@ -1520,6 +1819,10 @@ const templatesRouter = base.router({
 	create: templatesCreate,
 	update: templatesUpdate,
 	copyToSchool: templatesCopyToSchool,
+	newVersion: templatesNewVersion,
+	publish: templatesPublish,
+	discardDraft: templatesDiscardDraft,
+	upgradeFromSource: templatesUpgradeFromSource,
 	setSchoolDefault,
 	assignToLeerling,
 });
@@ -1534,7 +1837,9 @@ export const coachplanRouter = base.router({
 	templates: templatesRouter,
 	questions: questionsRouter,
 	// Leerling fill flow (#11–#14)
+	mine,
 	startMine,
+	revise,
 	saveAnswer,
 	submit,
 	listMine,
@@ -1542,8 +1847,8 @@ export const coachplanRouter = base.router({
 	// Coach review flow (#15–#21)
 	inbox,
 	listMappings,
-	upsertMapping,
 	saveCoachAnswer,
+	startCoachReview,
 	shareWithLeerling,
 	defaultLabels,
 	setLearningPreferences,

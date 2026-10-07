@@ -35,7 +35,7 @@
 	--accent-700: 160 62 44; /* #A03E2C — accent *text*: 5.36:1 on accent-100, 6.52:1 white-on */
 	--accent-100: 252 228 220; /* #FCE4DC */
 
-	--success: 46 125 91; /* #2E7D5B */
+	--success: 41 115 79; /* #29734F — 4.76:1 on success-100, 5.74:1 white-on */
 	--success-100: 221 238 227; /* #DDEEE3 */
 	--warning: 133 96 30; /* #85601E — warning *text*: 4.84:1 on warning-100, 5.06:1 on bg */
 	--warning-100: 246 236 211; /* #F6ECD3 */
@@ -53,19 +53,20 @@
 	--r-5: 28px;
 	--r-pill: 999px;
 
-	/* Type scale */
-	--t-display: 44px;
-	--t-h1: 32px;
-	--t-h2: 24px;
-	--t-h3: 19px;
-	--t-body: 15px;
-	--t-small: 13px;
-	--t-micro: 12px;
+	/* Type scale — in rem, so it follows the leerling's text-size setting and
+	 * the browser's own (WCAG 1.4.4). No px font sizes anywhere (checked in CI). */
+	--t-display: 2.75rem;
+	--t-h1: 2rem;
+	--t-h2: 1.5rem;
+	--t-h3: 1.1875rem;
+	--t-body: 0.9375rem;
+	--t-small: 0.8125rem;
+	--t-micro: 0.75rem;
 
 	/* Density: drives both root font-size and the control-padding scale.
 	 * Components use the `--density-*` vars for paddings/heights so the whole
 	 * UI breathes consistently when the leerling changes the setting. */
-	--root-size: 16px;
+	--root-size: 100%;
 	--density-1: 0.25rem;
 	--density-2: 0.5rem;
 	--density-3: 0.75rem;
@@ -109,15 +110,16 @@ html[data-font="dyslexic"] {
 	--font-head: "Atkinson Hyperlegible", "Bricolage Grotesque", sans-serif;
 }
 
-/* Font size (S/M/L) — scales the whole UI because rem-based sizing is used */
+/* Font size (S/M/L) — relative to the browser's own text size, so both
+ * settings add up; all type is rem-based, so the whole UI scales. */
 html[data-size="s"] {
-	--root-size: 15px;
+	--root-size: 93.75%;
 }
 html[data-size="m"] {
-	--root-size: 16px;
+	--root-size: 100%;
 }
 html[data-size="l"] {
-	--root-size: 18px;
+	--root-size: 112.5%;
 }
 
 /* Density — control breathing room */
@@ -176,6 +178,10 @@ h4 {
 	font-weight: 600;
 	letter-spacing: -0.01em;
 	line-height: 1.15;
+	/* Long Dutch words ("Formulierenmanager") must not push a phone screen
+	 * sideways (WCAG 1.4.10): hyphenate, or break when nothing else fits. */
+	hyphens: auto;
+	overflow-wrap: break-word;
 }
 
 /* Visible focus ring everywhere keyboard focus lands (WCAG 2.4.7) */

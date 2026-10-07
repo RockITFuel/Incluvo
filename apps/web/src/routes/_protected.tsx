@@ -1,5 +1,5 @@
 import { ORPCError } from "@orpc/client";
-import type { UserRole } from "@incluvo/permissions";
+import { coachesLeerlingen, type UserRole } from "@incluvo/permissions";
 import {
 	createFileRoute,
 	Outlet,
@@ -90,7 +90,7 @@ function AuthedShell() {
 		}
 	});
 
-	const role = (): UserRole => me.role();
+	const role = (): UserRole | null => me.role();
 
 	// Live nav-badge counts, like the prototype's sidebar badges: a leerling
 	// sees their open taken voor vandaag, a coach the ingeleverde coachplannen.
@@ -102,11 +102,18 @@ function AuthedShell() {
 	}));
 	const inboxQuery = useQuery(() => ({
 		...orpc.coachplan.inbox.queryOptions(),
-		enabled: me.hasAtLeast("coach"),
+		enabled: (() => {
+			const r = role();
+			return r !== null && coachesLeerlingen(r);
+		})(),
 	}));
 	const badges = () => ({
 		taken: takenQuery.data?.vandaag.length ?? 0,
-		coachplannen: inboxQuery.data?.length ?? 0,
+		// Plans waiting for the coach, not the ones already shared.
+		coachplannen:
+			inboxQuery.data?.filter(
+				(r) => r.submission.status === "submitted" || r.submission.status === "coach_review",
+			).length ?? 0,
 	});
 
 	const user = () => {

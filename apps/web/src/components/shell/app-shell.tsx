@@ -1,6 +1,6 @@
 import { Dialog as KDialog } from "@kobalte/core/dialog";
 import { Link, useRouterState } from "@tanstack/solid-router";
-import { Menu, Search, X } from "lucide-solid";
+import { Menu, X } from "lucide-solid";
 import { NotificationsBell } from "../notifications";
 import { For, type JSX, Show, createMemo, createSignal } from "solid-js";
 import { Dynamic } from "solid-js/web";
@@ -75,7 +75,7 @@ function SidebarNav(props: { nav: NavSection[]; onNavigate?: () => void }) {
 				{(section) => (
 					<div class="flex flex-col gap-0.5">
 						<Show when={section.label}>
-							<div class="mb-1 px-3 text-[11px] font-semibold uppercase tracking-wider text-muted-2">
+							<div class="mb-1 px-3 text-[0.6875rem] font-semibold uppercase tracking-wider text-muted-2">
 								{section.label}
 							</div>
 						</Show>
@@ -93,7 +93,7 @@ function SidebarNav(props: { nav: NavSection[]; onNavigate?: () => void }) {
 									<Dynamic component={item.icon} class="size-[18px] shrink-0" />
 									<span class="flex-1 truncate">{item.label}</span>
 									<Show when={item.badge}>
-										<span class="rounded-pill bg-accent-100 px-2 py-0.5 text-[11px] font-semibold text-accent-700">
+										<span class="rounded-pill bg-accent-100 px-2 py-0.5 text-[0.6875rem] font-semibold text-accent-700">
 											{item.badge}
 										</span>
 									</Show>
@@ -211,13 +211,6 @@ export function AppShell(props: AppShellProps) {
 					<Crumbs crumbs={props.crumbs} />
 					<div class="flex-1" />
 					<div class="flex items-center gap-2">
-						<button
-							type="button"
-							aria-label="Zoeken"
-							class="hidden size-9 place-items-center rounded-2 border border-line bg-surface text-ink-2 hover:bg-line-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring sm:grid"
-						>
-							<Search class="size-5" />
-						</button>
 						<NotificationsBell />
 						<A11yPanel />
 					</div>

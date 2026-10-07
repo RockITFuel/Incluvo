@@ -4,14 +4,17 @@ import { useQuery } from "@tanstack/solid-query";
 import {
 	ArrowRight,
 	ListChecks,
+	Plus,
 	MessageSquare,
 	NotebookPen,
 	X,
 } from "lucide-solid";
-import { For, type JSX, Show } from "solid-js";
+import { createSignal, For, type JSX, Show } from "solid-js";
 import { cn } from "../../lib/cn";
 import { orpc } from "../../lib/orpc";
 import { PlanStatusBadge } from "./plan-status";
+import { ErrorState } from "../../components/ui/error-state";
+import { TaskCreateDialog } from "../tasks/task-create-dialog";
 
 /**
  * Quickpanel slide-over (#43) — a 1:1 port of the approved prototype's panel.
@@ -32,6 +35,7 @@ export function Quickpanel(props: {
 }) {
 	const isOpen = () => props.leerlingId !== null;
 
+	const [taskOpen, setTaskOpen] = createSignal(false);
 	const query = useQuery(() => ({
 		...orpc.dashboard.quickpanel.queryOptions({
 			input: { leerlingId: props.leerlingId ?? "" },
@@ -76,7 +80,7 @@ export function Quickpanel(props: {
 						>
 							<div
 								class="avatar"
-								style={{ width: "48px", height: "48px", "font-size": "16px" }}
+								style={{ width: "48px", height: "48px", "font-size": "1rem" }}
 								aria-hidden="true"
 							>
 								{initials(query.data?.leerling.name ?? "…")}
@@ -86,7 +90,7 @@ export function Quickpanel(props: {
 									style={{
 										"font-family": "var(--font-head)",
 										"font-weight": "600",
-										"font-size": "18px",
+										"font-size": "1.125rem",
 										overflow: "hidden",
 										"text-overflow": "ellipsis",
 										"white-space": "nowrap",
@@ -96,7 +100,7 @@ export function Quickpanel(props: {
 								</KDialog.Title>
 								<KDialog.Description
 									style={{
-										"font-size": "13px",
+										"font-size": "0.8125rem",
 										color: "rgb(var(--muted))",
 										overflow: "hidden",
 										"text-overflow": "ellipsis",
@@ -121,10 +125,19 @@ export function Quickpanel(props: {
 								flex: "1",
 							}}
 						>
+							<Show when={query.error}>
+								<ErrorState
+									error={query.error}
+									what="deze leerling"
+									onRetry={() => query.refetch()}
+								/>
+							</Show>
 							<Show
-								when={!query.isLoading}
+								when={!query.isLoading && !query.error}
 								fallback={
-									<p style={{ color: "rgb(var(--muted))" }}>Laden…</p>
+									<Show when={query.isLoading}>
+										<p style={{ color: "rgb(var(--muted))" }}>Laden…</p>
+									</Show>
 								}
 							>
 								{/* Coachplan status */}
@@ -150,7 +163,7 @@ export function Quickpanel(props: {
 										fallback={
 											<p
 												style={{
-													"font-size": "13px",
+													"font-size": "0.8125rem",
 													color: "rgb(var(--muted))",
 												}}
 											>
@@ -178,7 +191,7 @@ export function Quickpanel(props: {
 										<SectionLabel noMargin>Open taken</SectionLabel>
 										<span
 											style={{
-												"font-size": "12px",
+												"font-size": "0.75rem",
 												color: "rgb(var(--muted))",
 											}}
 										>
@@ -190,7 +203,7 @@ export function Quickpanel(props: {
 										fallback={
 											<p
 												style={{
-													"font-size": "13px",
+													"font-size": "0.8125rem",
 													color: "rgb(var(--muted))",
 												}}
 											>
@@ -207,7 +220,7 @@ export function Quickpanel(props: {
 															padding: "10px 12px",
 															background: "rgb(var(--bg-2))",
 															"border-radius": "8px",
-															"font-size": "13px",
+															"font-size": "0.8125rem",
 															gap: "8px",
 														}}
 													>
@@ -251,7 +264,7 @@ export function Quickpanel(props: {
 										fallback={
 											<p
 												style={{
-													"font-size": "13px",
+													"font-size": "0.8125rem",
 													color: "rgb(var(--muted))",
 												}}
 											>
@@ -273,7 +286,7 @@ export function Quickpanel(props: {
 													>
 														<div
 															style={{
-																"font-size": "13px",
+																"font-size": "0.8125rem",
 																"font-weight": "500",
 																flex: "1",
 																"min-width": "0",
@@ -298,7 +311,7 @@ export function Quickpanel(props: {
 														</div>
 														<div
 															style={{
-																"font-size": "12px",
+																"font-size": "0.75rem",
 																color: "rgb(var(--muted))",
 																width: "32px",
 																"text-align": "right",
@@ -369,6 +382,22 @@ export function Quickpanel(props: {
 									</Show>
 								</div>
 								<Show when={props.leerlingId}>
+									<button
+										type="button"
+										class="btn primary"
+										style={{ "justify-content": "center" }}
+										onClick={() => setTaskOpen(true)}
+									>
+										<Plus class="size-3.5" aria-hidden="true" /> Taak aanmaken
+									</button>
+									<Link
+										to="/taken/$leerlingId"
+										params={{ leerlingId: props.leerlingId ?? "" }}
+										class="btn ghost"
+										style={{ "justify-content": "center" }}
+									>
+										<ListChecks class="size-3.5" aria-hidden="true" /> Taken beheren
+									</Link>
 									<Link
 										to="/dashboard/$leerlingId"
 										params={{ leerlingId: props.leerlingId ?? "" }}
@@ -384,6 +413,12 @@ export function Quickpanel(props: {
 					</KDialog.Content>
 				</div>
 			</KDialog.Portal>
+			<TaskCreateDialog
+				leerlingId={props.leerlingId}
+				leerlingName={query.data?.leerling.name}
+				open={taskOpen()}
+				onOpenChange={setTaskOpen}
+			/>
 		</KDialog>
 	);
 }
@@ -392,7 +427,7 @@ function SectionLabel(props: { children: JSX.Element; noMargin?: boolean }) {
 	return (
 		<h3
 			style={{
-				"font-size": "12px",
+				"font-size": "0.75rem",
 				"font-weight": "600",
 				color: "rgb(var(--muted))",
 				"text-transform": "uppercase",

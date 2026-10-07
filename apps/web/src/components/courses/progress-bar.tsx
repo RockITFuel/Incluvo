@@ -16,7 +16,7 @@ export function CourseProgressBar(props: {
 			<div class="ds-col" style={{ gap: "6px" }}>
 				<div
 					class="ds-row ds-between"
-					style={{ "font-size": "13px" }}
+					style={{ "font-size": "0.8125rem" }}
 				>
 					<span>Voortgang</span>
 					<span style={{ color: "rgb(var(--muted))" }} aria-hidden="true">

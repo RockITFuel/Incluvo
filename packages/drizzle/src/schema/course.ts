@@ -21,7 +21,8 @@ import { organization } from "./organization";
  * from an Ondivera template), and a student execution (derived from a school
  * template). The parent/derived link is `parentCourseId`. A course has ordered
  * `section`s (#25), each with ordered `contentBlock`s (CbS, #26) discriminated
- * by `type` (opdracht/pagina/bestand/youtube/forum/lti, #27–#33).
+ * by `type` (opdracht/pagina/bestand/youtube/lti, #27–#33). Course forums
+ * (#32) and group assignments were dropped (D3, migration 0009).
  *
  * Opdracht blocks own an `assignment` (#27); leerlingen create
  * `assignmentSubmission`s which a coach grades (#28). Per-leerling progress per
@@ -58,9 +59,66 @@ export const course = pgTable("course", {
 	createdById: text("created_by_id").references(() => user.id, {
 		onDelete: "set null",
 	}),
+	/**
+	 * When the course's content (title, sections, blocks) last changed. A copy
+	 * stores its source's value at copy time in `sourceContentAt`, so it can
+	 * tell that its source has changed since (D5: the school decides whether
+	 * to make a fresh copy).
+	 */
+	contentUpdatedAt: timestamp("content_updated_at").notNull().defaultNow(),
+	sourceContentAt: timestamp("source_content_at"),
+	/**
+	 * Ondivera templates only: open to every school, or just the schools in
+	 * `courseSchoolAvailability`. A new template starts closed so Ondivera can
+	 * finish it first (docs/decisions/cursuscatalogus.md).
+	 */
+	availableToAllSchools: boolean("available_to_all_schools").notNull().default(false),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 	updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
+
+/** Which schools may use an Ondivera template (when not open to all). */
+export const courseSchoolAvailability = pgTable(
+	"course_school_availability",
+	{
+		courseId: uuid("course_id")
+			.notNull()
+			.references(() => course.id, { onDelete: "cascade" }),
+		organizationId: uuid("organization_id")
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		createdAt: timestamp("created_at").notNull().defaultNow(),
+	},
+	(t) => [
+		uniqueIndex("course_school_availability_uq").on(t.courseId, t.organizationId),
+		index("course_school_availability_org_idx").on(t.organizationId),
+	],
+);
+
+/** Course categories, managed by Ondivera, for filtering the catalogue. */
+export const courseCategory = pgTable("course_category", {
+	id: uuid("id").primaryKey().defaultRandom(),
+	name: text("name").notNull().unique(),
+	createdAt: timestamp("created_at").notNull().defaultNow(),
+	updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+/** A course can be in several categories. */
+export const courseCategoryLink = pgTable(
+	"course_category_link",
+	{
+		courseId: uuid("course_id")
+			.notNull()
+			.references(() => course.id, { onDelete: "cascade" }),
+		categoryId: uuid("category_id")
+			.notNull()
+			.references(() => courseCategory.id, { onDelete: "cascade" }),
+	},
+	(t) => [
+		uniqueIndex("course_category_link_uq").on(t.courseId, t.categoryId),
+		index("course_category_link_category_idx").on(t.categoryId),
+	],
+);
 
 export const courseSection = pgTable("course_section", {
 	id: uuid("id").primaryKey().defaultRandom(),
@@ -82,7 +140,6 @@ export const contentBlockType = pgEnum("content_block_type", [
 	"pagina",
 	"bestand",
 	"youtube",
-	"forum",
 	"lti",
 ]);
 
@@ -122,7 +179,9 @@ export const contentBlockLabel = pgTable("content_block_label", {
 		.references(() => contentBlock.id, { onDelete: "cascade" }),
 	label: text("label").notNull(),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (t) => [
+	uniqueIndex("content_block_label_uq").on(t.contentBlockId, t.label),
+]);
 
 /** Assignment attached to an opdracht content block (#27). */
 export const assignmentResponseType = pgEnum("assignment_response_type", [
@@ -138,8 +197,6 @@ export const assignment = pgTable("assignment", {
 		.references(() => contentBlock.id, { onDelete: "cascade" }),
 	name: text("name").notNull(),
 	description: text("description"),
-	// Individual vs group assignment (#27).
-	isGroup: boolean("is_group").notNull().default(false),
 	responseType: assignmentResponseType("response_type")
 		.notNull()
 		.default("text_and_files"),
@@ -172,7 +229,11 @@ export const assignmentSubmission = pgTable("assignment_submission", {
 	submittedAt: timestamp("submitted_at"),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 	updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (t) => [
+	// Attempt numbers are unique, so concurrent submits can't both take the
+	// last allowed attempt (maxAttempts).
+	uniqueIndex("assignment_submission_attempt_uq").on(t.assignmentId, t.leerlingId, t.attempt),
+]);
 
 /**
  * Grading of a submission (#28). Cijfer is optional; feedback may be text and/or

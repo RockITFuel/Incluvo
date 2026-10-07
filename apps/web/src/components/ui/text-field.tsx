@@ -49,6 +49,7 @@ function Meta(props: { description?: string; error?: string }) {
 export type InputProps = FieldShellProps & {
 	type?: string;
 	placeholder?: string;
+	maxLength?: number;
 	onInput?: JSX.EventHandler<HTMLInputElement, InputEvent>;
 	onChange?: (value: string) => void;
 	inputClass?: string;
@@ -67,7 +68,7 @@ export function Input(props: InputProps) {
 		"disabled",
 		"onChange",
 	]);
-	const [el] = splitProps(input, ["type", "placeholder", "onInput"]);
+	const [el] = splitProps(input, ["type", "placeholder", "maxLength", "onInput"]);
 	return (
 		<KTextField
 			class={cn("flex flex-col gap-1.5", field.class)}
@@ -82,6 +83,7 @@ export function Input(props: InputProps) {
 			<KTextField.Input
 				type={el.type ?? "text"}
 				placeholder={el.placeholder}
+				maxLength={el.maxLength}
 				onInput={el.onInput}
 				class={cn(controlClass, input.inputClass)}
 			/>
@@ -93,6 +95,7 @@ export function Input(props: InputProps) {
 export type TextareaProps = FieldShellProps & {
 	placeholder?: string;
 	rows?: number;
+	maxLength?: number;
 	onInput?: JSX.EventHandler<HTMLTextAreaElement, InputEvent>;
 	onChange?: (value: string) => void;
 };
@@ -124,6 +127,7 @@ export function Textarea(props: TextareaProps) {
 			<KTextField.TextArea
 				placeholder={el.placeholder}
 				rows={el.rows ?? 4}
+				maxLength={el.maxLength}
 				onInput={el.onInput}
 				class={cn(controlClass, "min-h-24 resize-y")}
 			/>

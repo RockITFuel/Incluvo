@@ -193,8 +193,7 @@ function NotificationsPage() {
 											</p>
 											<Show when={!n.read}>
 												<span
-													class="size-2 shrink-0 rounded-pill bg-accent"
-													aria-label="ongelezen"
+													class="size-2 shrink-0 rounded-pill bg-accent" role="img" aria-label="ongelezen"
 												/>
 											</Show>
 										</div>

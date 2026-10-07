@@ -1,5 +1,7 @@
 import { createFileRoute } from "@tanstack/solid-router";
-import { useQuery } from "@tanstack/solid-query";
+import { PlanStatusBadge } from "../../../components/dashboard/plan-status";
+import { downloadPlanPdf } from "../../../lib/coachplan/pdf";
+import { useQuery, useQueryClient } from "@tanstack/solid-query";
 import {
 	ArrowLeft,
 	ArrowRight,
@@ -9,7 +11,7 @@ import {
 	Send,
 	Sparkles,
 } from "lucide-solid";
-import { createMemo, createSignal, For, Match, Show, Switch } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Match, Show, Switch } from "solid-js";
 import { createStore } from "solid-js/store";
 import { AssistantPanel } from "../../../components/ai/assistant-panel";
 import { TranscriptionPanel } from "../../../components/ai/transcription-panel";
@@ -18,11 +20,14 @@ import {
 	type QuestionDTO,
 	renderAnswerText,
 } from "../../../components/coachplan/question-input";
+import { PlanView } from "../../../components/coachplan/plan-view";
 import { toast } from "../../../components/ui/toast";
+import { useServerEvent } from "../../../lib/sse/use-events";
 import { requireRole } from "../../../lib/auth/require-role";
 import { RequireRole } from "../../../lib/auth/role-guard";
 import { useMe } from "../../../lib/auth/use-me";
 import { client, orpc } from "../../../lib/orpc";
+import { friendlyError } from "../../../lib/errors";
 
 /**
  * Coach review of a submitted coachplan (#15–#21), presented as a step-by-step
@@ -39,9 +44,9 @@ import { client, orpc } from "../../../lib/orpc";
  * coach+.
  */
 export const Route = createFileRoute("/_protected/plan/$submissionId")({
-	beforeLoad: () => requireRole("coach"),
+	beforeLoad: () => requireRole("coach", undefined, { coaching: true }),
 	component: () => (
-		<RequireRole min="coach">
+		<RequireRole min="coach" coaching>
 			<CoachReview />
 		</RequireRole>
 	),
@@ -109,7 +114,8 @@ function CoachReview() {
 	const templateName = () =>
 		submissionQuery.data?.template?.name ?? inboxRow()?.templateName ?? "Coachplan";
 
-	// Local coach-answer buffer (seeded once from live answers + mapping overrides).
+	// Local coach-answer buffer, seeded once from the saved answers (a mapped
+	// leerling answer is already copied into the coach answer on submit, #18).
 	const [coachAnswers, setCoachAnswers] = createStore<Record<string, string>>({});
 	const [prefs, setPrefs] = createSignal<string[]>([]);
 	const [seeded, setSeeded] = createSignal(false);
@@ -117,24 +123,40 @@ function CoachReview() {
 	const seed = () => {
 		const data = submissionQuery.data;
 		if (!data || seeded()) return;
+		// A re-seed (the leerling changed a pre-filled answer) starts clean.
+		for (const q of coachQ()) setCoachAnswers(q.id, "");
 		for (const a of data.answers) {
 			if (a.value != null) setCoachAnswers(a.questionId, a.value);
 		}
 		setPrefs(data.learningPreferences);
 		setSeeded(true);
 	};
-	// Fold any coach mapping-override into the textarea when no coach answer yet.
-	const seedMappings = () => {
-		const ms = mappingsQuery.data;
-		if (!ms) return;
-		for (const m of ms) {
-			if (m.overrideValue != null && coachAnswers[m.coachQuestionId] === undefined) {
-				setCoachAnswers(m.coachQuestionId, m.overrideValue);
-			}
-		}
-	};
 
+	createEffect(seed);
+
+	const queryClient = useQueryClient();
 	const refresh = () => submissionQuery.refetch();
+
+	// INC-14: until the coach's first input the leerling may still change their
+	// answers. That first keystroke, paste or choice locks them (server-side);
+	// opening or reading the plan doesn't.
+	const [started, setStarted] = createSignal(false);
+	const startReview = () => {
+		if (started() || status() !== "submitted") return;
+		setStarted(true);
+		client.coachplan
+			.startCoachReview({ submissionId: id() })
+			.then(() => refresh())
+			.catch(() => setStarted(false));
+	};
+	// The leerling saved a change: show it (AC4). Pre-filled coach answers
+	// follow it while the coach hasn't started.
+	useServerEvent("coachplan.answers", (payload) => {
+		if ((payload as { id?: string } | null)?.id !== id()) return;
+		if (!started() && status() === "submitted") setSeeded(false);
+		void refresh();
+		void mappingsQuery.refetch();
+	});
 
 	// ── Wizard steps: real coach questions + one leervoorkeuren step (#19) ──────
 	const steps = createMemo<Step[]>(() => {
@@ -200,8 +222,26 @@ function CoachReview() {
 			return n + (v && v.trim() ? 1 : 0);
 		}, 0);
 
+	// The coach works on a handed-in version; a draft is still the leerling's,
+	// a shared one is read-only (fix plan 2.1, lifecycle.ts).
+	const status = () => submissionQuery.data?.submission.status;
+	const editable = () => status() === "submitted" || status() === "coach_review";
+	const isShared = () => status() === "shared_with_leerling" || status() === "completed";
+	const readOnly = () => {
+		if (editable()) return false;
+		toast({
+			title: isShared()
+				? "Deze versie is gedeeld en kan niet meer worden gewijzigd"
+				: "De leerling vult dit plan nog in",
+			tone: "neutral",
+		});
+		return true;
+	};
+
 	// ── Mutations (all real oRPC) ──────────────────────────────────────────────
 	const togglePref = async (value: string) => {
+		if (readOnly()) return;
+		setStarted(true);
 		const next = prefs().includes(value)
 			? prefs().filter((p) => p !== value)
 			: [...prefs(), value];
@@ -211,6 +251,7 @@ function CoachReview() {
 				submissionId: id(),
 				labels: next,
 			});
+			if (status() === "submitted") refresh();
 		} catch {
 			toast({ title: "Opslaan lukte niet", tone: "danger" });
 		}
@@ -218,7 +259,7 @@ function CoachReview() {
 
 	const saveCurrent = async () => {
 		const s = cur();
-		if (!s) return;
+		if (!s || readOnly()) return;
 		try {
 			if (s.kind === "leervoorkeuren") {
 				await client.coachplan.setLearningPreferences({
@@ -232,14 +273,6 @@ function CoachReview() {
 					questionId: s.q.id,
 					value: val,
 				});
-				// A mapped (auto-filled) answer keeps its coach override in sync (#16).
-				if (mappingFor(s.q.id)) {
-					await client.coachplan.upsertMapping({
-						submissionId: id(),
-						coachQuestionId: s.q.id,
-						overrideValue: val,
-					});
-				}
 			}
 			toast({ title: "Tussentijds opgeslagen", tone: "success" });
 			refresh();
@@ -250,6 +283,9 @@ function CoachReview() {
 
 	// Autosave a non-text coach question (registry input) via saveCoachAnswer.
 	const saveChoice = (questionId: string, next: { value?: string | null; valueJson?: string[] | null }) => {
+		if (readOnly()) return;
+		const first = status() === "submitted";
+		setStarted(true);
 		if (next.value !== undefined) setCoachAnswers(questionId, next.value ?? "");
 		client.coachplan
 			.saveCoachAnswer({
@@ -257,6 +293,9 @@ function CoachReview() {
 				questionId,
 				value: next.value ?? null,
 				valueJson: next.valueJson ?? undefined,
+			})
+			.then(() => {
+				if (first) refresh();
 			})
 			.catch(() => toast({ title: "Opslaan lukte niet", tone: "danger" }));
 	};
@@ -274,12 +313,19 @@ function CoachReview() {
 	};
 
 	const share = async () => {
+		if (readOnly()) return;
 		try {
 			await client.coachplan.shareWithLeerling({ submissionId: id() });
 			toast({ title: "Aangeboden aan leerling", tone: "success" });
 			refresh();
-		} catch {
-			toast({ title: "Lukte niet", tone: "danger" });
+			// The nav badge and inbox count plans still waiting for the coach.
+			void queryClient.invalidateQueries({ queryKey: orpc.coachplan.inbox.key() });
+		} catch (err) {
+			toast({
+				title: "Aanbieden lukte niet",
+				description: friendlyError(err),
+				tone: "danger",
+			});
 		}
 	};
 
@@ -287,17 +333,7 @@ function CoachReview() {
 	const downloadPdf = async () => {
 		setPdfBusy(true);
 		try {
-			const res = await client.coachplan.generatePdf({ id: id() });
-			const bin = atob(res.base64);
-			const bytes = new Uint8Array(bin.length);
-			for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-			const blob = new Blob([bytes], { type: res.contentType });
-			const url = URL.createObjectURL(blob);
-			const a = document.createElement("a");
-			a.href = url;
-			a.download = res.filename;
-			a.click();
-			URL.revokeObjectURL(url);
+			await downloadPlanPdf(id());
 			toast({ title: "PDF gedownload", tone: "success" });
 		} catch {
 			toast({ title: "PDF genereren lukte niet", tone: "danger" });
@@ -325,30 +361,29 @@ function CoachReview() {
 			</Show>
 
 			<Show when={isCoach() && submissionQuery.data}>
-				{(() => {
-					seed();
-					seedMappings();
-					return null;
-				})()}
 
 				{/* Header row */}
 				<div class="ds-row" style={{ "margin-bottom": "14px" }}>
 					<div class="ds-row" style={{ gap: "10px" }}>
 						<div
 							class="avatar"
-							style={{ width: "32px", height: "32px", "font-size": "11px" }}
+							style={{ width: "32px", height: "32px", "font-size": "0.6875rem" }}
 						>
 							{initials(leerlingName())}
 						</div>
 						<div>
-							<div style={{ "font-weight": "600", "font-size": "14px" }}>
+							<div style={{ "font-weight": "600", "font-size": "0.875rem" }}>
 								Coachplan · {leerlingName()}
 							</div>
-							<div style={{ "font-size": "12px", color: "rgb(var(--muted))" }}>
-								{templateName()} · Bron: leerlingvragenlijst van{" "}
+							<div style={{ "font-size": "0.75rem", color: "rgb(var(--muted))" }}>
+								{templateName()} · versie {submissionQuery.data?.submission.version} ·
+								Bron: leerlingvragenlijst van{" "}
 								{relativeDay(submissionQuery.data?.submission.submittedAt)}
 							</div>
 						</div>
+						<Show when={status()}>
+							{(st) => <PlanStatusBadge status={st()} />}
+						</Show>
 					</div>
 					<div class="ds-grow" />
 					<button
@@ -360,15 +395,32 @@ function CoachReview() {
 						<FileText class="size-3.5" aria-hidden="true" />{" "}
 						{pdfBusy() ? "PDF maken…" : "PDF genereren"}
 					</button>
-					<button type="button" class="btn primary sm" onClick={share}>
-						Aanbieden aan leerling <Send class="size-3.5" aria-hidden="true" />
+					<button
+						type="button"
+						class="btn primary sm"
+						onClick={share}
+						disabled={!editable()}
+					>
+						{isShared() ? "Gedeeld" : "Aanbieden aan leerling"}{" "}
+						<Send class="size-3.5" aria-hidden="true" />
 					</button>
 				</div>
 
-				<div
-					class="ds-grid"
-					style={{ "grid-template-columns": "2fr 1fr", gap: "24px" }}
-				>
+				<Show when={!editable()}>
+					<div class="card" role="status" style={{ "margin-bottom": "14px" }}>
+						{isShared()
+							? "Deze versie is gedeeld met de leerling en is alleen-lezen. Wil de leerling iets aanpassen, dan maakt die een nieuwe versie via 'Plan bijwerken'."
+							: "De leerling vult dit plan nog in. Je kunt het coachgedeelte invullen zodra het is ingeleverd."}
+						</div>
+					</Show>
+					<Show when={status() === "submitted"}>
+						<div class="card" role="status" style={{ "margin-bottom": "14px" }}>
+							De leerling kan de eigen antwoorden nog aanpassen. Zodra jij iets typt
+							of kiest in het coachgedeelte, staan ze vast.
+						</div>
+					</Show>
+
+				<div class="ds-grid-main">
 					{/* LEFT — wizard */}
 					<div class="ds-col" style={{ gap: "16px" }}>
 						<div class="ds-row ds-between">
@@ -416,7 +468,7 @@ function CoachReview() {
 											<>
 												<h2
 													style={{
-														"font-size": "22px",
+														"font-size": "1.375rem",
 														"margin-bottom": "8px",
 														"text-wrap": "balance",
 													}}
@@ -441,12 +493,12 @@ function CoachReview() {
 																border: "1px solid rgb(var(--primary-100))",
 																"border-radius": "10px",
 																"margin-bottom": "14px",
-																"font-size": "13px",
+																"font-size": "0.8125rem",
 															}}
 														>
 															<div
 																style={{
-																	"font-size": "11px",
+																	"font-size": "0.6875rem",
 																	"font-weight": "600",
 																	color: "rgb(var(--primary-700))",
 																	"text-transform": "uppercase",
@@ -495,13 +547,14 @@ function CoachReview() {
 													>
 														<textarea
 															class="textarea"
-															style={{ "min-height": "140px", "font-size": "14px" }}
+															style={{ "min-height": "140px", "font-size": "0.875rem" }}
 															aria-label={s.q.label}
 															placeholder="Schrijf hier je observatie. Antwoorden worden tussentijds opgeslagen."
 															value={coachAnswers[s.q.id] ?? ""}
-															onInput={(e) =>
-																setCoachAnswers(s.q.id, e.currentTarget.value)
-															}
+															onInput={(e) => {
+																startReview();
+																setCoachAnswers(s.q.id, e.currentTarget.value);
+															}}
 														/>
 													</Match>
 													<Match when={true}>
@@ -527,7 +580,7 @@ function CoachReview() {
 								<Match when={cur()?.kind === "leervoorkeuren"}>
 									<h2
 										style={{
-											"font-size": "22px",
+											"font-size": "1.375rem",
 											"margin-bottom": "8px",
 											"text-wrap": "balance",
 										}}
@@ -548,12 +601,12 @@ function CoachReview() {
 													border: "1px solid rgb(var(--primary-100))",
 													"border-radius": "10px",
 													"margin-bottom": "14px",
-													"font-size": "13px",
+													"font-size": "0.8125rem",
 												}}
 											>
 												<div
 													style={{
-														"font-size": "11px",
+														"font-size": "0.6875rem",
 														"font-weight": "600",
 														color: "rgb(var(--primary-700))",
 														"text-transform": "uppercase",
@@ -602,7 +655,7 @@ function CoachReview() {
 														class={`chip ${on() ? "primary" : "outline"}`}
 														style={{
 															padding: "8px 14px",
-															"font-size": "13px",
+															"font-size": "0.8125rem",
 															cursor: "pointer",
 														}}
 														aria-pressed={on()}
@@ -625,7 +678,7 @@ function CoachReview() {
 							<button type="button" class="btn ghost" onClick={saveCurrent}>
 								<Save class="size-3.5" aria-hidden="true" /> Tussentijds opslaan
 							</button>
-							<label class="ds-row" style={{ gap: "8px", "font-size": "13px" }}>
+							<label class="ds-row" style={{ gap: "8px", "font-size": "0.8125rem" }}>
 								<span class="toggle">
 									<input
 										type="checkbox"
@@ -638,9 +691,17 @@ function CoachReview() {
 									<span class="slider" />
 								</span>{" "}
 								Afgestemd met ouders
-							</label>
+								</label>
+							</div>
+
+							{/* INC-12: everything the leerling filled in, with their markers. */}
+							<section aria-labelledby="leerling-antwoorden" class="ds-col" style={{ gap: "10px" }}>
+								<h2 id="leerling-antwoorden" style={{ "font-size": "1.125rem" }}>
+								Antwoorden van {leerlingName()}
+								</h2>
+								<PlanView submissionId={id()} leerlingOnly />
+							</section>
 						</div>
-					</div>
 
 					{/* RIGHT — AI sidebar + voortgang */}
 					<div class="ds-col" style={{ gap: "16px" }}>
@@ -650,7 +711,7 @@ function CoachReview() {
 						<AssistantPanel submissionId={id()} title="AI-advies" />
 						<div class="card">
 							<div class="card-head">
-								<h3 style={{ "font-size": "15px" }}>Voortgang plan</h3>
+								<h3 style={{ "font-size": "0.9375rem" }}>Voortgang plan</h3>
 							</div>
 							<div class="progress" style={{ "margin-bottom": "8px" }}>
 								<span
@@ -659,7 +720,7 @@ function CoachReview() {
 									}}
 								/>
 							</div>
-							<div style={{ "font-size": "12px", color: "rgb(var(--muted))" }}>
+							<div style={{ "font-size": "0.75rem", color: "rgb(var(--muted))" }}>
 								{filledCount()} van {total()} vragen ingevuld
 							</div>
 						</div>

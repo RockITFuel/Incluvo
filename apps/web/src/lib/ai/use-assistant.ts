@@ -1,5 +1,6 @@
 import { createSignal, onCleanup } from "solid-js";
 import { client } from "../orpc";
+import { friendlyError } from "../errors";
 
 /**
  * Thin local AI-assistant hook (backlog #22) wrapping the **oRPC Event
@@ -17,27 +18,21 @@ import { client } from "../orpc";
  * mirrors a `useChat` so it can be swapped for the alpha later if it matures.
  *
  * The server handler is an async generator; each frame is either
- *   { meta: { mock, model } } | { delta: string } | { done: true }.
+ *   { meta: { mock, model } } | { delta: string } | { done: true, signature }.
+ * The signature is kept with the assistant turn and sent back with the history:
+ * the server only accepts assistant turns it signed itself.
  */
 
-export interface AssistantMessage {
-	role: "user" | "assistant";
-	content: string;
-}
+export type AssistantMessage =
+	| { role: "user"; content: string }
+	| { role: "assistant"; content: string; signature?: string };
 
 export interface UseAssistantOptions {
-	/**
-	 * The coachplan whose real answers the server composes the context from.
-	 * An accessor, not a value: the standalone `/assistent` tab lets the coach
-	 * switch plans while the panel stays mounted, so this must be read at send
-	 * time rather than captured once at setup.
-	 */
-	submissionId?: () => string | undefined;
-	/** Free-text coachplan context injected into the system prompt. */
-	coachplanContext?: () => string | undefined;
+	/** The coachplan whose real answers the server composes the context from. */
+	submissionId: () => string;
 }
 
-export function useAssistant(options: UseAssistantOptions = {}) {
+export function useAssistant(options: UseAssistantOptions) {
 	const [messages, setMessages] = createSignal<AssistantMessage[]>([]);
 	const [streaming, setStreaming] = createSignal(false);
 	const [error, setError] = createSignal<string | null>(null);
@@ -64,12 +59,19 @@ export function useAssistant(options: UseAssistantOptions = {}) {
 		const { signal } = controller;
 
 		try {
+			// Only completed (signed) answers go back; an answer that was cut off
+			// has no signature and is left out.
+			const turns: Parameters<typeof client.ai.assistant>[0]["messages"] = [];
+			for (const m of next) {
+				if (m.role === "user") turns.push(m);
+				else if (m.signature) {
+					turns.push({ role: "assistant", content: m.content, signature: m.signature });
+				}
+			}
+			// The server takes at most 20 turns and wants a question first.
+			while (turns.length > 19 || turns[0]?.role === "assistant") turns.shift();
 			const iterator = await client.ai.assistant(
-				{
-					submissionId: options.submissionId?.(),
-					coachplanContext: options.coachplanContext?.(),
-					messages: next,
-				},
+				{ submissionId: options.submissionId(), messages: turns },
 				{ signal },
 			);
 
@@ -92,16 +94,23 @@ export function useAssistant(options: UseAssistantOptions = {}) {
 						return copy;
 					});
 				}
-				// { done: true } ends the loop naturally.
+				if ("done" in frame) {
+					setMessages((prev) => {
+						const copy = [...prev];
+						const last = copy[copy.length - 1];
+						if (last && last.role === "assistant") {
+							copy[copy.length - 1] = { ...last, signature: frame.signature };
+						}
+						return copy;
+					});
+				}
 			}
 		} catch (err) {
 			// Aborted streams are intentional — don't surface them as errors or
 			// touch the (already-cleared) conversation.
 			if (signal.aborted) return;
 			setError(
-				err instanceof Error
-					? err.message
-					: "Er ging iets mis bij het ophalen van het advies.",
+				friendlyError(err, "Er ging iets mis bij het ophalen van het advies."),
 			);
 			// Drop the empty assistant placeholder on failure.
 			setMessages((prev) => {

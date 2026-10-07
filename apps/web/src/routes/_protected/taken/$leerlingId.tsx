@@ -20,9 +20,9 @@ import { useServerEvent } from "../../../lib/sse/use-events";
  * coach+ in the UI; the server re-enforces tenant + ownership on every call.
  */
 export const Route = createFileRoute("/_protected/taken/$leerlingId")({
-	beforeLoad: () => requireRole("coach"),
+	beforeLoad: () => requireRole("coach", undefined, { coaching: true }),
 	component: () => (
-		<RequireRole min="coach">
+		<RequireRole min="coach" coaching>
 			<CoachTakenPage />
 		</RequireRole>
 	),
@@ -62,10 +62,11 @@ function CoachTakenPage() {
 		<section class="flex flex-col gap-6">
 			<div>
 				<Link
-					to="/taken"
+					to="/dashboard/$leerlingId"
+					params={{ leerlingId: leerlingId() }}
 					class="text-small text-muted hover:text-ink-2"
 				>
-					← Alle leerlingen
+					← Naar de leerling
 				</Link>
 				<h1 class="mt-1 font-head text-h1 text-ink">Takenlijst leerling</h1>
 				<p class="mt-1 text-body text-muted">

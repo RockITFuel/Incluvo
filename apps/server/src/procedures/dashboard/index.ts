@@ -8,14 +8,14 @@ import {
 	courseSection,
 	formAnswer,
 	formSubmission,
-	learningPreferenceLabel,
 	task,
 	user,
 } from "@incluvo/drizzle/schema";
-import { isSuperadmin, policies, sameTenant } from "@incluvo/permissions";
-import { ORPCError } from "@orpc/server";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { policies, sameTenant } from "@incluvo/permissions";
+import { and, count, desc, eq, inArray, max, sql } from "drizzle-orm";
 import { z } from "zod";
+import { currentLeervoorkeuren, versionForCoach } from "../../coachplan/lifecycle";
+import { reachableLeerlingen, requireLeerlingAccess } from "../../access";
 import {
 	type AuthedContext,
 	base,
@@ -23,6 +23,7 @@ import {
 	protectedProcedure,
 	withPolicy,
 } from "../base";
+import { dutchDay } from "../../time";
 
 /**
  * Coach dashboard domain (backlog #42–#44).
@@ -39,8 +40,8 @@ import {
  * Gating: every procedure is coach+ (`policies.readUsers`, tenant-scoped) and
  * each handler re-asserts the leerling is assigned to *this* coach within the
  * tenant (`assertAssigned`), so a coach can never reach an unassigned or
- * cross-tenant leerling. The superadmin (Ondivera) is exempt from the
- * assignment check but still tenant-true everywhere via `sameTenant`.
+ * cross-tenant leerling. The superadmin (Ondivera) sees no leerlingen
+ * (`sameSchool`); it has the platform overview instead.
  *
  * Courses (Epic 4) may be built in parallel; this router queries the course
  * tables directly and defends against an empty/absent dataset (optional rows,
@@ -191,79 +192,18 @@ function planStatusFor(
 	}
 }
 
-/**
- * Assert the leerling is assigned to this coach within the tenant. Loads the
- * leerling row so cross-tenant access is rejected even for the superadmin's
- * own-tenant safety, then (for non-superadmins) requires a `coach_assignment`
- * linking actor→leerling. Returns the leerling row.
- */
-async function assertAssigned(context: AuthedContext, leerlingId: string) {
-	const { actor } = context;
-	const [leerling] = await context.db
-		.select({
-			id: user.id,
-			name: user.name,
-			email: user.email,
-			organizationId: user.organizationId,
-		})
-		.from(user)
-		.where(eq(user.id, leerlingId));
-	if (!leerling) throw new ORPCError("NOT_FOUND");
-	if (!sameTenant(actor, leerling)) throw new ORPCError("FORBIDDEN");
-	if (!isSuperadmin(actor.role)) {
-		const [link] = await context.db
-			.select({ id: coachAssignment.id })
-			.from(coachAssignment)
-			.where(
-				and(
-					eq(coachAssignment.coachId, actor.userId),
-					eq(coachAssignment.leerlingId, leerlingId),
-				),
-			);
-		if (!link) {
-			throw new ORPCError("FORBIDDEN", {
-				message: "Leerling is niet aan jou gekoppeld",
-			});
-		}
-	}
-	return leerling;
-}
+/** The leerling, if the actor may see their data (`requireLeerlingAccess`). */
+const assertAssigned = requireLeerlingAccess;
 
-/** Latest submission (any status) for a leerling, with its discuss-flag count. */
+/**
+ * The plan version a coach looks at for a leerling (`versionForCoach`: the
+ * newest handed-in version, else the draft), with its discuss-flag count.
+ */
 async function latestPlan(
 	context: AuthedContext,
 	leerlingId: string,
 ): Promise<z.infer<typeof PlanSummarySchema>> {
-	// Prefer the newest submission the coach can actually review (same status set
-	// as the coachplan inbox); only fall back to the newest draft when none exists.
-	// Without this, a leerling who submits plan A and then revisits the
-	// vragenlijst (startMine spins up a fresh empty draft B) would point the
-	// coach's "Open coachplan" link at that empty draft (regression).
-	const REVIEWABLE_STATUSES = [
-		"submitted",
-		"coach_review",
-		"shared_with_leerling",
-		"completed",
-	] as const;
-	let [sub] = await context.db
-		.select()
-		.from(formSubmission)
-		.where(
-			and(
-				eq(formSubmission.leerlingId, leerlingId),
-				inArray(formSubmission.status, [...REVIEWABLE_STATUSES]),
-			),
-		)
-		.orderBy(desc(formSubmission.updatedAt))
-		.limit(1);
-	if (!sub) {
-		[sub] = await context.db
-			.select()
-			.from(formSubmission)
-			.where(eq(formSubmission.leerlingId, leerlingId))
-			.orderBy(desc(formSubmission.updatedAt))
-			.limit(1);
-	}
+	const sub = await versionForCoach(context.db, leerlingId);
 	let discussCount = 0;
 	if (sub) {
 		const flags = await context.db
@@ -278,7 +218,7 @@ async function latestPlan(
 		discussCount = flags.length;
 	}
 	return {
-		status: planStatusFor(sub),
+		status: planStatusFor(sub ?? undefined),
 		submissionId: sub?.id ?? null,
 		discussCount,
 		submittedAt: sub?.submittedAt ?? null,
@@ -302,7 +242,8 @@ async function taskProgress(
 		})
 		.from(task)
 		.where(eq(task.leerlingId, leerlingId));
-	const now = new Date();
+	// Overdue = a due date before today (dates are stored as Dutch midnight).
+	const { start: today } = dutchDay();
 	let open = 0;
 	let done = 0;
 	let overdue = 0;
@@ -311,7 +252,7 @@ async function taskProgress(
 		if (r.done) done++;
 		else {
 			open++;
-			if (r.dueAt && r.dueAt < now) overdue++;
+			if (r.dueAt && r.dueAt < today) overdue++;
 		}
 		if (!lastTouched || r.updatedAt > lastTouched) lastTouched = r.updatedAt;
 	}
@@ -333,11 +274,7 @@ async function tasksTodayFor(
 		})
 		.from(task)
 		.where(eq(task.leerlingId, leerlingId));
-	const now = new Date();
-	const startOfDay = new Date(now);
-	startOfDay.setHours(0, 0, 0, 0);
-	const endOfDay = new Date(startOfDay);
-	endOfDay.setDate(endOfDay.getDate() + 1);
+	const { start: startOfDay, end: endOfDay } = dutchDay();
 	return rows
 		.filter(
 			(r) =>
@@ -350,7 +287,7 @@ async function tasksTodayFor(
 			title: r.title,
 			dueAt: r.dueAt,
 			done: r.done,
-			overdue: r.dueAt !== null && r.dueAt < now,
+			overdue: r.dueAt !== null && r.dueAt < startOfDay,
 		}))
 		.sort((a, b) => (a.dueAt?.getTime() ?? 0) - (b.dueAt?.getTime() ?? 0));
 }
@@ -496,37 +433,142 @@ function computeAandacht(args: {
 	return { aandacht: redenen.length > 0, redenen };
 }
 
-/** Resolve the existing 1:1 conversation id between coach and leerling, if any. */
-async function existingDirectConversation(
-	context: AuthedContext,
-	coachId: string,
-	leerlingId: string,
-): Promise<string | null> {
-	const mine = await context.db
-		.select({ conversationId: conversationMember.conversationId })
+/**
+ * Everything the overview needs for a set of leerlingen in a fixed number of
+ * queries (not ~5 per leerling): the plan version a coach looks at
+ * (`versionForCoach`) with its discuss-flag count, task counts, the latest
+ * course activity and the actor's 1:1 conversation. Same results as
+ * `latestPlan` / `taskProgress` / `coursesFor` / `existingDirectConversation`.
+ */
+async function overviewData(context: AuthedContext, leerlingIds: string[]) {
+	const plans = new Map<string, z.infer<typeof PlanSummarySchema>>();
+	const tasks = new Map<string, { progress: z.infer<typeof TaskProgressSchema>; lastTouched: Date | null }>();
+	const courseTouched = new Map<string, Date>();
+	const conversations = new Map<string, string>();
+	if (leerlingIds.length === 0) {
+		return { plans, tasks, courseTouched, conversations };
+	}
+
+	// Plan: newest handed-in version, else the newest draft.
+	const subs = await context.db
+		.select()
+		.from(formSubmission)
+		.where(inArray(formSubmission.leerlingId, leerlingIds))
+		.orderBy(desc(formSubmission.version));
+	const chosen = new Map<string, typeof formSubmission.$inferSelect>();
+	for (const sub of subs) {
+		const current = chosen.get(sub.leerlingId);
+		if (!current) chosen.set(sub.leerlingId, sub);
+		else if (current.status === "draft" && sub.status !== "draft") {
+			chosen.set(sub.leerlingId, sub);
+		}
+	}
+	const chosenIds = [...chosen.values()].map((s) => s.id);
+	const flags = chosenIds.length
+		? await context.db
+				.select({ submissionId: formAnswer.submissionId, value: count() })
+				.from(formAnswer)
+				.where(
+					and(
+						inArray(formAnswer.submissionId, chosenIds),
+						eq(formAnswer.discussWithCoach, true),
+					),
+				)
+				.groupBy(formAnswer.submissionId)
+		: [];
+	const flagsBySub = new Map(flags.map((f) => [f.submissionId, f.value]));
+	for (const id of leerlingIds) {
+		const sub = chosen.get(id);
+		plans.set(id, {
+			status: planStatusFor(sub),
+			submissionId: sub?.id ?? null,
+			discussCount: sub ? (flagsBySub.get(sub.id) ?? 0) : 0,
+			submittedAt: sub?.submittedAt ?? null,
+			updatedAt: sub?.updatedAt ?? null,
+		});
+	}
+
+	// Tasks: counts and last change per leerling.
+	const { start: today } = dutchDay();
+	const taskRows = await context.db
+		.select({
+			leerlingId: task.leerlingId,
+			open: sql<number>`count(*) filter (where not ${task.done})`.mapWith(Number),
+			done: sql<number>`count(*) filter (where ${task.done})`.mapWith(Number),
+			overdue: sql<number>`count(*) filter (where not ${task.done} and ${task.dueAt} < ${today})`.mapWith(Number),
+			lastTouched: max(task.updatedAt),
+		})
+		.from(task)
+		.where(inArray(task.leerlingId, leerlingIds))
+		.groupBy(task.leerlingId);
+	for (const t of taskRows) {
+		tasks.set(t.leerlingId, {
+			progress: { open: t.open, done: t.done, overdue: t.overdue },
+			lastTouched: t.lastTouched,
+		});
+	}
+
+	// Courses: latest progress on a counting block of the leerling's own course.
+	try {
+		const courseRows = await context.db
+			.select({
+				leerlingId: contentProgress.leerlingId,
+				lastTouched: max(contentProgress.updatedAt),
+			})
+			.from(contentProgress)
+			.innerJoin(contentBlock, eq(contentBlock.id, contentProgress.contentBlockId))
+			.innerJoin(courseSection, eq(courseSection.id, contentBlock.sectionId))
+			.innerJoin(
+				course,
+				and(
+					eq(course.id, courseSection.courseId),
+					eq(course.leerlingId, contentProgress.leerlingId),
+				),
+			)
+			.where(
+				and(
+					inArray(contentProgress.leerlingId, leerlingIds),
+					eq(contentBlock.countsForProgress, true),
+				),
+			)
+			.groupBy(contentProgress.leerlingId);
+		for (const c of courseRows) {
+			if (c.lastTouched) courseTouched.set(c.leerlingId, c.lastTouched);
+		}
+	} catch {
+		// Courses domain not ready / schema mismatch — degrade gracefully.
+	}
+
+	// The actor's 1:1 conversation with each leerling.
+	const mine = context.db
+		.select({ id: conversationMember.conversationId })
 		.from(conversationMember)
-		.innerJoin(
-			conversation,
-			eq(conversation.id, conversationMember.conversationId),
-		)
+		.innerJoin(conversation, eq(conversation.id, conversationMember.conversationId))
 		.where(
 			and(
-				eq(conversationMember.userId, coachId),
+				eq(conversationMember.userId, context.actor.userId),
 				eq(conversation.kind, "direct"),
 			),
 		);
-	const ids = mine.map((r) => r.conversationId);
-	if (!ids.length) return null;
-	const [shared] = await context.db
-		.select({ conversationId: conversationMember.conversationId })
+	const shared = await context.db
+		.select({
+			leerlingId: conversationMember.userId,
+			conversationId: conversationMember.conversationId,
+		})
 		.from(conversationMember)
 		.where(
 			and(
-				eq(conversationMember.userId, leerlingId),
-				inArray(conversationMember.conversationId, ids),
+				inArray(conversationMember.userId, leerlingIds),
+				inArray(conversationMember.conversationId, mine),
 			),
 		);
-	return shared?.conversationId ?? null;
+	for (const c of shared) {
+		if (!conversations.has(c.leerlingId)) {
+			conversations.set(c.leerlingId, c.conversationId);
+		}
+	}
+
+	return { plans, tasks, courseTouched, conversations };
 }
 
 // ---------------------------------------------------------------------------
@@ -540,65 +582,46 @@ const overview = protectedProcedure
 	.handler(async ({ context }) => {
 		const { actor } = context;
 
-		// Assigned leerlingen for this coach (superadmin: all in tenant).
-		let leerlingRows: {
-			id: string;
-			name: string;
-			email: string;
-			organizationId: string | null;
-		}[];
-		if (isSuperadmin(actor.role)) {
-			leerlingRows = await context.db
-				.select({
-					id: user.id,
-					name: user.name,
-					email: user.email,
-					organizationId: user.organizationId,
-				})
-				.from(user)
-				.where(eq(user.role, "leerling"));
-		} else {
-			const assigned = await context.db
-				.select({
-					id: user.id,
-					name: user.name,
-					email: user.email,
-					organizationId: user.organizationId,
-				})
-				.from(coachAssignment)
-				.innerJoin(user, eq(user.id, coachAssignment.leerlingId))
-				.where(eq(coachAssignment.coachId, actor.userId));
-			leerlingRows = assigned;
-		}
+		// Leerlingen this actor may see: assigned (coach) or the whole school
+		// (keyuser, D1); none for the superadmin (sameSchool).
+		let leerlingRows = await context.db
+			.select({
+				id: user.id,
+				name: user.name,
+				email: user.email,
+				organizationId: user.organizationId,
+			})
+			.from(user)
+			.where(
+				and(
+					eq(user.role, "leerling"),
+					await reachableLeerlingen(context, user.id, user.organizationId),
+				),
+			);
 
 		// Defence in depth: never leak cross-tenant leerlingen.
 		leerlingRows = leerlingRows.filter((l) => sameTenant(actor, l));
 
-		const rows: z.infer<typeof OverviewRowSchema>[] = [];
-		for (const l of leerlingRows) {
-			const plan = await latestPlan(context, l.id);
-			const { progress, lastTouched: taskTouched } = await taskProgress(
-				context,
-				l.id,
-			);
-			const { lastTouched: courseTouched } = await coursesFor(context, l.id);
+		const data = await overviewData(
+			context,
+			leerlingRows.map((l) => l.id),
+		);
+		const rows: z.infer<typeof OverviewRowSchema>[] = leerlingRows.map((l) => {
+			const plan = data.plans.get(l.id)!;
+			const taskData = data.tasks.get(l.id);
+			const progress = taskData?.progress ?? { open: 0, done: 0, overdue: 0 };
 			const lastActivityAt = mostRecent(
 				plan.updatedAt,
 				plan.submittedAt,
-				taskTouched,
-				courseTouched,
+				taskData?.lastTouched ?? null,
+				data.courseTouched.get(l.id) ?? null,
 			);
 			const { aandacht, redenen } = computeAandacht({
 				plan,
 				tasks: progress,
 				lastActivityAt,
 			});
-			const conversationId = await existingDirectConversation(
-				context,
-				actor.userId,
-				l.id,
-			);
-			rows.push({
+			return {
 				leerling: { id: l.id, name: l.name, email: l.email },
 				plan,
 				tasks: progress,
@@ -606,11 +629,11 @@ const overview = protectedProcedure
 				aandacht,
 				aandachtRedenen: redenen,
 				snelacties: {
-					conversationId,
+					conversationId: data.conversations.get(l.id) ?? null,
 					planSubmissionId: plan.submissionId,
 				},
-			});
-		}
+			};
+		});
 
 		// Attention first, then most recently active.
 		rows.sort((a, b) => {
@@ -632,19 +655,8 @@ async function leervoorkeurenFor(
 	context: AuthedContext,
 	leerlingId: string,
 ): Promise<string[]> {
-	const subs = await context.db
-		.select({ id: formSubmission.id })
-		.from(formSubmission)
-		.where(eq(formSubmission.leerlingId, leerlingId))
-		.orderBy(desc(formSubmission.updatedAt));
-	for (const s of subs) {
-		const labels = await context.db
-			.select({ label: learningPreferenceLabel.label })
-			.from(learningPreferenceLabel)
-			.where(eq(learningPreferenceLabel.submissionId, s.id));
-		if (labels.length) return labels.map((l) => l.label);
-	}
-	return [];
+	// Same rule as course recommendations: the current (shared) plan.
+	return currentLeervoorkeuren(context.db, leerlingId);
 }
 
 const quickpanel = protectedProcedure

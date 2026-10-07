@@ -25,6 +25,9 @@ export function FileLink(props: { storageKey: string; label?: string }) {
 			fallback={
 				<span class="inline-flex items-center gap-2 text-small text-muted">
 					<FileText class="size-4" /> {props.label ?? filename()}
+					<Show when={fileQuery.error}>
+						<span class="text-danger">(kon bestand niet ophalen)</span>
+					</Show>
 				</span>
 			}
 		>

@@ -55,6 +55,8 @@ export type QuestionOptions = z.infer<typeof QuestionOptions>;
 export const QuestionSchema = z.object({
 	id: z.string(),
 	templateId: z.string(),
+	/** Same question across form versions and school copies. */
+	key: z.string(),
 	section: FormSection,
 	type: QuestionType,
 	label: z.string(),
@@ -64,6 +66,8 @@ export const QuestionSchema = z.object({
 	// Template-level correspondence to a coach (POPP) question (#18).
 	mapsToQuestionId: z.string().nullable(),
 	options: QuestionOptions,
+	/** INC-7: shown to the leerling in their coachplan (with its answer). */
+	visibleToLeerling: z.boolean(),
 });
 export type QuestionDTO = z.infer<typeof QuestionSchema>;
 
@@ -72,15 +76,28 @@ export const TemplateSchema = z.object({
 	scope: FormScope,
 	organizationId: z.string().nullable(),
 	parentTemplateId: z.string().nullable(),
+	familyId: z.string(),
+	version: z.number().int(),
 	name: z.string(),
 	description: z.string().nullable(),
 	isSchoolDefault: z.boolean(),
+	/** INC-7: null = concept; set = published (questions frozen). */
+	publishedAt: z.date().nullable(),
 	createdAt: z.date(),
 	updatedAt: z.date(),
 });
 export type TemplateDTO = z.infer<typeof TemplateSchema>;
 
+/** A template as the formulierenmanager lists it (latest version per form). */
+export const TemplateListItemSchema = TemplateSchema.extend({
+	/** Why the questions can't be edited in place (null = editable). */
+	inUse: z.string().nullable(),
+	/** For a school copy: a newer version of its Ondivera source, if any. */
+	sourceUpdateVersion: z.number().int().nullable(),
+});
+
 export const TemplateWithQuestionsSchema = TemplateSchema.extend({
+	inUse: z.string().nullable().optional(),
 	questions: z.array(QuestionSchema),
 });
 
@@ -105,6 +122,9 @@ export type AnswerDTO = z.infer<typeof AnswerSchema>;
 
 export const SubmissionSchema = z.object({
 	id: z.string(),
+	coachplanId: z.string(),
+	/** 1, 2, 3 … within the leerling's coachplan. */
+	version: z.number().int(),
 	templateId: z.string(),
 	organizationId: z.string(),
 	leerlingId: z.string(),

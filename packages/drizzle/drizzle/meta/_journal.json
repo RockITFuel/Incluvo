@@ -36,6 +36,90 @@
       "when": 1783496383857,
       "tag": "0004_fair_jackpot",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790200684222,
+      "tag": "0005_drop_items",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790232604377,
+      "tag": "0006_unique_constraints",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790232775862,
+      "tag": "0007_scrub_audit_content",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1790233160560,
+      "tag": "0008_coachplan_versions",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790233954236,
+      "tag": "0009_drop_course_forums",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790234206885,
+      "tag": "0010_sync_course_completion",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1790234505568,
+      "tag": "0011_form_versions",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1790238312574,
+      "tag": "0012_role_enum_drop_membership",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1790238508335,
+      "tag": "0013_course_source_changed",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1790872538618,
+      "tag": "0014_organization_archived_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1790946498571,
+      "tag": "0015_course_catalog",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1790953999491,
+      "tag": "0016_form_publish_visibility",
+      "breakpoints": true
     }
   ]
 }

@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/solid-query";
-import { Paperclip, Send, Users } from "lucide-solid";
+import { Paperclip, Send } from "lucide-solid";
 import { createSignal, For, Show } from "solid-js";
 import { client, orpc } from "../../lib/orpc";
 import { Badge } from "../ui/badge";
@@ -8,12 +8,12 @@ import { Textarea } from "../ui/text-field";
 import { toast } from "../ui/toast";
 import { FileLink } from "./file-link";
 import { uploadFile } from "./upload";
+import { ErrorState } from "../ui/error-state";
 
 type AssignmentDTO = {
 	id: string;
 	name: string;
 	description: string | null;
-	isGroup: boolean;
 	responseType: "text" | "files" | "text_and_files";
 	maxAttempts: number | null;
 	dueAt: Date | null;
@@ -57,9 +57,12 @@ export function AssignmentBlock(props: {
 			toast({ title: "Opdracht ingeleverd", tone: "success" });
 			setText("");
 			setFiles([]);
-			await queryClient.invalidateQueries({
-				queryKey: orpc.courses.listSubmissions.key(),
-			});
+			// Handing in completes the block and its takenlijst task (fix plan 2.3).
+			await Promise.all([
+				queryClient.invalidateQueries({ queryKey: orpc.courses.listSubmissions.key() }),
+				queryClient.invalidateQueries({ queryKey: orpc.courses.tree.key() }),
+				queryClient.invalidateQueries({ queryKey: orpc.tasks.list.key() }),
+			]);
 		} catch (err) {
 			toast({
 				title: "Inleveren mislukt",
@@ -75,11 +78,6 @@ export function AssignmentBlock(props: {
 		<div class="flex flex-col gap-3">
 			<div class="flex flex-wrap items-center gap-2">
 				<h4 class="font-medium text-ink">{props.assignment.name}</h4>
-				<Show when={props.assignment.isGroup}>
-					<Badge variant="accent">
-						<Users class="size-3" /> Groepsopdracht
-					</Badge>
-				</Show>
 				<Show when={props.assignment.dueAt}>
 					{(d) => (
 						<Badge variant="warning">
@@ -133,6 +131,13 @@ export function AssignmentBlock(props: {
 			</div>
 
 			{/* Past submissions + feedback (#28) */}
+			<Show when={submissionsQuery.error}>
+				<ErrorState
+					error={submissionsQuery.error}
+					what="je eerdere inzendingen"
+					onRetry={() => submissionsQuery.refetch()}
+				/>
+			</Show>
 			<Show when={(submissionsQuery.data?.length ?? 0) > 0}>
 				<div class="flex flex-col gap-2">
 					<p class="text-small font-medium text-ink-2">Jouw inzendingen</p>

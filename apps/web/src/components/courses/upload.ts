@@ -1,8 +1,9 @@
 import { client } from "../../lib/orpc";
 
 /**
- * Upload a file for course content (#30), an assignment submission (#27) or a
- * grading note (#28), returning the opaque storageKey to persist.
+ * Upload a file for course content (#30), an assignment submission (#27), a
+ * grading note (#28) or a chat message (INC-8), returning the opaque
+ * storageKey to persist.
  *
  * Prod path: ask the server for a presigned PUT and upload the bytes straight to
  * S3/MinIO, then confirm so the server `stat()`-verifies the size. Local-dev
@@ -11,7 +12,7 @@ import { client } from "../../lib/orpc";
  */
 export async function uploadFile(
 	file: File,
-	scope: "bestand" | "submission" | "feedback",
+	scope: "bestand" | "submission" | "feedback" | "chat",
 ): Promise<string> {
 	const presign = await client.courses.presignUpload({
 		filename: file.name,

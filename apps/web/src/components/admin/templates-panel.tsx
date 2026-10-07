@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/solid-query";
-import { For, Show } from "solid-js";
+import { createMemo, For, Show } from "solid-js";
 import { Badge } from "../ui/badge";
 import { Card } from "../ui/card";
 import { orpc } from "../../lib/orpc";
@@ -21,9 +21,15 @@ const COURSE_KIND_LABEL: Record<string, string> = {
  * courses (#23) the admin can see. Superadmin sees everything; keyuser sees
  * Ondivera platform templates + their own school's items.
  */
-export function FormsPanel() {
+export function FormsPanel(props: { organizationId?: string }) {
 	const formsQuery = useQuery(() =>
 		orpc.admin.templates.forms.queryOptions(),
+	);
+	// On a school page: only that school's own templates.
+	const forms = createMemo(() =>
+		(formsQuery.data ?? []).filter(
+			(f) => !props.organizationId || f.organizationId === props.organizationId,
+		),
 	);
 
 	return (
@@ -31,7 +37,7 @@ export function FormsPanel() {
 			<div>
 				<h2 class="font-head text-h3 text-ink">Formulieren</h2>
 				<p class="mt-1 text-small text-muted">
-					Overzicht van formulier-templates (coachplan, #8/#9). Alleen-lezen.
+					Formulier-templates van deze school. Bewerken doe je onder Formulieren.
 				</p>
 			</div>
 
@@ -41,12 +47,12 @@ export function FormsPanel() {
 			<Show when={formsQuery.error}>
 				<p class="text-danger">Kon formulieren niet laden.</p>
 			</Show>
-			<Show when={!formsQuery.isLoading && formsQuery.data?.length === 0}>
+			<Show when={!formsQuery.isLoading && forms().length === 0}>
 				<p class="text-muted">Nog geen formulier-templates.</p>
 			</Show>
 
 			<ul class="flex flex-col gap-2">
-				<For each={formsQuery.data}>
+				<For each={forms()}>
 					{(f) => (
 						<li>
 							<Card
@@ -78,17 +84,24 @@ export function FormsPanel() {
 	);
 }
 
-export function CoursesPanel() {
+export function CoursesPanel(props: { organizationId?: string }) {
 	const coursesQuery = useQuery(() =>
 		orpc.admin.templates.courses.queryOptions(),
+	);
+	const courses = createMemo(() =>
+		(coursesQuery.data ?? []).filter(
+			(c) => !props.organizationId || c.organizationId === props.organizationId,
+		),
 	);
 
 	return (
 		<section class="flex flex-col gap-4">
 			<div>
-				<h2 class="font-head text-h3 text-ink">Cursussen</h2>
+				<h2 class="font-head text-h3 text-ink">
+					{props.organizationId ? "Eigen cursussen van de school" : "Cursussen"}
+				</h2>
 				<p class="mt-1 text-small text-muted">
-					Overzicht van cursussen en sjablonen (#23). Alleen-lezen.
+					Cursussen en sjablonen van deze school. Bewerken doe je onder Cursussen.
 				</p>
 			</div>
 
@@ -98,12 +111,12 @@ export function CoursesPanel() {
 			<Show when={coursesQuery.error}>
 				<p class="text-danger">Kon cursussen niet laden.</p>
 			</Show>
-			<Show when={!coursesQuery.isLoading && coursesQuery.data?.length === 0}>
+			<Show when={!coursesQuery.isLoading && courses().length === 0}>
 				<p class="text-muted">Nog geen cursussen.</p>
 			</Show>
 
 			<ul class="flex flex-col gap-2">
-				<For each={coursesQuery.data}>
+				<For each={courses()}>
 					{(c) => (
 						<li>
 							<Card

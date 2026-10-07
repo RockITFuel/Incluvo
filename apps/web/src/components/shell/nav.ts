@@ -8,7 +8,6 @@ import {
 	NotebookPen,
 	Settings,
 	Sparkles,
-	Star,
 	UserRound,
 } from "lucide-solid";
 import type { NavSection } from "./app-shell";
@@ -23,15 +22,49 @@ export type NavBadges = {
 
 /**
  * Role-aware sidebar navigation. The branching is real (driven by the session
- * role from `account.me`); hrefs point at placeholder routes (`/`, `/items`,
- * `/beheer`) that later epics replace with the real destinations.
+ * role from `account.me`).
  *
  *   - leerling     → Welkom, Mijn taken, Cursussen, Mijn plan, Chat
  *   - coach        → Dashboard, Coachplannen, Cursussen, Chat, Assistent
- *   - keyuser/up   → coach nav + a Beheer/Admin entry
- *   - ontwikkelaar → leerling-style nav (course builder lives under Cursussen)
+ *   - keyuser      → coach nav + Beheer, Formulieren
+ *   - superadmin   → Overzicht (all schools), Cursussen, Beheer, Formulieren
+ *   - ontwikkelaar → Cursussen (the course builder) and their profiel (D4)
+ * While the role is still loading (null) there is no nav yet.
  */
-export function navForRole(role: UserRole, badges: NavBadges = {}): NavSection[] {
+export function navForRole(role: UserRole | null, badges: NavBadges = {}): NavSection[] {
+	if (role === null) return [];
+	// Ondivera manages the platform and its templates; it doesn't work with
+	// leerlingen, so no coachplannen, chat or AI-assistent (sameSchool).
+	if (role === "superadmin") {
+		return [
+			{
+				label: "Navigatie",
+				items: [
+					{ label: "Overzicht", href: "/dashboard", icon: LayoutDashboard },
+					{ label: "Cursussen", href: "/beheer/cursussen", icon: GraduationCap },
+				],
+			},
+			{
+				label: "Beheer",
+				items: [
+					{ label: "Beheer", href: "/beheer", icon: Settings },
+					{ label: "Formulieren", href: "/plan/beheer", icon: NotebookPen },
+				],
+			},
+		];
+	}
+	if (role === "ontwikkelaar") {
+		return [
+			{
+				label: "Navigatie",
+				items: [{ label: "Cursussen", href: "/cursussen", icon: GraduationCap }],
+			},
+			{
+				label: "Snel",
+				items: [{ label: "Mijn profiel", href: "/profiel", icon: UserRound }],
+			},
+		];
+	}
 	// Coach and above get the coach-oriented nav. There is deliberately no
 	// separate "Leerlingen" entry: /dashboard *is* the leerlingen-overzicht
 	// (backlog #42), the prototype's coach nav does not have one, and the entry
@@ -51,8 +84,8 @@ export function navForRole(role: UserRole, badges: NavBadges = {}): NavSection[]
 		];
 		const sections: NavSection[] = [{ label: "Navigatie", items }];
 
-		// keyuser & superadmin also manage the tenant + form templates.
-		if (atLeast(role, "keyuser")) {
+		// The keyuser also manages their school and its form templates.
+		if (role === "keyuser") {
 			sections.push({
 				label: "Beheer",
 				items: [
@@ -64,7 +97,7 @@ export function navForRole(role: UserRole, badges: NavBadges = {}): NavSection[]
 		return sections;
 	}
 
-	// leerling / ontwikkelaar / member: pupil-oriented nav.
+	// leerling: pupil-oriented nav.
 	return [
 		{
 			label: "Navigatie",
@@ -81,20 +114,16 @@ export function navForRole(role: UserRole, badges: NavBadges = {}): NavSection[]
 				{ label: "Chat", href: "/chat", icon: MessageSquare },
 			],
 		},
-		// The prototype's "Snel" shortcuts (inert there) get real destinations:
-		// successen live on the Welkom dashboard, profiel is its own page.
+		// "Mijn successen" pointed at /welkom too (already in the nav above).
 		{
 			label: "Snel",
-			items: [
-				{ label: "Mijn successen", href: "/welkom", icon: Star },
-				{ label: "Mijn profiel", href: "/profiel", icon: UserRound },
-			],
+			items: [{ label: "Mijn profiel", href: "/profiel", icon: UserRound }],
 		},
 	];
 }
 
 /** Human-readable Dutch label for a role, shown in the shell user area. */
-export function roleLabel(role: UserRole): string {
+export function roleLabel(role: UserRole | null): string {
 	switch (role) {
 		case "superadmin":
 			return "Superadmin";

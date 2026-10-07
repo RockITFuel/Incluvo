@@ -8,14 +8,20 @@ import { Select } from "../../../../components/ui/select";
 import { Input } from "../../../../components/ui/text-field";
 import { toast } from "../../../../components/ui/toast";
 import { requireRole } from "../../../../lib/auth/require-role";
+import { useMe } from "../../../../lib/auth/use-me";
 import { RequireRole } from "../../../../lib/auth/role-guard";
 import { client, orpc } from "../../../../lib/orpc";
+import { ErrorState } from "../../../../components/ui/error-state";
+import { friendlyError } from "../../../../lib/errors";
+import { Switch } from "../../../../components/ui/switch";
 
 /**
  * Formulierenmanager (#8/#9/#10) — keyuser+. Lists templates (Ondivera + own
- * school), lets you copy an Ondivera template into the school (#9), create a new
- * one, edit its questions with a per-question-type editor, and set the school
- * default (#10). Gated to keyuser+.
+ * school, newest version of each), lets you copy an Ondivera template into the
+ * school (#9), create a new one, edit its questions with a per-question-type
+ * editor, and set the school default (#10). Versions (D5): a form in use is
+ * read-only — "Nieuwe versie maken" starts an editable next version — and a
+ * school copy shows when its Ondivera source has a newer version to upgrade to.
  */
 export const Route = createFileRoute("/_protected/plan/beheer/")({
 	beforeLoad: () => requireRole("keyuser"),
@@ -44,6 +50,7 @@ const SECTIONS = [
 
 function FormManager() {
 	const queryClient = useQueryClient();
+	const me = useMe();
 	const [selectedId, setSelectedId] = createSignal<string | null>(null);
 
 	const templatesQuery = useQuery(() =>
@@ -100,8 +107,59 @@ function FormManager() {
 			await client.coachplan.templates.setSchoolDefault({ templateId: id });
 			invalidate();
 			toast({ title: "Standaardformulier ingesteld", tone: "success" });
-		} catch {
-			toast({ title: "Lukte niet (alleen schoolformulieren)", tone: "danger" });
+		} catch (err) {
+			toast({ title: "Instellen lukte niet", description: friendlyError(err), tone: "danger" });
+		}
+	};
+
+	const makeNewVersion = async (id: string) => {
+		try {
+			const tpl = await client.coachplan.templates.newVersion({ id });
+			setSelectedId(tpl.id);
+			invalidate();
+			toast({
+				title: `Concept versie ${tpl.version} gemaakt`,
+				description: "Pas de vragen aan en publiceer het concept daarna.",
+				tone: "success",
+			});
+			} catch (err) {
+				toast({ title: "Lukte niet", description: friendlyError(err), tone: "danger" });
+			}
+			};
+			
+			// INC-7: a concept becomes usable (and frozen) once published.
+			const publish = async (id: string) => {
+				try {
+					const tpl = await client.coachplan.templates.publish({ id });
+					invalidate();
+					toast({
+						title: `Versie ${tpl.version} gepubliceerd`,
+						description: "Ingevulde plannen blijven op hun eigen versie.",
+						tone: "success",
+					});
+				} catch (err) {
+					toast({ title: "Publiceren lukte niet", description: friendlyError(err), tone: "danger" });
+				}
+			};
+			const discard = async (id: string) => {
+				try {
+					await client.coachplan.templates.discardDraft({ id });
+					setSelectedId(null);
+					invalidate();
+					toast({ title: "Concept verwijderd", tone: "success" });
+				} catch (err) {
+					toast({ title: "Verwijderen lukte niet", description: friendlyError(err), tone: "danger" });
+				}
+			};
+
+	const upgrade = async (id: string) => {
+		try {
+			const tpl = await client.coachplan.templates.upgradeFromSource({ id });
+			setSelectedId(tpl.id);
+			invalidate();
+			toast({ title: `Bijgewerkt naar versie ${tpl.version}`, tone: "success" });
+		} catch (err) {
+			toast({ title: "Bijwerken lukte niet", description: friendlyError(err), tone: "danger" });
 		}
 	};
 
@@ -170,6 +228,13 @@ function FormManager() {
 					<Show when={templatesQuery.isLoading}>
 						<p class="text-muted">Laden…</p>
 					</Show>
+					<Show when={templatesQuery.error}>
+						<ErrorState
+							error={templatesQuery.error}
+							what="de formulieren"
+							onRetry={() => templatesQuery.refetch()}
+						/>
+					</Show>
 					<For each={templatesQuery.data}>
 						{(tpl) => (
 							<Card
@@ -187,6 +252,10 @@ function FormManager() {
 								>
 									<div class="flex items-center gap-2">
 										<span class="font-medium text-ink">{tpl.name}</span>
+										<Badge variant="outline">v{tpl.version}</Badge>
+										<Show when={tpl.publishedAt} fallback={<Badge variant="warning">Concept</Badge>}>
+											<Badge variant="neutral">Gepubliceerd</Badge>
+										</Show>
 										<Show when={tpl.isSchoolDefault}>
 											<Badge variant="success">Standaard</Badge>
 										</Show>
@@ -196,7 +265,7 @@ function FormManager() {
 									</Badge>
 								</button>
 								<div class="flex flex-wrap gap-2">
-									<Show when={tpl.scope === "ondivera"}>
+									<Show when={tpl.scope === "ondivera" && tpl.publishedAt}>
 										<Button
 											size="sm"
 											variant="ghost"
@@ -205,7 +274,22 @@ function FormManager() {
 											Kopieer naar school
 										</Button>
 									</Show>
-									<Show when={tpl.scope === "school" && !tpl.isSchoolDefault}>
+									<Show when={tpl.sourceUpdateVersion}>
+										{(v) => (
+											<div class="flex w-full flex-col gap-1.5 rounded-2 bg-accent-100/40 p-2">
+												<p class="text-small text-ink-2">
+													Ondivera heeft versie {v()} van dit formulier. Bijwerken
+													vervangt de vragen door die van versie {v()}; eigen
+													aanpassingen gaan niet mee. Ingevulde plannen blijven op hun
+													versie.
+												</p>
+												<Button size="sm" variant="subtle" onClick={() => upgrade(tpl.id)}>
+													Bijwerken naar versie {v()}
+												</Button>
+											</div>
+										)}
+									</Show>
+									<Show when={tpl.scope === "school" && !tpl.isSchoolDefault && tpl.publishedAt}>
 										<Button
 											size="sm"
 											variant="subtle"
@@ -232,23 +316,61 @@ function FormManager() {
 					>
 						{(() => {
 							const tpl = detailQuery.data;
-							const readOnly = tpl?.scope === "ondivera";
+							const mayManage =
+								tpl?.scope === "school" || me.hasAtLeast("superadmin");
+							const readOnly = !mayManage || !!tpl?.inUse;
 							return (
 								<>
 									<div class="flex items-center justify-between gap-3">
-										<h2 class="font-head text-h2 text-ink">{tpl?.name}</h2>
+										<h2 class="font-head text-h2 text-ink">
+											{tpl?.name}{" "}
+											<span class="text-body text-muted">versie {tpl?.version}</span>
+										</h2>
 										<Show when={!readOnly}>
 											<Button size="sm" onClick={addQuestion}>
 												+ Vraag toevoegen
 											</Button>
 										</Show>
 									</div>
-									<Show when={readOnly}>
+									<Show when={!mayManage}>
 										<Card padding="sm" class="border-accent-100 bg-accent-100/30">
 											<p class="text-small text-ink-2">
 												Dit is een Ondivera-template (alleen-lezen). Kopieer hem
 												naar je school om te bewerken.
 											</p>
+										</Card>
+									</Show>
+									<Show when={mayManage && !tpl?.publishedAt}>
+										<Card
+											padding="sm"
+											class="flex flex-wrap items-center justify-between gap-3 border-warning bg-warning-100"
+										>
+											<p class="text-small text-ink-2">
+												Dit is een concept. Pas de vragen aan en publiceer het daarna; vanaf dan
+												liggen de vragen van deze versie vast en kan hij gebruikt worden.
+											</p>
+											<div class="flex gap-2">
+												<Button size="sm" variant="ghost" onClick={() => tpl && discard(tpl.id)}>
+													Concept verwijderen
+												</Button>
+												<Button size="sm" onClick={() => tpl && publish(tpl.id)}>
+													Publiceren
+												</Button>
+											</div>
+										</Card>
+									</Show>
+									<Show when={mayManage && tpl?.inUse}>
+										<Card
+											padding="sm"
+											class="flex flex-wrap items-center justify-between gap-3 border-accent-100 bg-accent-100/30"
+										>
+											<p class="text-small text-ink-2">
+												{tpl?.inUse} Deze versie blijft zoals hij is, zodat ingevulde
+												plannen hun betekenis houden.
+											</p>
+											<Button size="sm" onClick={() => tpl && makeNewVersion(tpl.id)}>
+												Nieuwe versie maken
+											</Button>
 										</Card>
 									</Show>
 
@@ -264,6 +386,9 @@ function FormManager() {
 													<Badge variant="outline">{q.type}</Badge>
 													<Show when={q.options?.theme}>
 														<Badge variant="primary">{q.options?.theme}</Badge>
+													</Show>
+													<Show when={!q.visibleToLeerling}>
+														<Badge variant="warning">Verborgen voor leerling</Badge>
 													</Show>
 												</div>
 												<Input
@@ -296,6 +421,13 @@ function FormManager() {
 														}
 													/>
 												</div>
+												<Switch
+													label="Zichtbaar voor leerling"
+													description="Toont deze vraag en het antwoord in het coachplan van de leerling, ook als de coach hem beantwoordt."
+													checked={q.visibleToLeerling}
+													disabled={readOnly}
+													onChange={(on) => !readOnly && updateQuestion(q.id, { visibleToLeerling: on })}
+												/>
 												<Show when={!readOnly}>
 													<div class="flex justify-end">
 														<Button

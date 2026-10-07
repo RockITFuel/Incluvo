@@ -1,7 +1,8 @@
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
 	boolean,
 	index,
+	uniqueIndex,
 	pgEnum,
 	pgTable,
 	text,
@@ -54,6 +55,10 @@ export const task = pgTable("task", {
 }, (t) => [
 	// Hot path: a leerling's task list.
 	index("task_leerling_idx").on(t.leerlingId),
+	// One takenlijst task per opdracht per leerling (#27).
+	uniqueIndex("task_assignment_leerling_uq")
+		.on(t.assignmentId, t.leerlingId)
+		.where(sql`${t.assignmentId} is not null`),
 ]);
 
 export type Task = typeof task.$inferSelect;

@@ -1,10 +1,16 @@
-import { atLeast, isSuperadmin, sameTenant, type TenantScoped } from "./check";
+import {
+	atLeast,
+	canBuildCourses,
+	isSuperadmin,
+	sameSchool,
+	sameTenant,
+	type TenantScoped,
+} from "./check";
 import { definePolicy } from "./policy";
 
 /**
  * RBAC policies for Incluvo. Roles (least→most privileged):
  *   leerling < ontwikkelaar < coach < keyuser < superadmin
- * Legacy "member" (lowest) and "admin" (highest) aliases stay valid.
  *
  * Tenant scoping: resource-scoped policies use `sameTenant(actor, resource)` so
  * a keyuser/coach/leerling can only act within their own organization, while
@@ -13,50 +19,9 @@ import { definePolicy } from "./policy";
  * are re-run inside handlers once the row is loaded.
  */
 
-interface OwnedResource {
-	ownerId?: string | null;
-}
-
 interface OwnedByLeerling extends TenantScoped {
 	leerlingId?: string | null;
 }
-
-// ---------------------------------------------------------------------------
-// Legacy sample `item` policies — kept so the existing vertical slice compiles.
-// ---------------------------------------------------------------------------
-
-/** Anyone authenticated may read items. */
-export const readItems = definePolicy({
-	name: "items:read",
-	subject: "item",
-	action: "read",
-	evaluate: () => true,
-});
-
-/** Coaches and admins may create items. */
-export const createItems = definePolicy({
-	name: "items:create",
-	subject: "item",
-	action: "create",
-	evaluate: (actor) => atLeast(actor.role, "coach"),
-});
-
-/** The owner, or any admin, may update an item. */
-export const updateItem = definePolicy<OwnedResource>({
-	name: "items:update",
-	subject: "item",
-	action: "update",
-	evaluate: (actor, resource) =>
-		isSuperadmin(actor.role) || resource?.ownerId === actor.userId,
-});
-
-/** Only admins may delete items. */
-export const deleteItem = definePolicy({
-	name: "items:delete",
-	subject: "item",
-	action: "delete",
-	evaluate: (actor) => isSuperadmin(actor.role),
-});
 
 // ---------------------------------------------------------------------------
 // Tenant & users (admin omgeving #60, multi-tenant)
@@ -131,7 +96,7 @@ export const readCoachplan = definePolicy<OwnedByLeerling>({
 	subject: "coachplan",
 	action: "read",
 	evaluate: (actor, resource) =>
-		sameTenant(actor, resource) &&
+		sameSchool(actor, resource) &&
 		(resource?.leerlingId === actor.userId || atLeast(actor.role, "coach")),
 });
 
@@ -141,20 +106,30 @@ export const reviewCoachplan = definePolicy<OwnedByLeerling>({
 	subject: "coachplan",
 	action: "update",
 	evaluate: (actor, resource) =>
-		atLeast(actor.role, "coach") && sameTenant(actor, resource),
+		atLeast(actor.role, "coach") && sameSchool(actor, resource),
 });
 
 // ---------------------------------------------------------------------------
 // Online cursus (#23–#36, #61)
 // ---------------------------------------------------------------------------
 
-/** Build/manage courses, sections, content blocks (#25–#36): ontwikkelaar+. */
-export const manageCourse = definePolicy<TenantScoped>({
+interface CourseResource extends TenantScoped {
+	kind?: "ondivera_template" | "school_template" | "student_execution";
+}
+
+/**
+ * Build/manage courses, sections, content blocks (#25–#36). Templates: the
+ * course builders (`canBuildCourses`). A leerling's own copy: coach+, who may
+ * adapt it for that leerling (the leerling rule is checked on top, server-side).
+ */
+export const manageCourse = definePolicy<CourseResource>({
 	name: "course:manage",
 	subject: "course",
 	action: "update",
 	evaluate: (actor, resource) =>
-		atLeast(actor.role, "ontwikkelaar") && sameTenant(actor, resource),
+		resource?.kind === "student_execution"
+			? sameSchool(actor, resource) && atLeast(actor.role, "coach")
+			: sameTenant(actor, resource) && canBuildCourses(actor.role),
 });
 
 /** Read course content within the tenant (#23/#24/#35). */
@@ -171,7 +146,7 @@ export const gradeAssignment = definePolicy<TenantScoped>({
 	subject: "assignment",
 	action: "update",
 	evaluate: (actor, resource) =>
-		atLeast(actor.role, "coach") && sameTenant(actor, resource),
+		atLeast(actor.role, "coach") && sameSchool(actor, resource),
 });
 
 /** A leerling submits their own assignment (#27); coach may submit on behalf. */
@@ -180,7 +155,7 @@ export const submitAssignment = definePolicy<OwnedByLeerling>({
 	subject: "assignment",
 	action: "create",
 	evaluate: (actor, resource) =>
-		sameTenant(actor, resource) &&
+		sameSchool(actor, resource) &&
 		(resource?.leerlingId === actor.userId || atLeast(actor.role, "coach")),
 });
 
@@ -194,7 +169,7 @@ export const readTask = definePolicy<OwnedByLeerling>({
 	subject: "task",
 	action: "read",
 	evaluate: (actor, resource) =>
-		sameTenant(actor, resource) &&
+		sameSchool(actor, resource) &&
 		(resource?.leerlingId === actor.userId || atLeast(actor.role, "coach")),
 });
 
@@ -204,7 +179,7 @@ export const manageTask = definePolicy<OwnedByLeerling>({
 	subject: "task",
 	action: "update",
 	evaluate: (actor, resource) =>
-		sameTenant(actor, resource) &&
+		sameSchool(actor, resource) &&
 		(resource?.leerlingId === actor.userId || atLeast(actor.role, "coach")),
 });
 
@@ -218,17 +193,16 @@ interface ChatResource extends TenantScoped {
 }
 
 /**
- * Participate in a chat. A member may read/post; a coach may always read along
- * in group chats they supervise (#6). Tenant-scoped.
+ * Take part in a chat: members only, within the tenant. Reading along in a
+ * course forum as a non-member is decided per leerling on the server
+ * (`canAccessLeerling`), not by role.
  */
 export const accessChat = definePolicy<ChatResource>({
 	name: "chat:access",
 	subject: "chat",
 	action: "read",
 	evaluate: (actor, resource) =>
-		sameTenant(actor, resource) &&
-		(resource?.memberIds?.includes(actor.userId) === true ||
-			atLeast(actor.role, "coach")),
+		sameTenant(actor, resource) && resource?.memberIds?.includes(actor.userId) === true,
 });
 
 // ---------------------------------------------------------------------------

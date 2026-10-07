@@ -1,4 +1,5 @@
-import { atLeast, type UserRole } from "@incluvo/permissions";
+import type { UserRole } from "@incluvo/permissions";
+import { roleHome } from "../lib/auth/role-home";
 import { createFileRoute, useNavigate } from "@tanstack/solid-router";
 import { onMount } from "solid-js";
 import { getCachedSession } from "../lib/auth/session";
@@ -21,11 +22,8 @@ function RootRedirect() {
 			const data = await getCachedSession();
 			if (data?.session) {
 				const role = ((data.user as { role?: string } | undefined)?.role ??
-					"member") as UserRole;
-				navigate({
-					to: atLeast(role, "coach") ? "/dashboard" : "/welkom",
-					replace: true,
-				});
+					"leerling") as UserRole;
+				navigate({ to: roleHome(role), replace: true });
 				return;
 			}
 		} catch {

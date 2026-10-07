@@ -1,5 +1,4 @@
 import {
-	coachAssignment,
 	formAnswer,
 	formQuestion,
 	formSubmission,
@@ -7,7 +6,7 @@ import {
 	transcription,
 	user,
 } from "@incluvo/drizzle/schema";
-import { atLeast, can, isSuperadmin, policies } from "@incluvo/permissions";
+import { atLeast, can, policies } from "@incluvo/permissions";
 import { ORPCError } from "@orpc/server";
 import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -17,7 +16,14 @@ import { getAiProvider } from "../../ai/provider";
 import { formatKennisContext, retrieveKennisHits } from "../../ai/retrieval";
 import { assertValidStorageKey, deleteObject } from "../../courses/storage";
 import { rateLimit } from "../../rate-limit";
+import { requireLeerlingAccess, requireTenantMember } from "../../access";
 import { type AuthedContext, base, protectedProcedure } from "../base";
+import {
+	contextBlock,
+	pseudonymise,
+	signAssistantTurn,
+	verifyAssistantTurn,
+} from "../../ai/advice-safety";
 
 /**
  * AI-laag domain (Epic 7): #1 vertaling, #18 transcriptie → conceptantwoorden,
@@ -92,6 +98,7 @@ const translate = protectedProcedure
 		}),
 	)
 	.handler(async ({ input, context, signal }) => {
+		requireTenantMember(context);
 		// Throttle the abusable translation endpoint per user (H3).
 		if (!rateLimit(`ai:translate:${context.actor.userId}`, { max: 30, windowMs: 60_000 })) {
 			throw new ORPCError("TOO_MANY_REQUESTS", {
@@ -128,15 +135,9 @@ async function loadReviewableSubmission(
 	return sub;
 }
 
-/** Non-superadmin actors other than the owning leerling must hold a coach_assignment to the leerling. */
+/** Only actors who may see this leerling's data (`requireLeerlingAccess`). */
 async function assertAssignedToLeerling(context: AuthedContext, leerlingId: string): Promise<void> {
-	const { actor } = context;
-	if (isSuperadmin(actor.role) || actor.userId === leerlingId) return;
-	const [link] = await context.db
-		.select({ id: coachAssignment.id })
-		.from(coachAssignment)
-		.where(and(eq(coachAssignment.coachId, actor.userId), eq(coachAssignment.leerlingId, leerlingId)));
-	if (!link) throw new ORPCError("FORBIDDEN", { message: "Leerling is niet aan jou gekoppeld" });
+	await requireLeerlingAccess(context, leerlingId);
 }
 
 const ProposedAnswerSchema = z.object({
@@ -218,6 +219,9 @@ const transcribe = coachProcedure
 			.returning();
 		if (!pending) throw new ORPCError("INTERNAL_SERVER_ERROR");
 
+		// The provider call can take a minute; give the connection back meanwhile.
+		// The writes below take a fresh one (actor still pinned for the audit log).
+		await context.suspendDb();
 		const provider = getAiProvider();
 		let result: { transcript: string; proposals: { questionId: string; value: string }[] };
 		try {
@@ -334,10 +338,18 @@ const deleteAudio = coachProcedure
 // #22 — Streaming interventie-advies (oRPC Event Iterator)
 // ---------------------------------------------------------------------------
 
-const AdviceMessageSchema = z.object({
-	role: z.enum(["user", "assistant"]),
-	content: z.string().min(1).max(8000),
-});
+const AdviceMessageSchema = z.discriminatedUnion("role", [
+	z.object({ role: z.literal("user"), content: z.string().min(1).max(8000) }),
+	z.object({
+		role: z.literal("assistant"),
+		content: z.string().min(1).max(20_000),
+		/** From the `done` frame of the turn that produced it (advice-safety.ts). */
+		signature: z.string().max(200),
+	}),
+]);
+
+/** Turns kept per conversation; older ones the coach can start over for. */
+const MAX_ADVICE_TURNS = 20;
 
 /** Max chars of composed coachplan context we fold into the prompt (input cap). */
 const COACHPLAN_CONTEXT_CAP = 20_000;
@@ -401,7 +413,8 @@ async function composeCoachplanContext(
 
 	const answerByQuestion = new Map(answers.map((a) => [a.questionId, a]));
 
-	const header = [`Leerling: ${leerling?.name ?? "onbekend"}`];
+	// The name never leaves for the AI provider (pseudonymised below).
+	const header: string[] = [];
 	if (prefs.length > 0) {
 		header.push(`Leervoorkeuren: ${prefs.map((p) => p.label).join(", ")}`);
 	}
@@ -416,7 +429,7 @@ async function composeCoachplanContext(
 		if (out.length + line.length > COACHPLAN_CONTEXT_CAP) break;
 		out += line;
 	}
-	return out;
+	return pseudonymise(out.trim(), leerling?.name);
 }
 
 /**
@@ -425,20 +438,19 @@ async function composeCoachplanContext(
  * iterable and appends each `{ delta }` frame. A final `{ done: true }` frame
  * signals completion.
  *
- * When a `submissionId` is given the coachplan context is composed server-side
- * from the real answers (see `composeCoachplanContext`); the client-supplied
- * `coachplanContext` is only a fallback for callers without a submission. RAG
- * over kennisdocumenten via pgvector is folded in on top (see below).
+ * Advice is always about one plan: the context is composed server-side from
+ * its real answers (`composeCoachplanContext`), RAG over kennisdocumenten is
+ * added, and both go into the first user turn as delimited data — not into the
+ * system prompt (advice-safety.ts). The pupil's name is pseudonymised, client
+ * assistant turns must carry the server's signature, and the history is capped.
  */
 const assistant = coachProcedure
 	.route({ method: "POST", path: "/ai/assistant", tags: ["ai"] })
 	.input(
 		z.object({
-			/** Optional: scope advice to a specific coachplan (tenant-checked). */
-			submissionId: z.string().uuid().optional(),
-			/** Free-text coachplan context to ground the advice. */
-			coachplanContext: z.string().max(20_000).optional(),
-			messages: z.array(AdviceMessageSchema).min(1),
+			/** The coachplan to advise about (tenant- and access-checked). */
+			submissionId: z.string().uuid(),
+			messages: z.array(AdviceMessageSchema).min(1).max(MAX_ADVICE_TURNS),
 		}),
 	)
 	.handler(async function* ({ input, context, signal }) {
@@ -448,14 +460,33 @@ const assistant = coachProcedure
 				message: "Te veel AI-verzoeken. Wacht even en probeer opnieuw.",
 			});
 		}
-		// If a submission is referenced, enforce the coach may read it and compose
-		// the coachplan context server-side from the real answers (never trust a
-		// client-built context for an answered plan).
-		let serverContext: string | null = null;
-		if (input.submissionId) {
-			const sub = await loadReviewableSubmission(context, input.submissionId);
-			serverContext = await composeCoachplanContext(context, sub);
+		const { userId } = context.actor;
+		const last = input.messages.at(-1);
+		if (last?.role !== "user" || input.messages[0]?.role !== "user") {
+			throw new ORPCError("BAD_REQUEST", { message: "Stel eerst een vraag." });
 		}
+		for (const m of input.messages) {
+			if (
+				m.role === "assistant" &&
+				!verifyAssistantTurn(userId, input.submissionId, m.content, m.signature)
+			) {
+				throw new ORPCError("BAD_REQUEST", {
+					message: "Dit gesprek is niet meer geldig. Begin opnieuw.",
+				});
+			}
+		}
+
+		// The coach may read this plan; the context comes from its real answers.
+		const sub = await loadReviewableSubmission(context, input.submissionId);
+		const serverContext = await composeCoachplanContext(context, sub);
+		const [leerling] = await context.db
+			.select({ name: user.name })
+			.from(user)
+			.where(eq(user.id, sub.leerlingId));
+		const coachTurns = input.messages.map((m) => ({
+			role: m.role,
+			content: m.role === "user" ? pseudonymise(m.content, leerling?.name) : m.content,
+		}));
 
 		const provider = getAiProvider();
 
@@ -463,9 +494,9 @@ const assistant = coachProcedure
 		// latest question, retrieve the nearest chunks (global + own tenant) and
 		// fold them into the system-prompt context. Best-effort: a retrieval
 		// failure (e.g. pgvector not enabled) must never break the advice stream.
-		let promptContext = serverContext ?? input.coachplanContext?.trim() ?? "";
+		let promptContext = serverContext;
 		try {
-			const lastUser = input.messages.findLast((m) => m.role === "user");
+			const lastUser = coachTurns.findLast((m) => m.role === "user");
 			if (lastUser) {
 				const hits = await retrieveKennisHits(context.db, provider, lastUser.content, {
 					organizationId: context.actor.organizationId,
@@ -482,24 +513,38 @@ const assistant = coachProcedure
 			console.error("kennisdocumenten retrieval failed", err);
 		}
 
+		// The context rides along in the first user turn, every time the
+		// history is resent, so the model always has it.
+		const [first, ...rest] = coachTurns;
 		const messages = [
+			{ role: "system" as const, content: adviceSystemPrompt() },
 			{
-				role: "system" as const,
-				content: adviceSystemPrompt(promptContext || undefined),
+				role: "user" as const,
+				content: promptContext
+					? `${contextBlock(promptContext)}\n\nVraag van de coach:\n${first!.content}`
+					: first!.content,
 			},
-			...input.messages,
+			...rest,
 		];
+
+		// All DB work is done; don't hold a connection while the advice streams.
+		await context.suspendDb();
 
 		// First frame carries provider metadata so the UI can show "MOCK".
 		yield { meta: { mock: provider.mock, model: provider.model } } as
 			| { meta: { mock: boolean; model: string } }
 			| { delta: string }
-			| { done: true };
+			| { done: true; signature: string };
 
+		let answer = "";
 		for await (const delta of provider.streamAdvice({ messages, signal })) {
+			answer += delta;
 			yield { delta };
 		}
-		yield { done: true };
+		yield {
+			done: true,
+			signature: signAssistantTurn(userId, input.submissionId, answer),
+		};
 	});
 
 export const aiRouter = base.router({

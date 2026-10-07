@@ -6,22 +6,18 @@ import {
 	contentBlock,
 	contentBlockLabel,
 	contentProgress,
-	conversation,
-	conversationMember,
 	course,
 	courseSection,
-	formSubmission,
-	learningPreferenceLabel,
 	proposedAssignment,
 	task,
 	user,
 } from "@incluvo/drizzle/schema";
 import {
 	atLeast,
+	canBuildCourses,
 	checkPermission,
 	isSuperadmin,
 	policies,
-	sameTenant,
 } from "@incluvo/permissions";
 import { ORPCError } from "@orpc/server";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
@@ -30,21 +26,32 @@ import {
 	ALLOWED_UPLOAD_TYPES,
 	assertValidStorageKey,
 	contentMatchesBytes,
-	guessContentType,
-	hasS3,
 	MAX_UPLOAD_BYTES,
 	makeStorageKey,
-	presignedGetUrl,
 	presignPut,
+	readableFileUrl,
 	publicUrl,
-	readLocalUpload,
 	statUpload,
 	writeLocalUpload,
 } from "../../courses/storage";
 import { parseYoutubeId, youtubeEmbedUrl } from "../../courses/youtube";
-import { notify } from "../../notifications/notify";
+import { leerlingCoachRecipients, notify } from "../../notifications";
+import { rateLimit } from "../../rate-limit";
 import { publishTo } from "../../sse";
+import { currentLeervoorkeuren } from "../../coachplan/lifecycle";
+import {
+	canReachLeerling,
+	reachableLeerlingen,
+	requireLeerlingAccess,
+	requireTenantMember,
+} from "../../access";
 import { type AuthedContext, base, protectedProcedure } from "../base";
+import {
+	availableTemplateIds,
+	catalogRouter,
+	categoryIdsByCourse,
+	schoolIdsByTemplate,
+} from "./catalog";
 
 /**
  * A Drizzle transaction handle (the `tx` passed to `db.transaction`). Helpers
@@ -62,8 +69,9 @@ type Tx = Parameters<Parameters<AuthedContext["db"]["transaction"]>[0]>[0];
  * `parentCourseId` link. Ontwikkelaar+ build courses, sections (#25) and content
  * blocks (#26) of every CbS type: opdracht (#27 → also seeds a `task`), pagina
  * (#29, Tiptap ProseMirror JSON in `body`), bestand (#30, presigned upload),
- * youtube (#31, validated 11-char id), forum (#32, creates a chat conversation).
- * LTI (#33) + Ondivera-content (#34) are typed stubs (post-MVP).
+ * youtube (#31, validated 11-char id). Course forums (#32) and group
+ * assignments were dropped (D3: a course copy belongs to one leerling, so
+ * there are no classmates to discuss or work with). LTI (#33) + Ondivera-content (#34) are typed stubs (post-MVP).
  *
  * Leerlingen view their course with a voortgangsbalk (#24), mark blocks done,
  * and submit assignments which a coach grades (#28). Content blocks carry
@@ -77,8 +85,6 @@ type Tx = Parameters<Parameters<AuthedContext["db"]["transaction"]>[0]>[0];
  * Cross-domain table writes (shared TABLES, not shared code):
  *   - INSERT `task` (source="assignment") when an opdracht block is created on a
  *     student_execution course, so it appears in the takenlijst (#27/#37).
- *   - INSERT `conversation` (kind="forum") + `conversation_member` rows when a
- *     forum block is created (#32).
  */
 
 // ---------------------------------------------------------------------------
@@ -94,8 +100,19 @@ const CourseSchema = z.object({
 	title: z.string(),
 	description: z.string().nullable(),
 	progressBarHidden: z.boolean(),
+	contentUpdatedAt: z.date(),
+	sourceContentAt: z.date().nullable(),
 	createdAt: z.date(),
 	updatedAt: z.date(),
+});
+
+/** A course in the list: also its categories and, for Ondivera, who may use it. */
+const ListCourseSchema = CourseSchema.extend({
+	categoryIds: z.array(z.string()),
+	/** Ondivera templates, superadmin only: open to all, or these schools. */
+	availability: z
+		.object({ allSchools: z.boolean(), organizationIds: z.array(z.string()) })
+		.nullable(),
 });
 
 const blockType = z.enum([
@@ -103,7 +120,6 @@ const blockType = z.enum([
 	"pagina",
 	"bestand",
 	"youtube",
-	"forum",
 	"lti",
 ]);
 
@@ -116,6 +132,8 @@ const courseColumns = {
 	title: course.title,
 	description: course.description,
 	progressBarHidden: course.progressBarHidden,
+	contentUpdatedAt: course.contentUpdatedAt,
+	sourceContentAt: course.sourceContentAt,
 	createdAt: course.createdAt,
 	updatedAt: course.updatedAt,
 } as const;
@@ -135,8 +153,11 @@ async function loadCourse(context: AuthedContext, id: string) {
 }
 
 /** Tenant resource for a course; Ondivera templates have a null org. */
-function courseResource(row: { organizationId: string | null }) {
-	return { organizationId: row.organizationId };
+function courseResource(row: {
+	organizationId: string | null;
+	kind?: "ondivera_template" | "school_template" | "student_execution";
+}) {
+	return { organizationId: row.organizationId, kind: row.kind };
 }
 
 /**
@@ -159,8 +180,22 @@ async function loadReadable(context: AuthedContext, id: string) {
 		}
 		return row;
 	}
+	// A leerling's own course copy is their data: only those who may see the
+	// leerling (assigned coach, keyuser of the school, superadmin).
+	if (row.kind === "student_execution" && row.leerlingId) {
+		await requireLeerlingAccess(context, row.leerlingId);
+		return row;
+	}
 	const sharedTemplate =
 		row.kind === "ondivera_template" && row.organizationId === null;
+	// A school only reads the Ondivera templates made available to it.
+	if (
+		sharedTemplate &&
+		!isSuperadmin(context.actor.role) &&
+		!(await availableTemplateIds(context.db, context.actor.organizationId, [row.id])).has(row.id)
+	) {
+		throw new ORPCError("FORBIDDEN", { message: "Deze cursus is niet beschikbaar voor jouw school" });
+	}
 	if (
 		!sharedTemplate &&
 		!checkPermission(policies.readCourse, context.actor, courseResource(row))
@@ -173,6 +208,9 @@ async function loadReadable(context: AuthedContext, id: string) {
 /** Load + assert the actor may manage the course (ontwikkelaar+, #25–#36). */
 async function loadManageable(context: AuthedContext, id: string) {
 	const row = await loadCourse(context, id);
+	if (row.kind === "student_execution" && row.leerlingId) {
+		await requireLeerlingAccess(context, row.leerlingId);
+	}
 	if (
 		!checkPermission(policies.manageCourse, context.actor, courseResource(row))
 	) {
@@ -183,44 +221,40 @@ async function loadManageable(context: AuthedContext, id: string) {
 	return row;
 }
 
+
 /**
- * When a non-leerling actor acts on behalf of a `leerlingId` it supplied, verify
- * that leerling exists, is in the actor's tenant, and is reachable by the actor
- * (superadmin, or a coach with a `coach_assignment` to this leerling). This stops
- * a coach/keyuser from reading or writing another tenant's / an unassigned
- * leerling's progress or leervoorkeuren (Medium: courses trust client leerlingId).
- *
- * A leerling acting on themselves never reaches here (callers force their own id).
+ * A stored file's key starts with the scope it was uploaded for (see
+ * `makeStorageKey`). Blocks, grades and submissions only accept keys of their
+ * own scope, so e.g. a builder can't point a course block at a pupil's
+ * submission file. Returns the key.
  */
-async function assertLeerlingReachable(
+function assertKeyScope(key: string, scope: "bestand" | "submission" | "feedback"): string {
+	try {
+		assertValidStorageKey(key);
+	} catch {
+		throw new ORPCError("BAD_REQUEST", { message: "Ongeldige opslagsleutel" });
+	}
+	if (!key.startsWith(`${scope}/`)) {
+		throw new ORPCError("BAD_REQUEST", { message: "Ongeldige opslagsleutel" });
+	}
+	return key;
+}
+
+/** A submission may only attach fresh uploads or files from the same leerling. */
+async function assertOwnSubmissionKey(
 	context: AuthedContext,
+	key: string,
 	leerlingId: string,
 ): Promise<void> {
-	const { actor } = context;
-	const [ll] = await context.db
-		.select({ id: user.id, organizationId: user.organizationId })
-		.from(user)
-		.where(eq(user.id, leerlingId));
-	if (!ll) throw new ORPCError("NOT_FOUND", { message: "Leerling niet gevonden" });
-	if (!sameTenant(actor, ll)) {
-		throw new ORPCError("FORBIDDEN", {
-			message: "Leerling hoort bij een andere organisatie",
-		});
-	}
-	if (isSuperadmin(actor.role)) return;
-	const [link] = await context.db
-		.select({ id: coachAssignment.id })
-		.from(coachAssignment)
+	assertKeyScope(key, "submission");
+	const others = await context.db
+		.select({ leerlingId: assignmentSubmission.leerlingId })
+		.from(assignmentSubmission)
 		.where(
-			and(
-				eq(coachAssignment.coachId, actor.userId),
-				eq(coachAssignment.leerlingId, leerlingId),
-			),
+			sql`${assignmentSubmission.fileStorageKeys} @> ${JSON.stringify([key])}::jsonb`,
 		);
-	if (!link) {
-		throw new ORPCError("FORBIDDEN", {
-			message: "Leerling is niet aan jou gekoppeld",
-		});
+	if (others.some((o) => o.leerlingId !== leerlingId)) {
+		throw new ORPCError("FORBIDDEN", { message: "Dit bestand hoort bij iemand anders" });
 	}
 }
 
@@ -244,6 +278,22 @@ async function courseChangedRecipients(
 		for (const c of coaches) ids.add(c.coachId);
 	}
 	return [...ids];
+}
+
+/**
+ * A builder changed the course's content: bump `contentUpdatedAt` (so copies
+ * can tell their source changed, D5) and return the `course.changed`
+ * recipients.
+ */
+async function contentChanged(
+	context: AuthedContext,
+	crs: { id: string; leerlingId: string | null },
+): Promise<string[]> {
+	await context.db
+		.update(course)
+		.set({ contentUpdatedAt: new Date() })
+		.where(eq(course.id, crs.id));
+	return courseChangedRecipients(context, crs);
 }
 
 /** Recipients for a task.changed event: the leerling + their coach(es). */
@@ -302,16 +352,18 @@ const list = protectedProcedure
 			})
 			.optional(),
 	)
-	.output(z.array(CourseSchema))
+	.output(z.array(ListCourseSchema))
 	.handler(async ({ input, context }) => {
 		const { actor } = context;
 
-		// Visible courses: Ondivera templates (org null), the actor's own tenant's
-		// courses, and — for a leerling — their own student_execution courses.
+		// Visible courses: Ondivera templates available to the school, the
+		// actor's own tenant's courses, and — for a leerling — their own
+		// student_execution courses.
 		const rows = await context.db
-			.select(courseColumns)
+			.select({ ...courseColumns, availableToAllSchools: course.availableToAllSchools })
 			.from(course)
 			.orderBy(asc(course.kind), asc(course.title));
+		const openTemplates = await availableTemplateIds(context.db, actor.organizationId);
 
 		const visible = rows.filter((row) => {
 			// Superadmin sees everything.
@@ -323,8 +375,8 @@ const list = protectedProcedure
 					row.kind === "student_execution" && row.leerlingId === actor.userId
 				);
 			}
-			// Ondivera templates are readable by any (non-leerling) user authed in a school.
-			if (row.kind === "ondivera_template") return true;
+			// Ondivera templates: only those Ondivera made available to the school.
+			if (row.kind === "ondivera_template") return openTemplates.has(row.id);
 			// Same-tenant courses.
 			if (
 				row.organizationId &&
@@ -336,12 +388,44 @@ const list = protectedProcedure
 			return false;
 		});
 
+		// Leerling course copies only for leerlingen the actor may see.
+		const reachable = new Set(
+			(
+				await context.db
+					.select({ id: user.id })
+					.from(user)
+					.where(await reachableLeerlingen(context, user.id, user.organizationId))
+			).map((u) => u.id),
+		);
 		const filtered = visible.filter((row) => {
+			if (
+				row.kind === "student_execution" &&
+				!(row.leerlingId && reachable.has(row.leerlingId))
+			) {
+				return false;
+			}
 			if (input?.kind && row.kind !== input.kind) return false;
 			if (input?.leerlingId && row.leerlingId !== input.leerlingId) return false;
 			return true;
 		});
-		return filtered;
+
+		const ids = filtered.map((r) => r.id);
+		const categories = await categoryIdsByCourse(context.db, ids);
+		const superadmin = isSuperadmin(actor.role);
+		const schools = superadmin
+			? await schoolIdsByTemplate(
+					context.db,
+					filtered.filter((r) => r.kind === "ondivera_template").map((r) => r.id),
+				)
+			: new Map<string, string[]>();
+		return filtered.map(({ availableToAllSchools, ...row }) => ({
+			...row,
+			categoryIds: categories.get(row.id) ?? [],
+			availability:
+				superadmin && row.kind === "ondivera_template"
+					? { allSchools: availableToAllSchools, organizationIds: schools.get(row.id) ?? [] }
+					: null,
+		}));
 	});
 
 const get = protectedProcedure
@@ -367,15 +451,39 @@ const create = protectedProcedure
 	.output(CourseSchema)
 	.handler(async ({ input, context }) => {
 		const { actor } = context;
-		if (!atLeast(actor.role, "ontwikkelaar")) {
+		// Templates are built by course builders; a leerling's copy is made by
+		// someone coaching them (checked below via the leerling rule).
+		if (
+			input.kind === "student_execution"
+				? !atLeast(actor.role, "coach")
+				: !canBuildCourses(actor.role)
+		) {
 			throw new ORPCError("FORBIDDEN", {
-				message: "Alleen een ontwikkelaar kan cursussen aanmaken",
+				message:
+					input.kind === "student_execution"
+						? "Alleen een coach kan een leerling een cursus geven"
+						: "Alleen een cursusbouwer kan cursussen aanmaken",
 			});
+		}
+
+		// A leerling's copy belongs to that leerling (and their school), and only
+		// those who may see the leerling may create one.
+		let executionOrg: string | null = null;
+		if (input.kind === "student_execution") {
+			if (!input.leerlingId) {
+				throw new ORPCError("BAD_REQUEST", { message: "Kies een leerling" });
+			}
+			executionOrg = (await requireLeerlingAccess(context, input.leerlingId))
+				.organizationId;
 		}
 
 		// Ondivera templates live at the platform (null org) — superadmin only.
 		const organizationId =
-			input.kind === "ondivera_template" ? null : actor.organizationId;
+			input.kind === "ondivera_template"
+				? null
+				: input.kind === "student_execution"
+					? executionOrg
+					: actor.organizationId;
 		if (input.kind === "ondivera_template" && !atLeast(actor.role, "superadmin")) {
 			throw new ORPCError("FORBIDDEN", {
 				message: "Alleen Ondivera kan een sjablooncursus aanmaken",
@@ -392,7 +500,7 @@ const create = protectedProcedure
 			.values({
 				kind: input.kind,
 				organizationId,
-				leerlingId: input.leerlingId ?? null,
+				leerlingId: input.kind === "student_execution" ? input.leerlingId : null,
 				title: input.title,
 				description: input.description ?? null,
 				createdById: actor.userId,
@@ -428,7 +536,7 @@ const update = protectedProcedure
 		if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
 		publishTo(
 			{ type: "course.changed", payload: { courseId: row.id } },
-			await courseChangedRecipients(context, row),
+			await contentChanged(context, row),
 		);
 		return row;
 	});
@@ -441,11 +549,8 @@ const setProgressBarHidden = protectedProcedure
 	.input(z.object({ id: z.string().uuid(), hidden: z.boolean() }))
 	.output(CourseSchema)
 	.handler(async ({ input, context }) => {
-		const row = await loadCourse(context, input.id);
-		if (
-			!atLeast(context.actor.role, "coach") ||
-			!checkPermission(policies.readCourse, context.actor, courseResource(row))
-		) {
+		await loadReadable(context, input.id);
+		if (!atLeast(context.actor.role, "coach")) {
 			throw new ORPCError("FORBIDDEN", {
 				message: "Alleen een coach kan de voortgangsbalk verbergen",
 			});
@@ -555,7 +660,6 @@ async function copyStructure(
 						contentBlockId: newBlock.id,
 						name: asg.name,
 						description: asg.description,
-						isGroup: asg.isGroup,
 						responseType: asg.responseType,
 						maxAttempts: asg.maxAttempts,
 						dueAt: asg.dueAt,
@@ -583,9 +687,16 @@ const derive = protectedProcedure
 	.handler(async ({ input, context }) => {
 		const { actor } = context;
 		const src = await loadReadable(context, input.id);
-		if (!atLeast(actor.role, "ontwikkelaar")) {
+		if (
+			input.kind === "student_execution"
+				? !atLeast(actor.role, "coach")
+				: !canBuildCourses(actor.role)
+		) {
 			throw new ORPCError("FORBIDDEN", {
-				message: "Alleen een ontwikkelaar kan een cursus afleiden",
+				message:
+					input.kind === "student_execution"
+						? "Alleen een coach kan een leerling een cursus geven"
+						: "Alleen een cursusbouwer kan een cursus afleiden",
 			});
 		}
 		if (!actor.organizationId) {
@@ -612,6 +723,10 @@ const derive = protectedProcedure
 				});
 			}
 		}
+		const destOrg =
+			input.kind === "student_execution" && input.leerlingId
+				? (await requireLeerlingAccess(context, input.leerlingId)).organizationId
+				: actor.organizationId;
 
 		// Atomic: the dest course + its deep-copied sections/blocks/labels/
 		// assignments + seeded tasks must commit together — a partial copy would
@@ -621,8 +736,9 @@ const derive = protectedProcedure
 				.insert(course)
 				.values({
 					kind: input.kind,
-					organizationId: actor.organizationId,
+					organizationId: destOrg,
 					parentCourseId: src.id,
+					sourceContentAt: src.contentUpdatedAt,
 					leerlingId:
 						input.kind === "student_execution" ? (input.leerlingId ?? null) : null,
 					title: input.title ?? src.title,
@@ -673,14 +789,7 @@ async function seedTasksForExecution(
 		.where(eq(courseSection.courseId, courseId));
 
 	for (const a of rows) {
-		// Idempotency: skip if a task already exists for this assignment+leerling.
-		const [existing] = await tx
-			.select({ id: task.id })
-			.from(task)
-			.where(
-				and(eq(task.assignmentId, a.assignmentId), eq(task.leerlingId, leerlingId)),
-			);
-		if (existing) continue;
+		// Idempotent: one task per opdracht per leerling (unique index).
 		await tx.insert(task).values({
 			organizationId: crs.organizationId,
 			leerlingId,
@@ -689,7 +798,7 @@ async function seedTasksForExecution(
 			title: a.name,
 			description: a.description,
 			dueAt: a.dueAt,
-		});
+		}).onConflictDoNothing();
 	}
 }
 
@@ -724,7 +833,7 @@ const addSection = protectedProcedure
 		if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
 		publishTo(
 			{ type: "course.changed", payload: { courseId: input.courseId } },
-			await courseChangedRecipients(context, crs),
+			await contentChanged(context, crs),
 		);
 		return row;
 	});
@@ -743,7 +852,7 @@ const updateSection = protectedProcedure
 		if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
 		publishTo(
 			{ type: "course.changed", payload: { courseId: crs.id } },
-			await courseChangedRecipients(context, crs),
+			await contentChanged(context, crs),
 		);
 		return row;
 	});
@@ -757,7 +866,7 @@ const deleteSection = protectedProcedure
 		await context.db.delete(courseSection).where(eq(courseSection.id, input.id));
 		publishTo(
 			{ type: "course.changed", payload: { courseId: crs.id } },
-			await courseChangedRecipients(context, crs),
+			await contentChanged(context, crs),
 		);
 		return { id: input.id };
 	});
@@ -789,7 +898,7 @@ const reorderSections = protectedProcedure
 		}
 		publishTo(
 			{ type: "course.changed", payload: { courseId: input.courseId } },
-			await courseChangedRecipients(context, crs),
+			await contentChanged(context, crs),
 		);
 		return { ok: true };
 	});
@@ -816,7 +925,6 @@ const BlockInput = z.object({
 		.object({
 			name: z.string().min(1),
 			description: z.string().optional(),
-			isGroup: z.boolean().optional(),
 			responseType: z.enum(["text", "files", "text_and_files"]).optional(),
 			maxAttempts: z.number().int().positive().optional(),
 			dueAt: z.coerce.date().optional(),
@@ -850,7 +958,7 @@ const addBlock = protectedProcedure
 		}
 
 		// Atomic: the block + its labels + (for opdracht) the assignment + seeded
-		// task + (for forum) the conversation must all commit together (H2).
+		// task must all commit together (H2).
 		let seededTaskLeerlingId: string | null = null;
 		const block = await context.db.transaction(async (tx) => {
 			const [agg] = await tx
@@ -868,7 +976,9 @@ const addBlock = protectedProcedure
 					body: input.type === "pagina" ? (input.body ?? null) : null,
 					youtubeUrl: youtubeId,
 					fileStorageKey:
-						input.type === "bestand" ? (input.fileStorageKey ?? null) : null,
+						input.type === "bestand" && input.fileStorageKey
+							? assertKeyScope(input.fileStorageKey, "bestand")
+							: null,
 					countsForProgress: input.countsForProgress ?? true,
 				})
 				.returning({ id: contentBlock.id, type: contentBlock.type });
@@ -894,7 +1004,6 @@ const addBlock = protectedProcedure
 						contentBlockId: created.id,
 						name: a.name,
 						description: a.description ?? null,
-						isGroup: a.isGroup ?? false,
 						responseType: a.responseType ?? "text_and_files",
 						maxAttempts: a.maxAttempts ?? null,
 						dueAt: a.dueAt ?? null,
@@ -920,10 +1029,6 @@ const addBlock = protectedProcedure
 				}
 			}
 
-			// forum: create + link a chat conversation (#32).
-			if (input.type === "forum") {
-				await createForumConversation(tx, created.id, crs, input.title);
-			}
 			return created;
 		});
 
@@ -937,61 +1042,10 @@ const addBlock = protectedProcedure
 
 		publishTo(
 			{ type: "course.changed", payload: { courseId: crs.id } },
-			await courseChangedRecipients(context, crs),
+			await contentChanged(context, crs),
 		);
 		return block;
 	});
-
-/**
- * Create a kind="forum" conversation linked to a forum content block (#32) and
- * add the leerling (if this is a student execution) + their coach as supervisor.
- * Cross-domain write into the chat tables (shared TABLES, not shared code).
- */
-async function createForumConversation(
-	tx: Tx,
-	blockId: string,
-	crs: { organizationId: string | null; leerlingId: string | null },
-	title: string,
-): Promise<void> {
-	if (!crs.organizationId) return;
-	const [conv] = await tx
-		.insert(conversation)
-		.values({
-			organizationId: crs.organizationId,
-			kind: "forum",
-			courseContentBlockId: blockId,
-			title,
-		})
-		.returning({ id: conversation.id });
-	if (!conv) return;
-
-	const members: { conversationId: string; userId: string; role: "member" | "supervisor" }[] =
-		[];
-	if (crs.leerlingId) {
-		members.push({
-			conversationId: conv.id,
-			userId: crs.leerlingId,
-			role: "member",
-		});
-		// Add the leerling's assigned coach(es) as supervisor (#32). Skip the
-		// leerling if they somehow appear in their own assignments.
-		const coaches = await tx
-			.select({ coachId: coachAssignment.coachId })
-			.from(coachAssignment)
-			.where(eq(coachAssignment.leerlingId, crs.leerlingId));
-		for (const coachId of new Set(coaches.map((c) => c.coachId))) {
-			if (coachId === crs.leerlingId) continue;
-			members.push({
-				conversationId: conv.id,
-				userId: coachId,
-				role: "supervisor",
-			});
-		}
-	}
-	if (members.length > 0) {
-		await tx.insert(conversationMember).values(members);
-	}
-}
 
 const updateBlock = protectedProcedure
 	.route({ method: "POST", path: "/blocks/{id}/update", tags: ["courses"] })
@@ -1017,34 +1071,39 @@ const updateBlock = protectedProcedure
 				throw new ORPCError("BAD_REQUEST", { message: "Ongeldige YouTube-link" });
 		}
 
-		await context.db
-			.update(contentBlock)
-			.set({
-				title: input.title,
-				body: block.type === "pagina" ? input.body : undefined,
-				youtubeUrl: block.type === "youtube" ? youtubeId : undefined,
-				fileStorageKey:
-					block.type === "bestand" ? input.fileStorageKey : undefined,
-				countsForProgress: input.countsForProgress,
-				updatedAt: new Date(),
-			})
-			.where(eq(contentBlock.id, input.id));
+		// Block fields and its labels change together (#36).
+		await context.db.transaction(async (tx) => {
+			await tx
+				.update(contentBlock)
+				.set({
+					title: input.title,
+					body: block.type === "pagina" ? input.body : undefined,
+					youtubeUrl: block.type === "youtube" ? youtubeId : undefined,
+					fileStorageKey:
+						block.type === "bestand" && input.fileStorageKey
+							? assertKeyScope(input.fileStorageKey, "bestand")
+							: undefined,
+					countsForProgress: input.countsForProgress,
+					updatedAt: new Date(),
+				})
+				.where(eq(contentBlock.id, input.id));
 
-		// Replace labels if provided (#36).
-		if (input.labels) {
-			await context.db
-				.delete(contentBlockLabel)
-				.where(eq(contentBlockLabel.contentBlockId, input.id));
-			if (input.labels.length > 0) {
-				await context.db.insert(contentBlockLabel).values(
-					input.labels.map((label) => ({ contentBlockId: input.id, label })),
-				);
+			// Replace labels if provided (#36).
+			if (input.labels) {
+				await tx
+					.delete(contentBlockLabel)
+					.where(eq(contentBlockLabel.contentBlockId, input.id));
+				if (input.labels.length > 0) {
+					await tx.insert(contentBlockLabel).values(
+						input.labels.map((label) => ({ contentBlockId: input.id, label })),
+					);
+				}
 			}
-		}
+		});
 
 		publishTo(
 			{ type: "course.changed", payload: { courseId: crs.id } },
-			await courseChangedRecipients(context, crs),
+			await contentChanged(context, crs),
 		);
 		return { id: input.id };
 	});
@@ -1058,7 +1117,7 @@ const deleteBlock = protectedProcedure
 		await context.db.delete(contentBlock).where(eq(contentBlock.id, input.id));
 		publishTo(
 			{ type: "course.changed", payload: { courseId: crs.id } },
-			await courseChangedRecipients(context, crs),
+			await contentChanged(context, crs),
 		);
 		return { id: input.id };
 	});
@@ -1089,7 +1148,7 @@ const reorderBlocks = protectedProcedure
 		}
 		publishTo(
 			{ type: "course.changed", payload: { courseId: crs.id } },
-			await courseChangedRecipients(context, crs),
+			await contentChanged(context, crs),
 		);
 		return { ok: true };
 	});
@@ -1098,13 +1157,16 @@ const reorderBlocks = protectedProcedure
 // Uploads (#27/#30): presign a PUT, then confirm (stat re-verify)
 // ---------------------------------------------------------------------------
 
+/** Uploads (presign or local) per user per 10 minutes. */
+const UPLOADS_PER_USER = { max: 60, windowMs: 10 * 60_000 };
+
 const presignUpload = protectedProcedure
 	.route({ method: "POST", path: "/courses/upload/presign", tags: ["courses"] })
 	.input(
 		z.object({
 			filename: z.string().min(1),
 			contentType: z.string().min(1),
-			scope: z.enum(["bestand", "submission", "feedback"]).default("bestand"),
+			scope: z.enum(["bestand", "submission", "feedback", "chat"]).default("bestand"),
 		}),
 	)
 	.output(
@@ -1116,8 +1178,16 @@ const presignUpload = protectedProcedure
 	)
 	.handler(async ({ input, context }) => {
 		const { actor } = context;
+		// School members only, and a ceiling per user so nobody can fill the
+		// storage (FIX-PLAN 1.2).
+		requireTenantMember(context);
+		if (!rateLimit(`upload:${actor.userId}`, UPLOADS_PER_USER)) {
+			throw new ORPCError("TOO_MANY_REQUESTS", {
+				message: "Te veel uploads achter elkaar. Wacht even en probeer opnieuw.",
+			});
+		}
 		// Ontwikkelaar+ upload course files; a leerling uploads submission files.
-		if (input.scope === "bestand" && !atLeast(actor.role, "ontwikkelaar")) {
+		if (input.scope === "bestand" && !canBuildCourses(actor.role)) {
 			throw new ORPCError("FORBIDDEN");
 		}
 		if (input.scope === "feedback" && !atLeast(actor.role, "coach")) {
@@ -1156,7 +1226,7 @@ const uploadLocal = protectedProcedure
 		z.object({
 			filename: z.string().min(1),
 			contentType: z.string().min(1),
-			scope: z.enum(["bestand", "submission", "feedback"]).default("bestand"),
+			scope: z.enum(["bestand", "submission", "feedback", "chat"]).default("bestand"),
 			/** base64-encoded file bytes. */
 			data: z.string().min(1),
 		}),
@@ -1164,7 +1234,15 @@ const uploadLocal = protectedProcedure
 	.output(z.object({ storageKey: z.string(), size: z.number() }))
 	.handler(async ({ input, context }) => {
 		const { actor } = context;
-		if (input.scope === "bestand" && !atLeast(actor.role, "ontwikkelaar")) {
+		// School members only, and a ceiling per user so nobody can fill the
+		// storage (FIX-PLAN 1.2).
+		requireTenantMember(context);
+		if (!rateLimit(`upload:${actor.userId}`, UPLOADS_PER_USER)) {
+			throw new ORPCError("TOO_MANY_REQUESTS", {
+				message: "Te veel uploads achter elkaar. Wacht even en probeer opnieuw.",
+			});
+		}
+		if (input.scope === "bestand" && !canBuildCourses(actor.role)) {
 			throw new ORPCError("FORBIDDEN");
 		}
 		if (input.scope === "feedback" && !atLeast(actor.role, "coach")) {
@@ -1206,7 +1284,6 @@ async function authorizeFileAccess(
 	context: AuthedContext,
 	storageKey: string,
 ): Promise<void> {
-	const { actor } = context;
 	const scope = storageKey.split("/")[0];
 
 	if (scope === "bestand") {
@@ -1256,14 +1333,8 @@ async function authorizeFileAccess(
 			.from(assignmentSubmission)
 			.where(eq(assignmentSubmission.id, grade.submissionId));
 		if (!sub) throw new ORPCError("NOT_FOUND");
-		const { course: crs } = await loadAssignmentCourse(context, sub.assignmentId);
-		// The leerling the feedback is for, or a coach who can read the course.
-		if (
-			actor.userId === sub.leerlingId ||
-			checkPermission(policies.readCourse, actor, courseResource(crs))
-		) {
-			return;
-		}
+		// The leerling the feedback is for, or someone who may see them.
+		if (await canReachLeerling(context, sub.leerlingId)) return;
 		throw new ORPCError("FORBIDDEN");
 	}
 
@@ -1283,15 +1354,10 @@ async function authorizeFileAccess(
 					storageKey,
 				])}::jsonb`,
 			);
-		const sub = candidates[0];
-		if (!sub) throw new ORPCError("NOT_FOUND");
-		const { course: crs } = await loadAssignmentCourse(context, sub.assignmentId);
-		// The owning leerling, or a coach who may read/grade the course.
-		if (
-			actor.userId === sub.leerlingId ||
-			checkPermission(policies.readCourse, actor, courseResource(crs))
-		) {
-			return;
+		if (candidates.length === 0) throw new ORPCError("NOT_FOUND");
+		// The owning leerling, or someone who may see them.
+		for (const sub of candidates) {
+			if (await canReachLeerling(context, sub.leerlingId)) return;
 		}
 		throw new ORPCError("FORBIDDEN");
 	}
@@ -1320,28 +1386,8 @@ const getFile = protectedProcedure
 		// Authorize against the owning row (IDOR fix).
 		await authorizeFileAccess(context, input.storageKey);
 
-		if (hasS3()) {
-			// Short-lived presigned GET — never a permanent public URL for pupil data.
-			return { url: presignedGetUrl(input.storageKey, 300) };
-		}
-		const bytes = await readLocalUpload(input.storageKey);
-		// Derive the MIME from the extension. Only allow a known/allow-listed
-		// content type to be served inline as a data URL; anything else (or an
-		// unknown extension) falls back to a non-executable octet-stream so it
-		// can't render in the victim's origin (H1). Combined with the upload-time
-		// magic-byte sniff, the served type is server-derived, never client-trusted.
-		const guessed = guessContentType(input.storageKey);
-		const inlineAllowed = new Set(
-			Object.keys(ALLOWED_UPLOAD_TYPES).filter(
-				(t) => !t.startsWith("text/") && t !== "image/svg+xml",
-			),
-		);
-		const safeMime = inlineAllowed.has(guessed)
-			? guessed
-			: "application/octet-stream";
-		return {
-			url: `data:${safeMime};base64,${bytes.toString("base64")}`,
-		};
+		// Short-lived presigned GET (prod) or a safe data URL (dev).
+		return { url: await readableFileUrl(input.storageKey) };
 	});
 
 // ---------------------------------------------------------------------------
@@ -1367,13 +1413,11 @@ const BlockViewSchema = z.object({
 			id: z.string(),
 			name: z.string(),
 			description: z.string().nullable(),
-			isGroup: z.boolean(),
 			responseType: z.enum(["text", "files", "text_and_files"]),
 			maxAttempts: z.number().nullable(),
 			dueAt: z.date().nullable(),
 		})
 		.nullable(),
-	forumConversationId: z.string().nullable(),
 });
 
 const tree = protectedProcedure
@@ -1388,6 +1432,11 @@ const tree = protectedProcedure
 	.output(
 		z.object({
 			course: CourseSchema,
+			/**
+			 * For a school's copy of an Ondivera course: the source changed
+			 * since the copy was made (D5, the school decides what to do).
+			 */
+			sourceChanged: z.boolean(),
 			leervoorkeuren: z.array(z.string()),
 			progress: z.object({
 				total: z.number(),
@@ -1410,8 +1459,8 @@ const tree = protectedProcedure
 		// A non-leerling who supplies a leerlingId must be allowed to act for them
 		// (same tenant + assigned), else they could read another pupil's progress
 		// and leervoorkeuren (Medium).
-		if (actor.role !== "leerling" && input.leerlingId) {
-			await assertLeerlingReachable(context, input.leerlingId);
+		if (input.leerlingId && input.leerlingId !== actor.userId) {
+			await requireLeerlingAccess(context, input.leerlingId);
 		}
 		const leerlingId =
 			actor.role === "leerling"
@@ -1434,7 +1483,7 @@ const tree = protectedProcedure
 			: [];
 		const blockIds = blocks.map((b) => b.id);
 
-		// Labels, assignments, progress, forums — batched.
+		// Labels, assignments, progress — batched.
 		const labels = blockIds.length
 			? await context.db
 					.select()
@@ -1458,15 +1507,6 @@ const tree = protectedProcedure
 						),
 					)
 			: [];
-		const forums = blockIds.length
-			? await context.db
-					.select({
-						id: conversation.id,
-						blockId: conversation.courseContentBlockId,
-					})
-					.from(conversation)
-					.where(inArray(conversation.courseContentBlockId, blockIds))
-			: [];
 
 		const labelsByBlock = new Map<string, string[]>();
 		for (const l of labels) {
@@ -1477,9 +1517,6 @@ const tree = protectedProcedure
 		const asgByBlock = new Map(assignments.map((a) => [a.contentBlockId, a]));
 		const doneSet = new Set(
 			progress.filter((p) => p.completed).map((p) => p.contentBlockId),
-		);
-		const forumByBlock = new Map(
-			forums.filter((f) => f.blockId).map((f) => [f.blockId as string, f.id]),
 		);
 
 		// Leervoorkeuren of the leerling (#35) from their latest coachplan submission.
@@ -1530,13 +1567,11 @@ const tree = protectedProcedure
 								id: asg.id,
 								name: asg.name,
 								description: asg.description,
-								isGroup: asg.isGroup,
 								responseType: asg.responseType,
 								maxAttempts: asg.maxAttempts,
 								dueAt: asg.dueAt,
 							}
 						: null,
-					forumConversationId: forumByBlock.get(b.id) ?? null,
 				};
 			});
 			return {
@@ -1547,8 +1582,19 @@ const tree = protectedProcedure
 			};
 		});
 
+		let sourceChanged = false;
+		if (crs.kind === "school_template" && crs.parentCourseId) {
+			const [source] = await context.db
+				.select({ contentUpdatedAt: course.contentUpdatedAt })
+				.from(course)
+				.where(eq(course.id, crs.parentCourseId));
+			sourceChanged =
+				!!source && source.contentUpdatedAt > (crs.sourceContentAt ?? crs.createdAt);
+		}
+
 		return {
 			course: crs,
+			sourceChanged,
 			leervoorkeuren,
 			progress: {
 				total,
@@ -1570,22 +1616,8 @@ async function readLeervoorkeuren(
 	context: AuthedContext,
 	leerlingId: string,
 ): Promise<string[]> {
-	const rows = await context.db
-		.select({
-			label: learningPreferenceLabel.label,
-			submissionId: formSubmission.id,
-			updatedAt: formSubmission.updatedAt,
-		})
-		.from(learningPreferenceLabel)
-		.innerJoin(
-			formSubmission,
-			eq(learningPreferenceLabel.submissionId, formSubmission.id),
-		)
-		.where(eq(formSubmission.leerlingId, leerlingId))
-		.orderBy(desc(formSubmission.updatedAt));
-	const newest = rows[0]?.submissionId;
-	if (!newest) return [];
-	return rows.filter((r) => r.submissionId === newest).map((r) => r.label);
+	// The leervoorkeuren of the leerling's current (shared) coachplan.
+	return currentLeervoorkeuren(context.db, leerlingId);
 }
 
 // ---------------------------------------------------------------------------
@@ -1606,10 +1638,16 @@ const setProgress = protectedProcedure
 		const { actor } = context;
 		// Load block → section → course and ensure read access.
 		const [block] = await context.db
-			.select({ id: contentBlock.id, sectionId: contentBlock.sectionId })
+			.select({ id: contentBlock.id, sectionId: contentBlock.sectionId, type: contentBlock.type })
 			.from(contentBlock)
 			.where(eq(contentBlock.id, input.id));
 		if (!block) throw new ORPCError("NOT_FOUND");
+		// An opdracht is done by handing it in (submitAssignment), not by ticking it.
+		if (block.type === "opdracht") {
+			throw new ORPCError("BAD_REQUEST", {
+				message: "Een opdracht is klaar zodra je hem inlevert",
+			});
+		}
 		const [sec] = await context.db
 			.select({ courseId: courseSection.courseId })
 			.from(courseSection)
@@ -1619,8 +1657,8 @@ const setProgress = protectedProcedure
 
 		// A non-leerling writing progress for a supplied leerlingId must be
 		// allowed to act for them (same tenant + assigned) before any write (Medium).
-		if (actor.role !== "leerling" && input.leerlingId) {
-			await assertLeerlingReachable(context, input.leerlingId);
+		if (input.leerlingId && input.leerlingId !== actor.userId) {
+			await requireLeerlingAccess(context, input.leerlingId);
 		}
 		const leerlingId =
 			actor.role === "leerling"
@@ -1688,8 +1726,43 @@ async function loadAssignmentCourse(context: AuthedContext, assignmentId: string
 		.from(courseSection)
 		.where(eq(courseSection.id, block.sectionId));
 	if (!sec) throw new ORPCError("NOT_FOUND");
-	const crs = await loadCourse(context, sec.courseId);
+	const crs = await loadReadable(context, sec.courseId);
 	return { assignment: asg, course: crs };
+}
+
+/** A user's name for a notification ("Een leerling" when unknown). */
+async function nameOf(context: AuthedContext, userId: string): Promise<string> {
+	const [row] = await context.db
+		.select({ name: user.name })
+		.from(user)
+		.where(eq(user.id, userId));
+	return row?.name ?? "Een leerling";
+}
+
+/**
+ * Tell the leerling's coach(es) about something the leerling did in a course
+ * (`leerlingCoachRecipients`: gekoppelde coaches, else the keyusers).
+ * Best-effort: a failed notification never breaks the action itself.
+ */
+async function notifyCoachesOf(
+	context: AuthedContext,
+	leerlingId: string,
+	organizationId: string | null,
+	message: { title: string; body: string; entity: { type: string; id: string } },
+): Promise<void> {
+	if (!organizationId) return;
+	try {
+		for (const userId of await leerlingCoachRecipients(context.db, leerlingId, organizationId)) {
+			await notify(context.db, {
+				userId,
+				organizationId,
+				type: "course_activity",
+				...message,
+			});
+		}
+	} catch (err) {
+		console.error("notify(course_activity for coach) failed", err);
+	}
 }
 
 const submitAssignment = protectedProcedure
@@ -1714,12 +1787,21 @@ const submitAssignment = protectedProcedure
 		if (!leerlingId) {
 			throw new ORPCError("BAD_REQUEST", { message: "Geen leerling opgegeven" });
 		}
+		// Work is handed in on the leerling's own course copy.
+		if (crs.kind !== "student_execution" || crs.leerlingId !== leerlingId) {
+			throw new ORPCError("FORBIDDEN", {
+				message: "Deze opdracht hoort niet bij jouw cursus",
+			});
+		}
+		for (const key of input.fileStorageKeys ?? []) {
+			await assertOwnSubmissionKey(context, key, leerlingId);
+		}
 
 		// A non-leerling submitting on behalf of a supplied leerlingId must be
 		// allowed to act for them (same tenant + assigned) before creating the
 		// submission (Medium).
-		if (actor.role !== "leerling" && input.leerlingId) {
-			await assertLeerlingReachable(context, input.leerlingId);
+		if (input.leerlingId && input.leerlingId !== actor.userId) {
+			await requireLeerlingAccess(context, input.leerlingId);
 		}
 
 		// submitAssignment policy: own submission, or coach on behalf, same tenant.
@@ -1732,40 +1814,83 @@ const submitAssignment = protectedProcedure
 			throw new ORPCError("FORBIDDEN");
 		}
 
-		// Attempt number = count of existing submissions + 1; enforce maxAttempts.
-		const existing = await context.db
-			.select({ id: assignmentSubmission.id })
-			.from(assignmentSubmission)
-			.where(
-				and(
-					eq(assignmentSubmission.assignmentId, asg.id),
-					eq(assignmentSubmission.leerlingId, leerlingId),
-				),
-			);
-		if (asg.maxAttempts && existing.length >= asg.maxAttempts) {
-			throw new ORPCError("BAD_REQUEST", {
-				message: "Maximaal aantal inleverpogingen bereikt",
-			});
+		// Next attempt number, enforcing maxAttempts. The attempt number is
+		// unique per assignment + leerling, so of two concurrent submits for the
+		// same number one loses and retries with the next — which then counts
+		// against maxAttempts too.
+		// Handing in is what makes an opdracht done: the submission, the
+		// leerling's takenlijst task and the block's progress change together
+		// (one "done" state, fix plan 2.3).
+		const row = await context.db.transaction(async (tx) => {
+			let row: typeof assignmentSubmission.$inferSelect | undefined;
+			for (let tries = 0; !row && tries < 3; tries++) {
+				const [last] = await tx
+					.select({ attempt: sql<number>`coalesce(max(${assignmentSubmission.attempt}), 0)` })
+					.from(assignmentSubmission)
+					.where(
+						and(
+							eq(assignmentSubmission.assignmentId, asg.id),
+							eq(assignmentSubmission.leerlingId, leerlingId),
+						),
+					);
+				const attempt = Number(last?.attempt ?? 0) + 1;
+				if (asg.maxAttempts && attempt > asg.maxAttempts) {
+					throw new ORPCError("BAD_REQUEST", {
+						message: "Maximaal aantal inleverpogingen bereikt",
+					});
+				}
+				[row] = await tx
+					.insert(assignmentSubmission)
+					.values({
+						assignmentId: asg.id,
+						leerlingId,
+						attempt,
+						status: "submitted",
+						responseText: input.responseText ?? null,
+						fileStorageKeys: input.fileStorageKeys ?? [],
+						submittedAt: new Date(),
+					})
+					.onConflictDoNothing()
+					.returning();
+			}
+			if (!row) return undefined;
+			await tx
+				.update(task)
+				.set({ done: true, doneAt: new Date(), updatedAt: new Date() })
+				.where(and(eq(task.assignmentId, asg.id), eq(task.leerlingId, leerlingId), eq(task.done, false)));
+			await tx
+				.insert(contentProgress)
+				.values({
+					contentBlockId: asg.contentBlockId,
+					leerlingId,
+					completed: true,
+					completedAt: new Date(),
+				})
+				.onConflictDoUpdate({
+					target: [contentProgress.leerlingId, contentProgress.contentBlockId],
+					set: { completed: true, completedAt: new Date(), updatedAt: new Date() },
+				});
+			return row;
+		});
+		if (!row) {
+			throw new ORPCError("CONFLICT", { message: "Probeer het inleveren opnieuw" });
 		}
-
-		const [row] = await context.db
-			.insert(assignmentSubmission)
-			.values({
-				assignmentId: asg.id,
-				leerlingId,
-				attempt: existing.length + 1,
-				status: "submitted",
-				responseText: input.responseText ?? null,
-				fileStorageKeys: input.fileStorageKeys ?? [],
-				submittedAt: new Date(),
-			})
-			.returning();
-		if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
 
 		publishTo(
 			{ type: "course.changed", payload: { courseId: crs.id } },
 			await courseChangedRecipients(context, { leerlingId }),
 		);
+		publishTo(
+			{ type: "task.changed", payload: { leerlingId } },
+			await taskChangedRecipients(context, leerlingId),
+		);
+		if (actor.role === "leerling") {
+			await notifyCoachesOf(context, leerlingId, crs.organizationId, {
+				title: "Opdracht ingeleverd",
+				body: `${await nameOf(context, leerlingId)} heeft "${asg.name}" ingeleverd.`,
+				entity: { type: "assignment_submission", id: row.id },
+			});
+		}
 		return {
 			...row,
 			fileStorageKeys: (row.fileStorageKeys as string[] | null) ?? [],
@@ -1794,10 +1919,8 @@ const listSubmissions = protectedProcedure
 	)
 	.handler(async ({ input, context }) => {
 		const { actor } = context;
-		const { course: crs } = await loadAssignmentCourse(context, input.assignmentId);
-		if (!checkPermission(policies.readCourse, actor, courseResource(crs))) {
-			throw new ORPCError("FORBIDDEN");
-		}
+		// Readable course = the leerling's copy for someone who may see them.
+		await loadAssignmentCourse(context, input.assignmentId);
 
 		const rows = await context.db
 			.select({
@@ -1866,13 +1989,18 @@ const gradeSubmission = protectedProcedure
 		if (!sub) throw new ORPCError("NOT_FOUND");
 		const { course: crs } = await loadAssignmentCourse(context, sub.assignmentId);
 
-		// gradeAssignment policy: coach+, same tenant.
+		// gradeAssignment policy: coach+, same tenant; the leerling rule already
+		// ran in loadAssignmentCourse (the submission lives on their copy).
 		if (
 			!checkPermission(policies.gradeAssignment, actor, courseResource(crs))
 		) {
 			throw new ORPCError("FORBIDDEN", {
 				message: "Alleen een coach kan beoordelen",
 			});
+		}
+		await requireLeerlingAccess(context, sub.leerlingId);
+		if (input.feedbackMediaStorageKey) {
+			assertKeyScope(input.feedbackMediaStorageKey, "feedback");
 		}
 
 		// Atomic: the grade insert + the submission status flip commit together —
@@ -1973,6 +2101,11 @@ const proposeAssignment = protectedProcedure
 			{ type: "course.changed", payload: { courseId: crs.id } },
 			await courseChangedRecipients(context, crs),
 		);
+		await notifyCoachesOf(context, actor.userId, crs.organizationId, {
+			title: "Voorstel voor een opdracht",
+			body: `${await nameOf(context, actor.userId)} stelt een eigen opdracht voor: "${input.title}".`,
+			entity: { type: "course", id: crs.id },
+		});
 		return row;
 	});
 
@@ -2010,11 +2143,9 @@ const respondProposal = protectedProcedure
 			.from(proposedAssignment)
 			.where(eq(proposedAssignment.id, input.id));
 		if (!prop) throw new ORPCError("NOT_FOUND");
-		const crs = await loadCourse(context, prop.courseId);
-		if (
-			!atLeast(actor.role, "coach") ||
-			!checkPermission(policies.readCourse, actor, courseResource(crs))
-		) {
+		const crs = await loadReadable(context, prop.courseId);
+		await requireLeerlingAccess(context, prop.leerlingId);
+		if (!atLeast(actor.role, "coach")) {
 			throw new ORPCError("FORBIDDEN", {
 				message: "Alleen een coach kan een voorstel beoordelen",
 			});
@@ -2088,4 +2219,6 @@ export const coursesRouter = base.router({
 	respondProposal,
 	// #34 stub
 	importOndiveraContent,
+	// Cursuscatalogus: categories + availability per school
+	catalog: catalogRouter,
 });

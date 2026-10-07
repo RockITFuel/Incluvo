@@ -11,6 +11,14 @@ import { and, desc, eq, inArray, lt } from "drizzle-orm";
 import { z } from "zod";
 import { notify } from "../../notifications/notify";
 import { publishTo } from "../../sse";
+import { canReachLeerling } from "../../access";
+import {
+  assertValidStorageKey,
+  guessContentType,
+  readableFileUrl,
+  statUpload,
+  storageKeyFileName,
+} from "../../courses/storage";
 import { type AuthedContext, base, protectedProcedure } from "../base";
 
 /**
@@ -49,14 +57,28 @@ const ConversationSummarySchema = z.object({
   updatedAt: z.date(),
 });
 
+/** A file sent with a message; fetched via `chat.attachmentUrl`. */
+const AttachmentSchema = z.object({
+  name: z.string(),
+  contentType: z.string(),
+});
+
 const MessageSchema = z.object({
   id: z.string(),
   conversationId: z.string(),
   senderId: z.string(),
   senderName: z.string(),
   body: z.string(),
+  attachment: AttachmentSchema.nullable(),
   createdAt: z.date(),
 });
+
+/** What the thread shows about an attachment (never the storage key). */
+function attachmentOf(storageKey: string | null) {
+  return storageKey
+    ? { name: storageKeyFileName(storageKey), contentType: guessContentType(storageKey) }
+    : null;
+}
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -88,25 +110,25 @@ async function loadAccessibleConversation(context: AuthedContext, conversationId
     memberIds,
   };
 
-  // Tenant + membership (or coach read-along for forums #6).
-  if (!checkPermission(policies.accessChat, context.actor, resource)) {
-    throw new ORPCError("FORBIDDEN", {
-      message: "Geen toegang tot dit gesprek",
-    });
-  }
-
-  // The coach read-along (#6) only applies to group/forum chats, never to a
-  // 1:1 chat they are not part of. A coach who is an explicit member of a
-  // direct chat is of course allowed.
+  // Members may take part. A non-member may only read along in a course forum
+  // (#6) when they may see one of its leerlingen (assigned coach, keyuser of
+  // the school) — never in someone else's 1:1 chat.
   const isExplicitMember = memberIds.includes(context.actor.userId);
-  if (
-    !isExplicitMember &&
-    conv.kind === "direct" &&
-    !members.some((m) => m.userId === context.actor.userId)
-  ) {
-    throw new ORPCError("FORBIDDEN", {
-      message: "Geen toegang tot dit 1-op-1 gesprek",
-    });
+  if (!checkPermission(policies.accessChat, context.actor, resource)) {
+    let readAlong = false;
+    if (conv.kind === "forum") {
+      for (const m of members) {
+        if (m.role === "member" && (await canReachLeerling(context, m.userId))) {
+          readAlong = true;
+          break;
+        }
+      }
+    }
+    if (!readAlong) {
+      throw new ORPCError("FORBIDDEN", {
+        message: "Geen toegang tot dit gesprek",
+      });
+    }
   }
 
   return { conv, members, memberIds, isExplicitMember };
@@ -192,7 +214,11 @@ const list = protectedProcedure
     const summaries = await Promise.all(
       convs.map(async (conv) => {
         const [last] = await context.db
-          .select({ body: message.body, createdAt: message.createdAt })
+          .select({
+            body: message.body,
+            attachmentStorageKey: message.attachmentStorageKey,
+            createdAt: message.createdAt,
+          })
           .from(message)
           .where(eq(message.conversationId, conv.id))
           .orderBy(desc(message.createdAt))
@@ -231,7 +257,13 @@ const list = protectedProcedure
           memberRole,
           supervised,
           lastMessageAt: last?.createdAt ?? null,
-          lastMessageBody: last?.body ?? null,
+          // A file-only message previews as its file name.
+          lastMessageBody: last
+            ? last.body ||
+              (last.attachmentStorageKey
+                ? `📎 ${storageKeyFileName(last.attachmentStorageKey)}`
+                : "")
+            : null,
           updatedAt: conv.updatedAt,
         };
       }),
@@ -385,6 +417,7 @@ const messages = protectedProcedure
         senderId: message.senderId,
         senderName: user.name,
         body: message.body,
+        attachmentStorageKey: message.attachmentStorageKey,
         createdAt: message.createdAt,
       })
       .from(message)
@@ -405,7 +438,13 @@ const messages = protectedProcedure
     // Return chronological (oldest → newest) for the thread view.
     page.reverse();
 
-    return { messages: page, hasMore };
+    return {
+      messages: page.map(({ attachmentStorageKey, ...m }) => ({
+        ...m,
+        attachment: attachmentOf(attachmentStorageKey),
+      })),
+      hasMore,
+    };
   });
 
 // ---------------------------------------------------------------------------
@@ -419,10 +458,16 @@ const send = protectedProcedure
     tags: ["chat"],
   })
   .input(
-    z.object({
-      conversationId: z.string().uuid(),
-      body: z.string().min(1).max(4000),
-    }),
+    z
+      .object({
+        conversationId: z.string().uuid(),
+        body: z.string().max(4000).default(""),
+        /** A file uploaded with scope "chat" (INC-8). */
+        attachmentStorageKey: z.string().optional(),
+      })
+      .refine((m) => m.body.trim() !== "" || m.attachmentStorageKey, {
+        message: "Schrijf een bericht of kies een bestand.",
+      }),
   )
   .output(MessageSchema)
   .handler(async ({ input, context }) => {
@@ -441,20 +486,35 @@ const send = protectedProcedure
       });
     }
 
-    const [row] = await context.db
-      .insert(message)
-      .values({
-        conversationId: input.conversationId,
-        senderId: actor.userId,
-        body: input.body,
-      })
-      .returning();
-    if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
+    // An attachment must be a chat upload that really exists.
+    if (input.attachmentStorageKey) {
+      try {
+        assertValidStorageKey(input.attachmentStorageKey);
+        if (!input.attachmentStorageKey.startsWith("chat/")) throw new Error("scope");
+        await statUpload(input.attachmentStorageKey);
+      } catch {
+        throw new ORPCError("BAD_REQUEST", { message: "Dit bestand kon niet worden toegevoegd." });
+      }
+    }
 
-    await context.db
-      .update(conversation)
-      .set({ updatedAt: new Date() })
-      .where(eq(conversation.id, input.conversationId));
+    // The message and the conversation's "last activity" commit together.
+    const row = await context.db.transaction(async (tx) => {
+      const [inserted] = await tx
+        .insert(message)
+        .values({
+          conversationId: input.conversationId,
+          senderId: actor.userId,
+          body: input.body.trim(),
+          attachmentStorageKey: input.attachmentStorageKey ?? null,
+        })
+        .returning();
+      if (!inserted) throw new ORPCError("INTERNAL_SERVER_ERROR");
+      await tx
+        .update(conversation)
+        .set({ updatedAt: new Date() })
+        .where(eq(conversation.id, input.conversationId));
+      return inserted;
+    });
 
     const [sender] = await context.db
       .select({ name: user.name })
@@ -476,6 +536,7 @@ const send = protectedProcedure
           senderId: row.senderId,
           senderName: sender?.name ?? "Onbekend",
           body: row.body,
+          attachment: attachmentOf(row.attachmentStorageKey),
           createdAt: row.createdAt.toISOString(),
           recipientIds,
         },
@@ -489,8 +550,8 @@ const send = protectedProcedure
     // break sending the message.
     const senderName = sender?.name ?? "Onbekend";
     if (conv.organizationId) {
-      const body =
-        input.body.length > 120 ? `${input.body.slice(0, 120)}…` : input.body;
+      const text = row.body || `📎 ${storageKeyFileName(row.attachmentStorageKey ?? "")}`;
+      const body = text.length > 120 ? `${text.slice(0, 120)}…` : text;
       for (const userId of recipientIds) {
         if (userId === actor.userId) continue;
         try {
@@ -514,7 +575,33 @@ const send = protectedProcedure
       senderId: row.senderId,
       senderName,
       body: row.body,
+      attachment: attachmentOf(row.attachmentStorageKey),
       createdAt: row.createdAt,
+    };
+  });
+
+/**
+ * A short-lived URL for a message's attachment — for whoever may read the
+ * conversation (members, and coaches reading along in a forum).
+ */
+const attachmentUrl = protectedProcedure
+  .route({ method: "GET", path: "/chat/messages/{messageId}/attachment", tags: ["chat"] })
+  .input(z.object({ messageId: z.string().uuid() }))
+  .output(z.object({ url: z.string(), name: z.string(), contentType: z.string() }))
+  .handler(async ({ input, context }) => {
+    const [row] = await context.db
+      .select({
+        conversationId: message.conversationId,
+        storageKey: message.attachmentStorageKey,
+      })
+      .from(message)
+      .where(eq(message.id, input.messageId));
+    if (!row?.storageKey) throw new ORPCError("NOT_FOUND");
+    await loadAccessibleConversation(context, row.conversationId);
+    return {
+      url: await readableFileUrl(row.storageKey),
+      name: storageKeyFileName(row.storageKey),
+      contentType: guessContentType(row.storageKey),
     };
   });
 
@@ -599,6 +686,7 @@ export const chatRouter = base.router({
   ensureDirect,
   messages,
   send,
+  attachmentUrl,
   markRead,
   partners: chatPartners,
 });

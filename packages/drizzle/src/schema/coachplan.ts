@@ -1,7 +1,9 @@
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
+	type AnyPgColumn,
 	boolean,
 	index,
+	uniqueIndex,
 	integer,
 	jsonb,
 	pgEnum,
@@ -61,18 +63,38 @@ export const formTemplate = pgTable("form_template", {
 	organizationId: uuid("organization_id").references(() => organization.id, {
 		onDelete: "cascade",
 	}),
-	// The template this one was copied/derived from (#8 -> #9).
+	// The template this one was copied/derived from (#8 -> #9): for a school
+	// copy, the Ondivera version it was copied from.
 	parentTemplateId: uuid("parent_template_id"),
+	/**
+	 * Versions (D5): all versions of one form share a `familyId` and count up in
+	 * `version`. A version in use (a plan filled in on it, or copied by a
+	 * school) is read-only; changing it means creating the next version.
+	 */
+	familyId: uuid("family_id").notNull(),
+	version: integer("version").notNull().default(1),
 	name: text("name").notNull(),
 	description: text("description"),
 	// Marks the school default form (#10); per-leerling overrides via #10 link.
 	isSchoolDefault: boolean("is_school_default").notNull().default(false),
+	/**
+	 * INC-7: null = concept (questions editable); set = published (questions
+	 * frozen). Only a published version can be used for plans, made the school
+	 * default, assigned or copied.
+	 */
+	publishedAt: timestamp("published_at"),
 	createdById: text("created_by_id").references(() => user.id, {
 		onDelete: "set null",
 	}),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 	updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (t) => [
+	// At most one school default form per organization (#10).
+	uniqueIndex("form_template_school_default_uq")
+		.on(t.organizationId)
+		.where(sql`${t.isSchoolDefault}`),
+	uniqueIndex("form_template_family_version_uq").on(t.familyId, t.version),
+]);
 
 export const formQuestion = pgTable("form_question", {
 	id: uuid("id").primaryKey().defaultRandom(),
@@ -80,6 +102,12 @@ export const formQuestion = pgTable("form_question", {
 		.notNull()
 		.references(() => formTemplate.id, { onDelete: "cascade" }),
 	section: formSection("section").notNull().default("leerling"),
+	/**
+	 * Stable identity of "the same question" across template versions and
+	 * school copies (a copy keeps the key). Answers carry over to a newer form
+	 * by key when a leerling revises their plan.
+	 */
+	key: uuid("key").notNull().defaultRandom(),
 	type: questionType("type").notNull().default("short_text"),
 	label: text("label").notNull(),
 	helpText: text("help_text"),
@@ -93,6 +121,11 @@ export const formQuestion = pgTable("form_question", {
 	mapsToQuestionId: uuid("maps_to_question_id"),
 	// Options for choice/scale/leervoorkeur questions, as JSON.
 	options: jsonb("options"),
+	/**
+	 * INC-7: whether the leerling sees this question and its answer in their
+	 * coachplan — whoever answered it. Part of the version, like the label.
+	 */
+	visibleToLeerling: boolean("visible_to_leerling").notNull().default(true),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 	updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -114,19 +147,54 @@ export const formAssignment = pgTable("form_assignment", {
 		.references(() => formTemplate.id, { onDelete: "cascade" }),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 	updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (t) => [
+	// One assigned form per leerling (#10).
+	uniqueIndex("form_assignment_leerling_uq").on(t.organizationId, t.leerlingId),
+]);
 
-/** A leerling's submission lifecycle. */
+/**
+ * A leerling's coachplan (D2: one living plan). Every `form_submission` is a
+ * version of it; `currentVersionId` points at the version the coach last
+ * shared — the one courses, dashboard and AI treat as "the plan".
+ */
+export const coachplan = pgTable("coachplan", {
+	id: uuid("id").primaryKey().defaultRandom(),
+	organizationId: uuid("organization_id")
+		.notNull()
+		.references(() => organization.id, { onDelete: "cascade" }),
+	leerlingId: text("leerling_id")
+		.notNull()
+		.references(() => user.id, { onDelete: "cascade" }),
+	currentVersionId: uuid("current_version_id").references(
+		(): AnyPgColumn => formSubmission.id,
+		{ onDelete: "set null" },
+	),
+	createdAt: timestamp("created_at").notNull().defaultNow(),
+	updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+	uniqueIndex("coachplan_leerling_uq").on(t.organizationId, t.leerlingId),
+]);
+
+/**
+ * A version's lifecycle (see apps/server/src/coachplan/lifecycle.ts):
+ *   draft → submitted → coach_review → shared_with_leerling
+ * A shared version is read-only; revising the plan starts a new draft version.
+ */
 export const submissionStatus = pgEnum("submission_status", [
 	"draft", // wizard in progress, autosaved (#11)
 	"submitted", // sent to coach (#11/#15)
 	"coach_review", // coach filling in coach-gedeelte (#17)
-	"shared_with_leerling", // coach offered the result back (#17)
-	"completed",
+	"shared_with_leerling", // coach offered the result back (#17); read-only
+	"completed", // legacy, never set; treated like shared_with_leerling
 ]);
 
 export const formSubmission = pgTable("form_submission", {
 	id: uuid("id").primaryKey().defaultRandom(),
+	coachplanId: uuid("coachplan_id")
+		.notNull()
+		.references(() => coachplan.id, { onDelete: "cascade" }),
+	/** 1, 2, 3 … within the coachplan. */
+	version: integer("version").notNull(),
 	templateId: uuid("template_id")
 		.notNull()
 		.references(() => formTemplate.id, { onDelete: "restrict" }),
@@ -146,6 +214,7 @@ export const formSubmission = pgTable("form_submission", {
 }, (t) => [
 	// Hot path: a leerling's coachplan submissions.
 	index("form_submission_leerling_idx").on(t.leerlingId),
+	uniqueIndex("form_submission_version_uq").on(t.coachplanId, t.version),
 ]);
 
 export const formAnswer = pgTable("form_answer", {
@@ -164,11 +233,15 @@ export const formAnswer = pgTable("form_answer", {
 	deliberatelySkipped: boolean("deliberately_skipped").notNull().default(false),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 	updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (t) => [
+	// One answer per question per submission; autosave upserts on this.
+	uniqueIndex("form_answer_submission_question_uq").on(t.submissionId, t.questionId),
+]);
 
 /**
- * Mapping of a leerling answer onto a question in the coach-gedeelte (#16). The
- * coach can edit the resulting value, so `overrideValue` captures the edit.
+ * Where a coach answer was pre-filled from (#16/#18): the leerling answer that
+ * `submit` copied into the coach question's `form_answer`. The coach edits that
+ * answer like any other; this row only drives the "Gemapt vanuit leerling" hint.
  */
 export const answerCoachMapping = pgTable("answer_coach_mapping", {
 	id: uuid("id").primaryKey().defaultRandom(),
@@ -181,7 +254,6 @@ export const answerCoachMapping = pgTable("answer_coach_mapping", {
 	coachQuestionId: uuid("coach_question_id")
 		.notNull()
 		.references(() => formQuestion.id, { onDelete: "restrict" }),
-	overrideValue: text("override_value"),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 	updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -198,7 +270,9 @@ export const learningPreferenceLabel = pgTable("learning_preference_label", {
 	// Stable label key (e.g. "visueel", "auditief") used to match course labels.
 	label: text("label").notNull(),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (t) => [
+	uniqueIndex("learning_preference_label_uq").on(t.submissionId, t.label),
+]);
 
 /** Transcription record for a coach conversation (#18). */
 export const transcriptionStatus = pgEnum("transcription_status", [
@@ -303,6 +377,10 @@ export const formSubmissionRelations = relations(
 			fields: [formSubmission.coachId],
 			references: [user.id],
 			relationName: "submissionCoach",
+		}),
+		coachplan: one(coachplan, {
+			fields: [formSubmission.coachplanId],
+			references: [coachplan.id],
 		}),
 		answers: many(formAnswer),
 		mappings: many(answerCoachMapping),

@@ -67,13 +67,38 @@ const DEFAULT_ALLOWED_HOSTS = [
 	"api.mistral.ai",
 ];
 
+/** One-shot flag so the "entries ignored" warning logs once per process. */
+let warnedIgnoredHosts = false;
+
+/**
+ * The approved AI hosts. `AI_ALLOWED_HOSTS` pins them (production should pin
+ * the exact resource). In production it may only *narrow* the default list:
+ * an entry that no default pattern covers (e.g. a US endpoint) is ignored with
+ * a loud warning, so a config typo can't send minors' data outside the EU.
+ * Outside production any entry is honoured (local models, test doubles).
+ */
 export function allowedAiHosts(): string[] {
 	const raw = process.env.AI_ALLOWED_HOSTS?.trim();
 	if (!raw) return DEFAULT_ALLOWED_HOSTS;
-	const parsed = raw
+	let parsed = raw
 		.split(",")
 		.map((s) => s.trim().toLowerCase())
 		.filter(Boolean);
+	if (process.env.NODE_ENV === "production") {
+		const covered = (entry: string) =>
+			DEFAULT_ALLOWED_HOSTS.some((d) =>
+				hostMatches(entry.startsWith("*.") ? entry.slice(2) : entry, d),
+			);
+		const ignored = parsed.filter((e) => !covered(e));
+		if (ignored.length && !warnedIgnoredHosts) {
+			warnedIgnoredHosts = true;
+			console.error(
+				`AI residency: AI_ALLOWED_HOSTS bevat hosts buiten de goedgekeurde EU-lijst ` +
+					`(${ignored.join(", ")}). Die worden in productie GENEGEERD.`,
+			);
+		}
+		parsed = parsed.filter(covered);
+	}
 	return parsed.length ? parsed : DEFAULT_ALLOWED_HOSTS;
 }
 

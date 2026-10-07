@@ -10,6 +10,7 @@ import { toast } from "../ui/toast";
 import { FileLink } from "./file-link";
 import { uploadFile } from "./upload";
 import type { BlockDTO } from "./block-view";
+import { ErrorState } from "../ui/error-state";
 
 type Section = { id: string; title: string; blocks: BlockDTO[] };
 
@@ -56,9 +57,20 @@ function AssignmentGrading(props: {
 					{submissionsQuery.data?.length ?? 0} inzending(en)
 				</Badge>
 			</div>
+			<Show when={submissionsQuery.error}>
+				<ErrorState
+					error={submissionsQuery.error}
+					what="de inzendingen"
+					onRetry={() => submissionsQuery.refetch()}
+				/>
+			</Show>
 			<Show
 				when={(submissionsQuery.data?.length ?? 0) > 0}
-				fallback={<p class="text-small text-muted">Nog geen inzendingen.</p>}
+				fallback={
+					<Show when={submissionsQuery.data}>
+						<p class="text-small text-muted">Nog geen inzendingen.</p>
+					</Show>
+				}
 			>
 				<For each={submissionsQuery.data}>
 					{(s) => <SubmissionRow submission={s} />}

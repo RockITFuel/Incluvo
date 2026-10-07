@@ -1,0 +1,5 @@
+[test]
+# Creates a fresh `<db>_test` database, migrates it and seeds the demo tenants
+# before any test file is loaded. See test/preload.ts.
+preload = ["./test/preload.ts"]
+timeout = 30000

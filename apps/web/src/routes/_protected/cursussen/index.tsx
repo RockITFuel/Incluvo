@@ -1,14 +1,13 @@
-import { createFileRoute, Link } from "@tanstack/solid-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/solid-router";
 import { useQuery, useQueryClient } from "@tanstack/solid-query";
-import { BookOpen, Compass, FlaskConical, Plus } from "lucide-solid";
-import { createSignal, For, Show } from "solid-js";
-import { Button } from "../../../components/ui/button";
-import { Dialog } from "../../../components/ui/dialog";
-import { Input, Textarea } from "../../../components/ui/text-field";
-import { toast } from "../../../components/ui/toast";
+import { BookOpen, Compass, FlaskConical, Plus, Search } from "lucide-solid";
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
+import { CreateCourseDialog } from "../../../components/admin/create-course-dialog";
+import { Select } from "../../../components/ui/select";
 import { useMe } from "../../../lib/auth/use-me";
-import { client, orpc } from "../../../lib/orpc";
+import { orpc } from "../../../lib/orpc";
 import { useServerEvent } from "../../../lib/sse/use-events";
+import { ErrorState } from "../../../components/ui/error-state";
 
 /**
  * Cursussen overzicht (#23) — a 1:1 port of the approved "Cursussen" prototype.
@@ -38,14 +37,48 @@ const tones = [
 	{ bg: "rgb(var(--warning-100))", fg: "rgb(var(--warning))", icon: Compass },
 ] as const;
 
+const ALL = "__all__";
+
 function CursussenPage() {
 	const me = useMe();
+	const navigate = useNavigate();
 	const queryClient = useQueryClient();
 	const coursesQuery = useQuery(() => orpc.courses.list.queryOptions({ input: {} }));
+	const [createOpen, setCreateOpen] = createSignal(false);
+	const [search, setSearch] = createSignal("");
+	const [category, setCategory] = createSignal(ALL);
+
+	// Ondivera manages its courses in the catalogue (/beheer/cursussen).
+	// Once: navigating re-runs the effect mid-transition and would loop.
+	let redirected = false;
+	createEffect(() => {
+		if (!redirected && me.is("superadmin")) {
+			redirected = true;
+			navigate({ to: "/beheer/cursussen", replace: true });
+		}
+	});
 
 	useServerEvent("course.changed", () =>
 		queryClient.invalidateQueries({ queryKey: orpc.courses.list.key() }),
 	);
+
+	// Search + category filter for those who see templates (not a leerling).
+	const canFilter = () => !me.is("leerling") && (coursesQuery.data?.length ?? 0) > 0;
+	const categories = useQuery(() => ({
+		...orpc.courses.catalog.categories.list.queryOptions(),
+		enabled: me.role() !== null && !me.is("leerling"),
+	}));
+	const usedCategories = createMemo(() => {
+		const used = new Set((coursesQuery.data ?? []).flatMap((c) => c.categoryIds));
+		return (categories.data ?? []).filter((c) => used.has(c.id));
+	});
+	const shown = createMemo(() => {
+		let rows = coursesQuery.data ?? [];
+		const q = search().trim().toLowerCase();
+		if (q) rows = rows.filter((c) => c.title.toLowerCase().includes(q));
+		if (category() !== ALL) rows = rows.filter((c) => c.categoryIds.includes(category()));
+		return rows;
+	});
 
 	return (
 		<>
@@ -58,8 +91,11 @@ function CursussenPage() {
 					<Show when={(coursesQuery.data?.length ?? 0) > 0}>
 						<span class="chip">{coursesQuery.data?.length} actief</span>
 					</Show>
-					<Show when={me.hasAtLeast("ontwikkelaar")}>
-						<CreateCourseDialog />
+					<Show when={me.canBuildCourses()}>
+						<button type="button" class="btn primary" onClick={() => setCreateOpen(true)}>
+							<Plus class="size-3.5" aria-hidden="true" /> Nieuwe cursus
+						</button>
+						<CreateCourseDialog open={createOpen()} onOpenChange={setCreateOpen} />
 					</Show>
 				</div>
 			</div>
@@ -67,17 +103,68 @@ function CursussenPage() {
 			<Show when={coursesQuery.isLoading}>
 				<p class="text-muted">Laden…</p>
 			</Show>
+			<Show when={coursesQuery.error}>
+				<ErrorState
+					error={coursesQuery.error}
+					what="de cursussen"
+					onRetry={() => coursesQuery.refetch()}
+				/>
+			</Show>
 			<Show when={coursesQuery.data?.length === 0}>
 				<div class="card" style={{ "text-align": "center", color: "rgb(var(--muted))" }}>
 					Nog geen cursussen.
 				</div>
 			</Show>
 
+			<Show when={canFilter()}>
+				<div class="ds-row" style={{ "margin-bottom": "16px", gap: "8px", "flex-wrap": "wrap" }}>
+					<label
+						class="ds-row"
+						style={{
+							gap: "8px",
+							padding: "7px 12px",
+							background: "rgb(var(--surface))",
+							"border-radius": "10px",
+							border: "1px solid rgb(var(--line))",
+						}}
+					>
+						<Search class="size-3.5" aria-hidden="true" style={{ color: "rgb(var(--muted))" }} />
+						<input
+							value={search()}
+							onInput={(e) => setSearch(e.currentTarget.value)}
+							style={{
+								border: "0",
+								background: "transparent",
+								outline: "none",
+								"font-size": "0.8125rem",
+								color: "rgb(var(--ink))",
+							}}
+							placeholder="Zoek cursus…"
+							aria-label="Zoek cursus"
+						/>
+					</label>
+					<Show when={usedCategories().length > 0}>
+						<Select
+							aria-label="Filter op categorie"
+							options={[
+								{ value: ALL, label: "Alle categorieën" },
+								...usedCategories().map((c) => ({ value: c.id, label: c.name })),
+							]}
+							value={category()}
+							onChange={(v) => setCategory(v ?? ALL)}
+							triggerClass="min-w-48"
+						/>
+					</Show>
+				</div>
+			</Show>
+			<Show when={canFilter() && shown().length === 0}>
+				<p class="text-muted">Geen cursussen gevonden met deze filters.</p>
+			</Show>
+
 			<div
-				class="ds-grid"
-				style={{ "grid-template-columns": "repeat(auto-fill, minmax(280px, 1fr))", gap: "16px" }}
+				class="ds-grid-cards"
 			>
-				<For each={coursesQuery.data}>
+				<For each={shown()}>
 					{(c, i) => {
 						const tone = tones[i() % tones.length]!;
 						return (
@@ -109,16 +196,18 @@ function CursussenPage() {
 												background: "rgb(255 255 255 / 0.85)",
 											}}
 										>
-											{kindLabel[c.kind]}
+											{c.kind === "student_execution" && !me.is("leerling")
+												? "Van een leerling"
+												: kindLabel[c.kind]}
 										</span>
 									</div>
 									<div style={{ padding: "16px" }}>
-										<h3 style={{ "font-size": "17px", "margin-bottom": "6px" }}>
+										<h2 style={{ "font-size": "1.0625rem", "margin-bottom": "6px" }}>
 											{c.title}
-										</h3>
+										</h2>
 										<div
 											style={{
-												"font-size": "13px",
+												"font-size": "0.8125rem",
 												color: "rgb(var(--muted))",
 												"margin-bottom": "12px",
 												display: "-webkit-box",
@@ -136,7 +225,7 @@ function CursussenPage() {
 										</div>
 										<div
 											class="ds-row ds-between"
-											style={{ "font-size": "12px", color: "rgb(var(--muted))" }}
+											style={{ "font-size": "0.75rem", color: "rgb(var(--muted))" }}
 										>
 											<span>Bekijk cursus →</span>
 										</div>
@@ -148,83 +237,5 @@ function CursussenPage() {
 				</For>
 			</div>
 		</>
-	);
-}
-
-function CreateCourseDialog() {
-	const me = useMe();
-	const queryClient = useQueryClient();
-	const [open, setOpen] = createSignal(false);
-	const [title, setTitle] = createSignal("");
-	const [description, setDescription] = createSignal("");
-	const [busy, setBusy] = createSignal(false);
-
-	// Ondivera (superadmin) builds platform templates; a school ontwikkelaar
-	// builds school templates.
-	const kind = () =>
-		me.hasAtLeast("superadmin") ? "ondivera_template" : "school_template";
-
-	const create = async () => {
-		setBusy(true);
-		try {
-			await client.courses.create({
-				kind: kind(),
-				title: title(),
-				description: description() || undefined,
-			});
-			toast({ title: "Cursus aangemaakt", tone: "success" });
-			setOpen(false);
-			setTitle("");
-			setDescription("");
-			await queryClient.invalidateQueries({ queryKey: orpc.courses.list.key() });
-		} catch (err) {
-			toast({
-				title: "Aanmaken mislukt",
-				description: (err as Error).message,
-				tone: "danger",
-			});
-		} finally {
-			setBusy(false);
-		}
-	};
-
-	return (
-		<Dialog
-			open={open()}
-			onOpenChange={setOpen}
-			title="Nieuwe cursus"
-			trigger={{
-				children: (
-					<>
-						<Plus class="size-4" aria-hidden="true" /> Nieuwe cursus
-					</>
-				),
-			}}
-			footer={
-				<>
-					<Button variant="ghost" onClick={() => setOpen(false)}>
-						Annuleren
-					</Button>
-					<Button onClick={create} disabled={busy() || !title().trim()}>
-						{busy() ? "Bezig…" : "Aanmaken"}
-					</Button>
-				</>
-			}
-		>
-			<div class="flex flex-col gap-3">
-				<Input
-					label="Titel"
-					value={title()}
-					onInput={(e) => setTitle(e.currentTarget.value)}
-					required
-				/>
-				<Textarea
-					label="Omschrijving"
-					value={description()}
-					onInput={(e) => setDescription(e.currentTarget.value)}
-				/>
-				<p class="text-micro text-muted">Type: {kindLabel[kind()]}.</p>
-			</div>
-		</Dialog>
 	);
 }

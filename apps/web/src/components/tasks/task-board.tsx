@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/solid-router";
 import { useMutation, useQueryClient } from "@tanstack/solid-query";
 import { Calendar, Check, Clock, Flame, Plus, X } from "lucide-solid";
 import { createSignal, For, type JSX, Show } from "solid-js";
@@ -17,6 +18,8 @@ export type TaskRow = {
 	done: boolean;
 	doneAt: Date | null;
 	createdAt: Date;
+	/** Open and due before today; listed under Vandaag. */
+	overdue?: boolean;
 };
 
 const SOURCE_LABEL: Record<TaskRow["source"], string> = {
@@ -179,13 +182,13 @@ export function TaskBoard(props: {
 					style={{ "margin-bottom": "10px", "align-items": "flex-start" }}
 				>
 					<div>
-						<div style={{ "font-size": "13px", color: "rgb(var(--muted))" }}>
+						<div style={{ "font-size": "0.8125rem", color: "rgb(var(--muted))" }}>
 							Voortgang vandaag
 						</div>
 						<div
 							style={{
 								"font-family": "var(--font-head)",
-								"font-size": "24px",
+								"font-size": "1.5rem",
 								"font-weight": "600",
 							}}
 						>
@@ -194,7 +197,7 @@ export function TaskBoard(props: {
 								style={{
 									color: "rgb(var(--muted))",
 									"font-weight": "400",
-									"font-size": "18px",
+									"font-size": "1.125rem",
 								}}
 							>
 								/ {totalToday()} klaar
@@ -383,7 +386,7 @@ function TabButton(props: {
 				"border-bottom": props.on ? "2px solid rgb(var(--primary))" : "2px solid transparent",
 				color: props.on ? "rgb(var(--ink))" : "rgb(var(--muted))",
 				"font-weight": props.on ? "600" : "500",
-				"font-size": "14px",
+				"font-size": "0.875rem",
 				"margin-bottom": "-1px",
 			}}
 		>
@@ -399,13 +402,16 @@ function BigTask(props: { task: TaskRow; canManage: boolean; onToggle: () => voi
 	const sub = () =>
 		subLine(
 			props.task.description,
-			formatTime(props.task.dueAt)
+			// An overdue task shows its date: "Vandaag" would be wrong.
+			formatTime(props.task.dueAt) && !props.task.overdue
 				? `Vandaag ${formatTime(props.task.dueAt)}`
 				: formatDue(props.task.dueAt),
 			props.task.source,
 		);
 	// A task literally due today (vs. merely self-pinned for today) reads as urgent.
 	const urgent = () => !props.task.done && props.task.dueAt !== null;
+	// An opdracht task is done by handing the opdracht in, not by ticking it.
+	const fromOpdracht = () => props.task.source === "assignment";
 
 	return (
 		<div
@@ -420,9 +426,18 @@ function BigTask(props: { task: TaskRow; canManage: boolean; onToggle: () => voi
 		>
 			<button
 				type="button"
-				aria-label={props.task.done ? "Vinkje weghalen" : "Afvinken"}
+				aria-label={
+					fromOpdracht()
+						? props.task.done
+							? "Opdracht ingeleverd"
+							: "Klaar zodra je de opdracht inlevert"
+						: props.task.done
+							? "Vinkje weghalen"
+							: "Afvinken"
+				}
+				title={fromOpdracht() ? "Klaar zodra de opdracht is ingeleverd" : undefined}
 				aria-pressed={props.task.done}
-				disabled={!props.canManage}
+				disabled={!props.canManage || fromOpdracht()}
 				onClick={props.onToggle}
 				style={{
 					width: "24px",
@@ -448,15 +463,30 @@ function BigTask(props: { task: TaskRow; canManage: boolean; onToggle: () => voi
 					color: props.task.done ? "rgb(var(--muted))" : "rgb(var(--ink))",
 				}}
 			>
-				<div style={{ "font-weight": "500", "font-size": "15px" }}>{props.task.title}</div>
-				<div style={{ "font-size": "13px", color: "rgb(var(--muted))", "margin-top": "2px" }}>
+				<div style={{ "font-weight": "500", "font-size": "0.9375rem" }}>{props.task.title}</div>
+				<div style={{ "font-size": "0.8125rem", color: "rgb(var(--muted))", "margin-top": "2px" }}>
 					{sub()}
 				</div>
 			</div>
-			<Show when={urgent()}>
-				<span class="chip danger">Deadline</span>
+			{/* Overdue reads calm, not alarming: it's still today's to-do. */}
+			<Show
+				when={props.task.overdue}
+				fallback={
+					<Show when={urgent()}>
+						<span class="chip danger">Deadline</span>
+					</Show>
+				}
+			>
+				<span class="chip warning">Te laat</span>
 			</Show>
-			<span class="chip">{SOURCE_LABEL[props.task.source]}</span>
+			<Show
+				when={fromOpdracht() && !props.task.done}
+				fallback={<span class="chip">{SOURCE_LABEL[props.task.source]}</span>}
+			>
+				<Link to="/cursussen" class="chip primary">
+					Naar de opdracht
+				</Link>
+			</Show>
 		</div>
 	);
 }
@@ -474,7 +504,7 @@ function FutureGroup(props: {
 				<div
 					style={{
 						"font-family": "var(--font-head)",
-						"font-size": "14px",
+						"font-size": "0.875rem",
 						"font-weight": "600",
 						color: "rgb(var(--muted))",
 						"text-transform": "uppercase",
@@ -499,8 +529,8 @@ function FutureGroup(props: {
 						>
 							<Clock class="size-4" aria-hidden="true" />
 							<div class="ds-grow" style={{ "min-width": "0" }}>
-								<div style={{ "font-weight": "500", "font-size": "14px" }}>{t.title}</div>
-								<div style={{ "font-size": "12px", color: "rgb(var(--muted))" }}>
+								<div style={{ "font-weight": "500", "font-size": "0.875rem" }}>{t.title}</div>
+								<div style={{ "font-size": "0.75rem", color: "rgb(var(--muted))" }}>
 									{subLine(t.description, formatDue(t.dueAt), t.source)}
 								</div>
 							</div>
@@ -522,7 +552,7 @@ function FutureGroup(props: {
 					)}
 				</For>
 				<Show when={props.tasks.length === 0}>
-					<div style={{ padding: "12px 14px", "font-size": "13px", color: "rgb(var(--muted))" }}>
+					<div style={{ padding: "12px 14px", "font-size": "0.8125rem", color: "rgb(var(--muted))" }}>
 						Geen taken.
 					</div>
 				</Show>

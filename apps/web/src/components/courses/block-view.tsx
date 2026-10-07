@@ -1,11 +1,9 @@
-import { Link } from "@tanstack/solid-router";
 import {
 	Check,
 	ChevronRight,
 	ClipboardList,
 	File as FileIcon,
 	FileText,
-	MessageSquare,
 	Sparkles,
 	Youtube,
 } from "lucide-solid";
@@ -17,7 +15,7 @@ import { PageView } from "./page-view";
 
 export type BlockDTO = {
 	id: string;
-	type: "opdracht" | "pagina" | "bestand" | "youtube" | "forum" | "lti";
+	type: "opdracht" | "pagina" | "bestand" | "youtube" | "lti";
 	title: string;
 	body: string | null;
 	youtubeId: string | null;
@@ -31,12 +29,10 @@ export type BlockDTO = {
 		id: string;
 		name: string;
 		description: string | null;
-		isGroup: boolean;
 		responseType: "text" | "files" | "text_and_files";
 		maxAttempts: number | null;
 		dueAt: Date | null;
 	} | null;
-	forumConversationId: string | null;
 };
 
 const typeIcon = {
@@ -44,7 +40,6 @@ const typeIcon = {
 	youtube: Youtube,
 	bestand: FileIcon,
 	opdracht: ClipboardList,
-	forum: MessageSquare,
 	lti: Sparkles,
 } as const;
 
@@ -53,7 +48,6 @@ const typeLabel: Record<BlockDTO["type"], string> = {
 	youtube: "Video",
 	bestand: "Bestand",
 	opdracht: "Opdracht",
-	forum: "Forum",
 	lti: "Externe tool",
 };
 
@@ -99,8 +93,6 @@ export function BlockView(props: {
 				return b.assignment?.dueAt
 					? `Inleveren voor ${new Date(b.assignment.dueAt).toLocaleString("nl-NL")}`
 					: "Opdracht";
-			case "forum":
-				return "Discussie";
 			default:
 				return "Externe tool";
 		}
@@ -111,7 +103,9 @@ export function BlockView(props: {
 		return props.block.type === "opdracht" && d ? isToday(new Date(d)) : false;
 	};
 
-	const canToggle = () => props.block.countsForProgress && props.canComplete;
+	// An opdracht is completed by handing it in (AssignmentBlock), not here.
+	const canToggle = () =>
+		props.block.countsForProgress && props.canComplete && props.block.type !== "opdracht";
 
 	return (
 		<div class="ds-col" style={{ gap: "0" }}>
@@ -160,7 +154,7 @@ export function BlockView(props: {
 						<div class="ds-row" style={{ gap: "8px", "margin-bottom": "2px" }}>
 							<span
 								style={{
-									"font-size": "11px",
+									"font-size": "0.6875rem",
 									color: "rgb(var(--muted))",
 									"font-weight": "600",
 									"text-transform": "uppercase",
@@ -170,16 +164,16 @@ export function BlockView(props: {
 								{typeLabel[props.block.type]}
 							</span>
 							<Show when={props.block.recommended && props.block.labels.length > 0}>
-								<span class="chip primary" style={{ "font-size": "11px" }}>
+								<span class="chip primary" style={{ "font-size": "0.6875rem" }}>
 									<Sparkles style={{ width: "11px", height: "11px" }} /> Aanbevolen
 								</span>
 							</Show>
 						</div>
-						<div style={{ "font-weight": "500", "font-size": "14.5px" }}>
+						<div style={{ "font-weight": "500", "font-size": "0.9062rem" }}>
 							{props.block.title}
 						</div>
 						<div
-							style={{ "font-size": "12px", color: "rgb(var(--muted))", "margin-top": "2px" }}
+							style={{ "font-size": "0.75rem", color: "rgb(var(--muted))", "margin-top": "2px" }}
 						>
 							{meta()}
 						</div>
@@ -274,25 +268,6 @@ export function BlockView(props: {
 
 					<Show when={props.block.type === "opdracht" && props.block.assignment} keyed>
 						{(a) => <AssignmentBlock assignment={a} courseId={props.courseId} />}
-					</Show>
-
-					<Show when={props.block.type === "forum"}>
-						<Show
-							when={props.block.forumConversationId}
-							fallback={
-								<p class="text-small text-muted">
-									Forum wordt aangemaakt zodra de cursus aan een leerling is
-									gekoppeld.
-								</p>
-							}
-						>
-							<Link to="/chat">
-								<button type="button" class="btn subtle sm">
-									<MessageSquare style={{ width: "16px", height: "16px" }} /> Open het
-									forum
-								</button>
-							</Link>
-						</Show>
 					</Show>
 
 					<Show when={props.block.labels.length > 0}>

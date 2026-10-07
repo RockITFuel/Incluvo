@@ -1,12 +1,9 @@
 import { createFileRoute } from "@tanstack/solid-router";
 import { createMemo, Show } from "solid-js";
+import { AssignmentsPanel } from "../../../components/admin/assignments-panel";
 import { AuditPanel } from "../../../components/admin/audit-panel";
 import { SchoolsPanel } from "../../../components/admin/schools-panel";
 import { SettingsPanel } from "../../../components/admin/settings-panel";
-import {
-	CoursesPanel,
-	FormsPanel,
-} from "../../../components/admin/templates-panel";
 import { UsersPanel } from "../../../components/admin/users-panel";
 import { type TabItem, Tabs } from "../../../components/ui/tabs";
 import { requireRole } from "../../../lib/auth/require-role";
@@ -16,8 +13,9 @@ import { useMe } from "../../../lib/auth/use-me";
 /**
  * Admin omgeving (#60, Epic 9) — tabbed beheer voor keyuser (eigen school) en
  * superadmin (Ondivera, cross-tenant). Tabs are role-gated: a keyuser sees the
- * own-tenant tabs (Gebruikers, Formulieren, Cursussen, Audit, Instellingen);
- * the superadmin additionally sees Scholen. The server independently enforces
+ * own-tenant tabs (Gebruikers, Koppelingen, Audit, Instellingen); the
+ * superadmin additionally sees Scholen. Formulieren and Cursussen are edited
+ * on their own pages (/plan/beheer, /cursussen), both in the nav. The server independently enforces
  * RBAC on every procedure — these gates are UX only.
  */
 export const Route = createFileRoute("/_protected/beheer/")({
@@ -36,6 +34,11 @@ function BeheerPage() {
 		const isSuperadmin = me.is("superadmin");
 		const items: TabItem[] = [
 			{ value: "users", label: "Gebruikers", content: <UsersPanel /> },
+			{
+				value: "assignments",
+				label: "Koppelingen",
+				content: <AssignmentsPanel />,
+			},
 		];
 		if (isSuperadmin) {
 			items.push({
@@ -45,8 +48,6 @@ function BeheerPage() {
 			});
 		}
 		items.push(
-			{ value: "forms", label: "Formulieren", content: <FormsPanel /> },
-			{ value: "courses", label: "Cursussen", content: <CoursesPanel /> },
 			{ value: "audit", label: "Audit", content: <AuditPanel /> },
 			{
 				value: "settings",

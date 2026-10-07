@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/solid-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/solid-router";
 import { useQuery, useQueryClient } from "@tanstack/solid-query";
 import {
 	ArrowLeft,
@@ -76,12 +76,19 @@ function CourseDetail() {
 		const t: { value: string; label: string }[] = [
 			{ value: "leren", label: "Cursus" },
 		];
-		if (me.hasAtLeast("ontwikkelaar")) t.push({ value: "bouwen", label: "Bouwen" });
+		if (canBuild()) t.push({ value: "bouwen", label: "Bouwen" });
 		if (me.hasAtLeast("coach")) t.push({ value: "beoordelen", label: "Beoordelen" });
 		return t;
 	};
 
 	const canComplete = () => me.is("leerling") || me.hasAtLeast("coach");
+	const navigate = useNavigate();
+	// Templates are built by course builders; a leerling's own copy may be
+	// adapted by someone coaching them (the server checks the leerling rule).
+	const canBuild = () =>
+		treeQuery.data?.course.kind === "student_execution"
+			? me.hasAtLeast("coach")
+			: me.canBuildCourses();
 
 	return (
 		<section class="flex flex-col gap-5">
@@ -94,7 +101,7 @@ function CourseDetail() {
 				<Show when={treeQuery.data}>
 					{(data) => (
 						<div class="ds-row" style={{ gap: "8px" }}>
-							<Show when={me.hasAtLeast("ontwikkelaar")}>
+							<Show when={me.canBuildCourses() || me.hasAtLeast("coach")}>
 								<DeriveDialog course={data().course} onDone={refetch} />
 							</Show>
 							<Show when={me.hasAtLeast("coach")}>
@@ -130,6 +137,40 @@ function CourseDetail() {
 					)}
 				</Show>
 			</div>
+
+			<Show when={treeQuery.data?.sourceChanged && canBuild() && treeQuery.data}>
+				{(data) => (
+					<Card class="flex flex-wrap items-center justify-between gap-3 border-accent-100 bg-accent-100/30">
+						<p class="text-small text-ink-2">
+							De Ondivera-cursus waar deze kopie van is gemaakt, is sindsdien
+							gewijzigd. Maak een nieuwe kopie om de wijzigingen over te nemen;
+							deze cursus blijft zoals hij is.
+						</p>
+						<Button
+							size="sm"
+							onClick={async () => {
+								try {
+									const copy = await client.courses.derive({
+										id: data().course.parentCourseId!,
+										kind: "school_template",
+										title: data().course.title,
+									});
+									toast({ title: "Nieuwe kopie gemaakt", tone: "success" });
+									navigate({ to: "/cursussen/$courseId", params: { courseId: copy.id } });
+								} catch (err) {
+									toast({
+										title: "Kopiëren lukte niet",
+										description: (err as Error).message,
+										tone: "danger",
+									});
+								}
+							}}
+						>
+							Nieuwe kopie maken
+						</Button>
+					</Card>
+				)}
+			</Show>
 
 			<Show when={treeQuery.isLoading}>
 				<p class="text-muted">Laden…</p>
@@ -185,14 +226,14 @@ function CourseDetail() {
 										<div>
 											<div
 												style={{
-													"font-size": "13px",
+													"font-size": "0.8125rem",
 													opacity: "0.85",
 													"margin-bottom": "6px",
 												}}
 											>
 												{kindLabel[data().course.kind]}
 											</div>
-											<h1 style={{ color: "#fff", "font-size": "30px" }}>
+											<h1 style={{ color: "#fff", "font-size": "1.875rem" }}>
 												{data().course.title}
 											</h1>
 										</div>
@@ -214,7 +255,7 @@ function CourseDetail() {
 													fallback={
 														<div
 															style={{
-																"font-size": "13px",
+																"font-size": "0.8125rem",
 																color: "rgb(var(--muted))",
 															}}
 														>
@@ -258,7 +299,7 @@ function CourseDetail() {
 												display: "flex",
 												"align-items": "center",
 												gap: "10px",
-												"font-size": "13px",
+												"font-size": "0.8125rem",
 												color: "rgb(var(--muted))",
 												"flex-wrap": "wrap",
 											}}
@@ -280,7 +321,7 @@ function CourseDetail() {
 													border: "0",
 													color: "rgb(var(--primary))",
 													"font-weight": "500",
-													"font-size": "13px",
+													"font-size": "0.8125rem",
 													cursor: "pointer",
 												}}
 											>
@@ -296,7 +337,7 @@ function CourseDetail() {
 									<div class="ds-row ds-between">
 										<span class="text-small text-muted">
 											{onlyRecommended()
-												? "Je ziet alleen aanbevolen content (#35)."
+												? "Je ziet alleen aanbevolen content."
 												: "Je ziet alle content."}
 										</span>
 										<ProposeDialog courseId={courseId()} onDone={refetch} />
@@ -310,7 +351,7 @@ function CourseDetail() {
 												<div
 													style={{
 														"font-family": "var(--font-head)",
-														"font-size": "18px",
+														"font-size": "1.125rem",
 														"font-weight": "600",
 													}}
 												>
@@ -352,7 +393,7 @@ function CourseDetail() {
 							</Show>
 
 							{/* ── Bouwen (ontwikkelaar/keyuser) ────────────────────────── */}
-							<Show when={view() === "bouwen" && me.hasAtLeast("ontwikkelaar")}>
+							<Show when={view() === "bouwen" && canBuild()}>
 								<CourseBuilder
 									courseId={courseId()}
 									courseTitle={data().course.title}
@@ -393,12 +434,15 @@ function DeriveDialog(props: {
 	const [leerlingId, setLeerlingId] = createSignal<string | undefined>();
 	const [busy, setBusy] = createSignal(false);
 
-	const usersQuery = useQuery(() => ({
-		...orpc.account.users.listInTenant.queryOptions(),
-		enabled: props.course.kind === "school_template",
+	// Giving a leerling a course is coach work (D4: an ontwikkelaar builds
+	// courses only); offer only the leerlingen this user may see.
+	const me = useMe();
+	const canAssign = () => me.hasAtLeast("coach");
+	const leerlingQuery = useQuery(() => ({
+		...orpc.dashboard.overview.queryOptions(),
+		enabled: props.course.kind === "school_template" && canAssign(),
 	}));
-	const leerlingen = () =>
-		(usersQuery.data ?? []).filter((u) => u.role === "leerling");
+	const leerlingen = () => (leerlingQuery.data ?? []).map((row) => row.leerling);
 
 	const targetKind = () =>
 		props.course.kind === "ondivera_template"
@@ -407,7 +451,7 @@ function DeriveDialog(props: {
 
 	const canDerive = () =>
 		props.course.kind === "ondivera_template" ||
-		props.course.kind === "school_template";
+		(props.course.kind === "school_template" && canAssign());
 
 	const derive = async () => {
 		setBusy(true);
@@ -523,7 +567,7 @@ function ProposeDialog(props: { courseId: string; onDone: () => void }) {
 			open={open()}
 			onOpenChange={setOpen}
 			title="Eigen opdracht voorstellen"
-			description="Bedenk zelf hoe je wilt laten zien wat je geleerd hebt (#61)."
+			description="Bedenk zelf hoe je wilt laten zien wat je geleerd hebt."
 			trigger={{
 				variant: "subtle",
 				size: "sm",
@@ -582,7 +626,7 @@ function ProposalsList(props: { courseId: string }) {
 		<Show when={(proposalsQuery.data?.length ?? 0) > 0}>
 			<Card class="flex flex-col gap-3">
 				<h2 class="font-head text-h3 text-ink">
-					<Lightbulb class="inline size-4" /> Eigen opdracht-voorstellen (#61)
+					<Lightbulb class="inline size-4" /> Eigen opdracht-voorstellen
 				</h2>
 				<For each={proposalsQuery.data}>
 					{(p) => (

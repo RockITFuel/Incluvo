@@ -7,7 +7,6 @@ import { coachplanRouter } from "./procedures/coachplan";
 import { coursesRouter } from "./procedures/courses";
 import { dashboardRouter } from "./procedures/dashboard";
 import { health } from "./procedures/health";
-import { itemsRouter } from "./procedures/items";
 import { moodRouter } from "./procedures/mood";
 import { notificationsRouter } from "./procedures/notifications";
 import { tasksRouter } from "./procedures/tasks";
@@ -33,7 +32,6 @@ import { tasksRouter } from "./procedures/tasks";
 export const router = base.router({
 	health,
 	account: accountRouter,
-	items: itemsRouter,
 	// Wave 2 domains (each filled in by its epic agent).
 	coachplan: coachplanRouter,
 	tasks: tasksRouter,
