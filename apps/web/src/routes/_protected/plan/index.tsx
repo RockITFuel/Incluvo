@@ -12,6 +12,7 @@ import { PlanStatusBadge } from "../../../components/dashboard/plan-status";
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
 import { Card } from "../../../components/ui/card";
+import { Dialog } from "../../../components/ui/dialog";
 import { Switch } from "../../../components/ui/switch";
 import { toast } from "../../../components/ui/toast";
 import { PlanView } from "../../../components/coachplan/plan-view";
@@ -43,7 +44,7 @@ function PlanEntry() {
 	// `startMine()` RPC. The superadmin manages the forms (/plan/beheer) and is
 	// sent home; plans belong to the school.
 	return (
-		<RequireRole min="leerling" only={["leerling", "coach", "keyuser"]}>
+		<RequireRole min="leerling" only={["leerling", "coach"]}>
 			<Show when={me.hasAtLeast("coach")} fallback={<LeerlingPlan />}>
 				<CoachInbox />
 			</Show>
@@ -275,6 +276,8 @@ function LeerlingPlan() {
 }
 
 type Flags = { discussWithCoach: boolean; deliberatelySkipped: boolean };
+/** An answer being changed in the overview, not yet saved (INC-21). */
+type Draft = Flags & { value: AnswerValue };
 
 /**
  * The fill wizard. With `editId` it edits a handed-in version (INC-14): it
@@ -478,6 +481,43 @@ function PlanWizard(props: {
 		}
 	};
 
+	/**
+	 * Save one changed answer of a handed-in plan right away (INC-21). A refusal
+	 * means the coach started or shared meanwhile: the editor keeps the input.
+	 */
+	const saveAnswerNow = async (q: QuestionDTO, d: Draft): Promise<boolean> => {
+		const sub = submissionId();
+		if (!sub || locked()) {
+			setUnsaved(true);
+			return false;
+		}
+		try {
+			await client.coachplan.saveAnswer({
+				submissionId: sub,
+				questionId: q.id,
+				value: d.value.value ?? null,
+				valueJson: d.value.valueJson ?? null,
+				discussWithCoach: d.discussWithCoach,
+				deliberatelySkipped: d.deliberatelySkipped,
+			});
+			setAnswers(q.id, d.value);
+			setFlags(q.id, {
+				discussWithCoach: d.discussWithCoach,
+				deliberatelySkipped: d.deliberatelySkipped,
+			});
+			toast({ title: "Opgeslagen", description: q.label, tone: "success", duration: 2000 });
+			return true;
+		} catch (err) {
+			if ((err as { code?: string } | null)?.code === "CONFLICT") {
+				setRefused(true);
+				setUnsaved(true);
+				return false;
+			}
+			toast({ title: "Opslaan lukte niet", description: friendlyError(err), tone: "danger" });
+			return false;
+		}
+	};
+
 	const editFrom = (q: QuestionDTO) => {
 		const idx = leerlingQuestions().findIndex((x) => x.id === q.id);
 		if (idx >= 0) setStep(idx);
@@ -642,10 +682,41 @@ function PlanWizard(props: {
 						onDone={async () => {
 							if (locked() || (await saveAll())) props.onDone?.();
 						}}
+						onSaveAnswer={saveAnswerNow}
 					/>
 				</Show>
 			</Show>
 		</section>
+	);
+}
+
+/** One answer in the overview: the answer itself and the markers. */
+function AnswerDisplay(props: { q: QuestionDTO; value?: AnswerValue; flags?: Flags }) {
+	const rendered = () => renderAnswerText(props.q, props.value);
+	return (
+		<>
+			<div class="mt-2 text-body">
+				<Show when={props.flags?.deliberatelySkipped}>
+					<Badge variant="warning">Overgeslagen</Badge>
+				</Show>
+				<Show when={!props.flags?.deliberatelySkipped && rendered().kind === "chips"}>
+					<div class="flex flex-wrap gap-1.5">
+						<For each={rendered().chips}>{(c) => <Badge variant="primary">{c}</Badge>}</For>
+					</div>
+				</Show>
+				<Show when={!props.flags?.deliberatelySkipped && rendered().kind === "text"}>
+					<p class="whitespace-pre-wrap text-ink [overflow-wrap:anywhere]">{rendered().text}</p>
+				</Show>
+				<Show when={!props.flags?.deliberatelySkipped && rendered().kind === "empty"}>
+					<span class="text-muted italic">Niet ingevuld</span>
+				</Show>
+			</div>
+			<Show when={props.flags?.discussWithCoach}>
+				<div class="mt-2">
+					<Badge variant="accent">Bespreken met coach</Badge>
+				</div>
+			</Show>
+		</>
 	);
 }
 
@@ -656,10 +727,12 @@ function Overview(props: {
 	onEdit: (q: QuestionDTO) => void;
 	onSubmit: () => void;
 	onBack: () => void;
-	/** Changing a handed-in plan: "Klaar" instead of "Verzenden". */
+	/** Changing a handed-in plan: edit per question in place, "Klaar" instead of "Verzenden". */
 	editing?: boolean;
 	locked?: boolean;
 	onDone?: () => void;
+	/** Save one answer while editing a handed-in plan; resolves false when it wasn't saved. */
+	onSaveAnswer?: (q: QuestionDTO, draft: Draft) => Promise<boolean>;
 }) {
 	const themes = createMemo(() => {
 		const order: string[] = [];
@@ -670,6 +743,46 @@ function Overview(props: {
 		return order;
 	});
 
+	// INC-21: an open editor per question, holding what isn't saved yet.
+	const [drafts, setDrafts] = createStore<Record<string, Draft | undefined>>({});
+	const [saving, setSaving] = createSignal<string | null>(null);
+	const [confirmDone, setConfirmDone] = createSignal(false);
+	const savedDraft = (q: QuestionDTO): Draft => ({
+		value: { ...props.answers[q.id] },
+		discussWithCoach: props.flags[q.id]?.discussWithCoach ?? false,
+		deliberatelySkipped: props.flags[q.id]?.deliberatelySkipped ?? false,
+	});
+	const openEditor = (q: QuestionDTO) => setDrafts(q.id, savedDraft(q));
+	const closeEditor = (q: QuestionDTO) => setDrafts(q.id, undefined);
+	const changed = () =>
+		props.questions.filter((q) => {
+			const d = drafts[q.id];
+			return d && JSON.stringify(d) !== JSON.stringify(savedDraft(q));
+		});
+	const save = async (q: QuestionDTO): Promise<boolean> => {
+		const d = drafts[q.id];
+		if (!d || !props.onSaveAnswer) return false;
+		setSaving(q.id);
+		const ok = await props.onSaveAnswer(q, JSON.parse(JSON.stringify(d)) as Draft);
+		setSaving(null);
+		if (ok) closeEditor(q);
+		return ok;
+	};
+	const done = () => {
+		if (!props.locked && changed().length > 0) setConfirmDone(true);
+		else props.onDone?.();
+	};
+	const saveAllAndDone = async () => {
+		for (const q of changed()) {
+			if (!(await save(q))) {
+				setConfirmDone(false);
+				return;
+			}
+		}
+		setConfirmDone(false);
+		props.onDone?.();
+	};
+
 	return (
 		<div class="flex flex-col gap-5">
 			<div>
@@ -678,7 +791,7 @@ function Overview(props: {
 				</h1>
 				<p class="mt-1 text-body text-muted">
 					{props.editing
-						? "Wijzigingen worden meteen opgeslagen en je coach ziet ze direct. Dit kan tot je coach begint met invullen."
+						? "Klik bij een vraag op Wijzig, pas je antwoord aan en klik op Opslaan. Dat doe je per vraag. Aanpassen kan tot je coach begint met invullen of het plan aan je aanbiedt."
 						: "Je kunt ze nog aanpassen voordat je verstuurt."}
 				</p>
 			</div>
@@ -693,57 +806,68 @@ function Overview(props: {
 									(q) => (q.options?.theme ?? "Vragen") === theme,
 								)}
 							>
-								{(q) => {
-									const rendered = renderAnswerText(q, props.answers[q.id]);
-									const f = props.flags[q.id];
-									return (
-										<div class="border-line-2 border-b pb-3.5 last:border-b-0">
-											<div class="flex items-start justify-between gap-3">
-												<p class="flex-1 font-medium text-ink-2">{q.label}</p>
-												<Show when={!props.locked}>
-													<Button
-														size="sm"
-														variant="ghost"
-														onClick={() => props.onEdit(q)}
-													>
-														Wijzig
-													</Button>
-												</Show>
-											</div>
-											<div class="mt-2 text-body">
-												<Show when={f?.deliberatelySkipped}>
-													<Badge variant="warning">Overgeslagen</Badge>
-												</Show>
-												<Show
-													when={!f?.deliberatelySkipped && rendered.kind === "chips"}
+								{(q) => (
+									<div class="border-line-2 border-b pb-3.5 last:border-b-0">
+										<div class="flex items-start justify-between gap-3">
+											<p class="flex-1 font-medium text-ink-2">{q.label}</p>
+											<Show when={!props.locked && !drafts[q.id]}>
+												<Button
+													size="sm"
+													variant="ghost"
+													onClick={() => (props.editing ? openEditor(q) : props.onEdit(q))}
 												>
-													<div class="flex flex-wrap gap-1.5">
-														<For each={rendered.chips}>
-															{(c) => <Badge variant="primary">{c}</Badge>}
-														</For>
-													</div>
-												</Show>
-												<Show
-													when={!f?.deliberatelySkipped && rendered.kind === "text"}
-												>
-													<p class="whitespace-pre-wrap text-ink">
-														{rendered.text}
-													</p>
-												</Show>
-												<Show
-													when={!f?.deliberatelySkipped && rendered.kind === "empty"}
-												>
-													<span class="text-muted italic">Niet ingevuld</span>
-												</Show>
-											</div>
-											<Show when={f?.discussWithCoach}>
-												<div class="mt-2">
-													<Badge variant="accent">Bespreken met coach</Badge>
-												</div>
+													Wijzig
+												</Button>
 											</Show>
 										</div>
-									);
-								}}
+										<Show
+											when={drafts[q.id]}
+											fallback={
+												<AnswerDisplay q={q} value={props.answers[q.id]} flags={props.flags[q.id]} />
+											}
+										>
+											{(d) => (
+												<div class="mt-3 flex flex-col gap-3 rounded-2 border border-primary bg-bg-2 p-4">
+													<QuestionInput
+														question={q}
+														value={d().value}
+														onChange={(next) => {
+															setDrafts(q.id, "value", next);
+															// A real answer clears a skip, as in the vragenlijst.
+															setDrafts(q.id, "deliberatelySkipped", false);
+														}}
+													/>
+													<Switch
+														checked={d().discussWithCoach}
+														onChange={(on) => setDrafts(q.id, "discussWithCoach", on)}
+														label="Dit wil ik graag bespreken met mijn coach"
+													/>
+													<Switch
+														checked={d().deliberatelySkipped}
+														onChange={(on) => setDrafts(q.id, "deliberatelySkipped", on)}
+														label="Deze vraag sla ik bewust over"
+													/>
+													<Show when={props.locked}>
+														<p class="text-small text-ink-2" role="alert">
+															Niet opgeslagen. Je ziet je tekst hier nog, zodat je hem kunt
+															kopiëren.
+														</p>
+													</Show>
+													<div class="flex justify-end gap-2">
+														<Button variant="ghost" onClick={() => closeEditor(q)}>
+															Annuleren
+														</Button>
+														<Show when={!props.locked}>
+															<Button disabled={saving() === q.id} onClick={() => void save(q)}>
+																{saving() === q.id ? "Opslaan…" : "Opslaan"}
+															</Button>
+														</Show>
+													</div>
+												</div>
+											)}
+										</Show>
+									</div>
+								)}
 							</For>
 						</div>
 					</Card>
@@ -752,10 +876,29 @@ function Overview(props: {
 
 			<Show when={props.editing}>
 				<div class="flex justify-end">
-					<Button size="lg" onClick={() => props.onDone?.()}>
+					<Button size="lg" onClick={done}>
 						{props.locked ? "Terug naar mijn plan" : "Klaar met aanpassen"}
 					</Button>
 				</div>
+				<Dialog
+					open={confirmDone()}
+					onOpenChange={setConfirmDone}
+					title="Niet alles is opgeslagen"
+					description={`Je hebt ${changed().length === 1 ? "een wijziging" : `${changed().length} wijzigingen`} nog niet opgeslagen.`}
+					footer={
+						<>
+							<Button variant="subtle" onClick={() => setConfirmDone(false)}>
+								Verder bewerken
+							</Button>
+							<Button variant="ghost" onClick={() => props.onDone?.()}>
+								Niet opslaan
+							</Button>
+							<Button onClick={() => void saveAllAndDone()}>Opslaan</Button>
+						</>
+					}
+				>
+					<p class="text-body text-ink-2">Wil je ze opslaan voordat je teruggaat naar Mijn plan?</p>
+				</Dialog>
 			</Show>
 			<Show when={!props.editing}>
 				<Card class="flex items-center justify-between gap-4 border-primary bg-primary text-primary-fg">
