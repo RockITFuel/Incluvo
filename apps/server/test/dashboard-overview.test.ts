@@ -31,7 +31,10 @@ describe("dashboard overview", () => {
 			{ organizationId, leerlingId, title: "Open" },
 		]);
 
-		const rows = await keyuser.client.dashboard.overview();
+		// The keyuser links the leerling to the coach; the coach sees the row.
+		const coach = await asUser("coach");
+		await keyuser.client.admin.assignments.set({ coachId: coach.id, leerlingId, assigned: true });
+		const rows = await coach.client.dashboard.overview();
 		const row = rows.find((r) => r.leerling.id === leerlingId);
 		expect(row?.plan.submissionId).toBe(handedIn.id);
 		expect(row?.plan.status).toBe("submitted");
@@ -40,7 +43,7 @@ describe("dashboard overview", () => {
 
 		expect(rows.length).toBeGreaterThan(1);
 		for (const r of rows) {
-			const profile = await keyuser.client.dashboard.profile({
+			const profile = await coach.client.dashboard.profile({
 				leerlingId: r.leerling.id,
 			});
 			expect({

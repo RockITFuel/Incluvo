@@ -50,9 +50,9 @@ import { ErrorState } from "../../../components/ui/error-state";
  * coach+ and the coach↔leerling assignment on every procedure.
  */
 export const Route = createFileRoute("/_protected/dashboard/")({
-	beforeLoad: () => requireRole("coach"),
+	beforeLoad: () => requireRole("coach", undefined, { only: ["coach", "superadmin"] }),
 	component: () => (
-		<RequireRole min="coach">
+		<RequireRole min="coach" only={["coach", "superadmin"]}>
 			<DashboardOrOverview />
 		</RequireRole>
 	),

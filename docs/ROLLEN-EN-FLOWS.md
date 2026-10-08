@@ -36,7 +36,7 @@ flowchart TD
 | Rol | Wie | Startpagina | Menu |
 | --- | --- | --- | --- |
 | superadmin | Ondivera | Overzicht (alle scholen) | Overzicht, Cursussen (catalogus), Beheer, Formulieren |
-| keyuser | beheerder van een school | Dashboard | Dashboard, Coachplannen, Cursussen, Chat, Assistent, Beheer, Formulieren |
+| keyuser | beheerder van een school | Leerlingen | Leerlingen, Coaches, Cursussen, Beheer, Formulieren |
 | coach | coach / docent | Dashboard | Dashboard, Coachplannen, Cursussen, Chat, Assistent |
 | ontwikkelaar | bouwt cursussen voor de school | Cursussen | Cursussen, Mijn profiel |
 | leerling | leerling (8–20 jaar) | Welkom | Welkom, Mijn taken, Cursussen, Mijn plan, Chat, Mijn profiel |
@@ -47,16 +47,19 @@ flowchart TD
 | --- | --- | --- | --- | --- | --- |
 | Scholen aanmaken, archiveren | ✔ | | | | |
 | Gebruikers uitnodigen, rollen | alle scholen | eigen school | | | |
-| Koppelingen coach ↔ leerling | alle scholen | eigen school | | | |
+| Leerling of coach toevoegen (met schoolgegevens) | | eigen school | | | |
+| Koppelingen: vaste coach en vervanger | alle scholen | eigen school | | | |
 | Coachplan-formulier beheren | Ondivera-sjabloon | schoolformulier | | | |
 | Cursussjabloon bouwen | Ondivera-sjabloon | schoolsjabloon | | schoolsjabloon | |
-| Leerling: plan, taken, cursus, stemming | | hele school | gekoppelde leerlingen | | eigen |
-| 1-op-1-chat | | gekoppelde leerlingen | gekoppelde leerlingen | | eigen coaches |
-| AI-advies, transcriptie | | ✔ | ✔ | | |
+| Leerling: plan, taken, cursus, stemming | | | gekoppelde leerlingen | | eigen |
+| 1-op-1-chat | | | gekoppelde leerlingen | | eigen coaches |
+| AI-advies, transcriptie | | | ✔ | | |
 | Audit-log | alles | eigen school | | | |
 
 Server: `packages/permissions` (`sameTenant`, `sameSchool`, `coachesLeerlingen`,
-`canAccessLeerling`) en `apps/server/src/access.ts`. De UI-guards
+`canAccessLeerling`) en `apps/server/src/access.ts`. De keyuser begeleidt
+geen leerlingen (INC-16, zie `docs/decisions/keyuser-beheer.md`); gekoppeld
+zijn betekent: vaste coach of vervanger (`apps/server/src/koppelingen.ts`). De UI-guards
 (`requireRole`, `<RequireRole>`) zijn alleen gemak; de server beslist.
 
 ---
@@ -132,7 +135,7 @@ maakt een nieuwe versie. Een nieuwe Ondivera-versie kan een school overnemen
 ```mermaid
 flowchart LR
     A["Ondivera-sjabloon<br/>(superadmin)"] -- "afleiden" --> B["Schoolsjabloon<br/>(ontwikkelaar, keyuser)"]
-    B -- "afleiden voor leerling" --> C["Cursus van de leerling<br/>(coach, keyuser)"]
+    B -- "afleiden voor leerling" --> C["Cursus van de leerling<br/>(coach)"]
     C --> T["Taak per opdracht"]
 ```
 
@@ -159,14 +162,14 @@ flowchart LR
   afvinken en vastpinnen. "Vandaag" is de Nederlandse kalenderdag.
 - Elke ochtend vanaf 07:00 krijgt een leerling met taken voor vandaag één
   melding (niet als een coach de lijst heeft verborgen).
-- Coach of keyuser beheert de takenlijst van een leerling (profiel → Taken), kan
+- De coach beheert de takenlijst van een leerling (profiel → Taken), kan
   taken toevoegen (leerling krijgt een melding) en de lijst tijdelijk verbergen
   (geldt voor de leerling, ook bij meerdere coaches).
 - Taken uit een cursusopdracht gaan op klaar door in te leveren, niet door afvinken.
 
 ### E. Chat en meldingen
 
-- **1-op-1-chat** alleen tussen een leerling en een gekoppelde coach of keyuser.
+- **1-op-1-chat** alleen tussen een leerling en een gekoppelde coach.
 - **Meldingen** (bel rechtsboven, realtime):
 
 | Melding | Wanneer | Voor |
@@ -180,8 +183,9 @@ flowchart LR
 | Je taken voor vandaag | dagelijks vanaf 07:00 | leerling |
 | Nieuw bericht | chatbericht | de ander |
 
-\* De gekoppelde coaches; heeft de leerling geen coach, dan de keyusers van de
-school (`leerlingCoachRecipients`).
+\* De gekoppelde coaches (vaste coach en vervanger); heeft de leerling geen
+coach, dan de keyusers van de school, zodat die een coach koppelen
+(`leerlingCoachRecipients`).
 
 ### F. Hoe gaat het vandaag (stemming)
 

@@ -3,7 +3,7 @@
  * created here: by an invite (`account.users.invite`) or by the seed scripts.
  */
 import { db } from "@incluvo/drizzle";
-import { user } from "@incluvo/drizzle/schema";
+import { personProfile, user } from "@incluvo/drizzle/schema";
 import type { UserRole } from "@incluvo/permissions";
 import { generateId } from "better-auth";
 import { eq } from "drizzle-orm";
@@ -36,6 +36,10 @@ export async function createAccount(input: {
 		.update(user)
 		.set({ role: input.role, organizationId: input.organizationId })
 		.where(eq(user.id, created.id));
+	// Leerlingen and coaches get their school record (and ID) right away.
+	if (input.role === "leerling" || input.role === "coach") {
+		await db.insert(personProfile).values({ userId: created.id }).onConflictDoNothing();
+	}
 	if (input.password) {
 		await ctx.internalAdapter.linkAccount({
 			userId: created.id,
@@ -45,6 +49,46 @@ export async function createAccount(input: {
 		});
 	}
 	return created.id;
+}
+
+export type PersonFields = Omit<
+	typeof personProfile.$inferInsert,
+	"userId" | "number" | "status" | "createdAt" | "updatedAt"
+>;
+
+/** "Roepnaam voorvoegsel achternaam", the name shown everywhere. */
+export function displayName(p: Pick<PersonFields, "nickname" | "prefix" | "lastName">): string {
+	return [p.nickname, p.prefix, p.lastName].filter((v) => v?.trim()).join(" ");
+}
+
+/**
+ * A leerling or coach added by the keyuser (INC-15, INC-17): the login account
+ * and the school record in one transaction, so a failure leaves nothing
+ * half-made. No password: the person sets one through the invite mail.
+ */
+export async function createPerson(input: {
+	email: string;
+	role: "leerling" | "coach";
+	organizationId: string;
+	profile: PersonFields;
+}): Promise<{ id: string; number: number; name: string }> {
+	const name = displayName(input.profile);
+	return db.transaction(async (tx) => {
+		const id = generateId(32);
+		await tx.insert(user).values({
+			id,
+			email: input.email.toLowerCase(),
+			name,
+			emailVerified: false,
+			role: input.role,
+			organizationId: input.organizationId,
+		});
+		const [row] = await tx
+			.insert(personProfile)
+			.values({ ...input.profile, userId: id, status: "actief" })
+			.returning({ number: personProfile.number });
+		return { id, number: row!.number, name };
+	});
 }
 
 /** True when the user can sign in with a password (i.e. accepted an invite). */

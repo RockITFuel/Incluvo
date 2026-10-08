@@ -33,7 +33,7 @@ export const Route = createFileRoute("/_protected/chat/")({
 function ChatPage() {
   const search = Route.useSearch();
   return (
-    <RequireRole min="leerling" only={["leerling", "coach", "keyuser"]}>
+    <RequireRole min="leerling" only={["leerling", "coach"]}>
       <ChatPanel
         conversationId={search().conversationId}
         otherUserId={search().otherUserId}

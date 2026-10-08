@@ -241,7 +241,7 @@ describe("migration 0006 removes existing duplicates", () => {
 
 			await pool.query(`
 				INSERT INTO organization (id, name) VALUES ('00000000-0000-0000-0000-000000000001', 'S');
-				INSERT INTO "user" (id, name, email) VALUES ('c', 'C', 'c@x'), ('l', 'L', 'l@x');
+				INSERT INTO "user" (id, name, email, role) VALUES ('c', 'C', 'c@x', 'coach'), ('l', 'L', 'l@x', 'leerling');
 				INSERT INTO coach_assignment (organization_id, coach_id, leerling_id) VALUES
 					('00000000-0000-0000-0000-000000000001', 'c', 'l'),
 					('00000000-0000-0000-0000-000000000001', 'c', 'l');
