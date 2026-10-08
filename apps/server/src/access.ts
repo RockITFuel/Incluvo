@@ -79,10 +79,9 @@ export async function requireLeerlingAccess(
 
 /**
  * Which leerlingen a list endpoint may show the actor, as a SQL condition on
- * a leerling-id column (and, for a keyuser, the matching organization column).
- * Mirrors `canAccessLeerling`: keyuser → their school, coach → assigned
- * leerlingen, the superadmin → none (`sameSchool`), anyone else → only
- * themselves.
+ * a leerling-id column (and the matching organization column). Mirrors
+ * `canAccessLeerling`: coach → assigned leerlingen, the keyuser and the
+ * superadmin → none (they don't coach), anyone else → only themselves.
  */
 export async function reachableLeerlingen(
 	context: AuthedContext,
@@ -90,10 +89,7 @@ export async function reachableLeerlingen(
 	organizationIdColumn: PgColumn,
 ): Promise<SQL> {
 	const { actor } = context;
-	if (isSuperadmin(actor.role)) return sql`false`;
-	if (actor.role === "keyuser" && actor.organizationId) {
-		return eq(organizationIdColumn, actor.organizationId);
-	}
+	if (isSuperadmin(actor.role) || actor.role === "keyuser") return sql`false`;
 	if (actor.role === "coach") {
 		const links = await context.db
 			.select({ leerlingId: coachAssignment.leerlingId })

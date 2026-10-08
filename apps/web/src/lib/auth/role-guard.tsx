@@ -7,8 +7,8 @@ import { useMe } from "./use-me";
 /**
  * Client-side role gate for hard loads: `beforeLoad` is baked at prerender and
  * does not re-run on hydration, so role-gated pages must also gate at render.
- * `coaching` limits the page to roles that work with leerlingen (coach,
- * keyuser), which keeps the superadmin out of pupil pages.
+ * `coaching` limits the page to the role that works with leerlingen (the
+ * coach), which keeps the keyuser and the superadmin out of pupil pages.
  */
 export function RequireRole(props: {
 	min: UserRole;

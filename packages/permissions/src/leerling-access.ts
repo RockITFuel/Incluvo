@@ -13,9 +13,10 @@ export interface LeerlingLink extends TenantScoped {
  *   - the leerling themselves
  *   (not the superadmin: Ondivera manages the platform, it doesn't coach;
  *   see `sameSchool`)
- *   - a keyuser of the leerling's school — D1: a keyuser acts as any coach there
- *   - a coach with a `coach_assignment` to the leerling
- * Everyone else is refused, including an ontwikkelaar (D4: builds courses
+ *   - a coach with a `coach_assignment` to the leerling (vaste coach or
+ *     vervanger, INC-18)
+ * Everyone else is refused, including the keyuser (INC-16: they manage
+ * leerlingen and koppelingen, not the pupils' plans, chats or taken), an ontwikkelaar (D4: builds courses
  * only), unassigned coaches, other leerlingen and anyone from another school.
  *
  * Role-specific limits (e.g. only coach+ may grade) are checked on top of this.
@@ -23,7 +24,6 @@ export interface LeerlingLink extends TenantScoped {
 export function canAccessLeerling(actor: PolicySubject, link: LeerlingLink): boolean {
 	if (actor.userId === link.leerlingId) return true;
 	if (!sameSchool(actor, link)) return false;
-	if (actor.role === "keyuser") return true;
 	if (actor.role === "coach") return link.coachIds.includes(actor.userId);
 	return false;
 }

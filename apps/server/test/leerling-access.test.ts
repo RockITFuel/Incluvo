@@ -1,9 +1,9 @@
 /**
  * Fix plan 1.1 — one rule decides who may see or change a leerling's data:
  *   - the leerling themselves
- *   - a coach assigned to them (coach_assignment)
- *   - a keyuser of their school (D1: read + write, like any coach there)
- * Nobody else: not an unassigned coach, not an ontwikkelaar (D4), not another
+ *   - a coach assigned to them (coach_assignment: vaste coach or vervanger)
+ * Nobody else: not the keyuser (INC-16: manages leerlingen and koppelingen,
+ * doesn't coach), not an unassigned coach, not an ontwikkelaar (D4), not another
  * leerling, nobody from another school, and not the superadmin (Ondivera
  * manages the platform, it doesn't coach — `sameSchool`).
  *
@@ -20,8 +20,9 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import { type DemoUser, type TestUser, asUser, expectForbidden, userId, planVersion } from "./harness";
 
-const ALLOWED: DemoUser[] = ["coach", "keyuser"];
+const ALLOWED: DemoUser[] = ["coach"];
 const DENIED: DemoUser[] = [
+	"keyuser",
 	"superadmin",
 	"coach2",
 	"ontwikkelaar",
@@ -207,12 +208,9 @@ describe("lists only show reachable leerlingen", () => {
 		}
 	});
 
-	test("a keyuser sees every leerling of their school on the dashboard", async () => {
+	test("a keyuser sees no leerling's data on the dashboard (INC-16)", async () => {
 		const rows = await (await asUser("keyuser")).client.dashboard.overview();
-		const ids = rows.map((r) => r.leerling.id);
-		expect(ids).toContain(f.leerlingId);
-		expect(ids).toContain(await userId("leerling2"));
-		expect(ids).not.toContain(await userId("andereLeerling"));
+		expect(rows).toEqual([]);
 	});
 
 	test("a coach only sees assigned leerlingen on the dashboard", async () => {
@@ -225,7 +223,7 @@ describe("lists only show reachable leerlingen", () => {
 	test("the coachplan inbox follows the same rule", async () => {
 		const inbox = async (who: DemoUser) =>
 			(await (await asUser(who)).client.coachplan.inbox()).map((r) => r.submission.id);
-		expect(await inbox("keyuser")).toContain(f.coachplanSubmissionId);
+		expect(await inbox("keyuser")).not.toContain(f.coachplanSubmissionId);
 		expect(await inbox("coach")).toContain(f.coachplanSubmissionId);
 		expect(await inbox("coach2")).not.toContain(f.coachplanSubmissionId);
 	});
@@ -237,7 +235,7 @@ describe("1:1 chats stay between the two members", () => {
 		const { id } = await coach.client.chat.ensureDirect({ otherUserId: f.leerlingId });
 		await coach.client.chat.messages({ conversationId: id });
 		await (await asUser("leerling")).client.chat.messages({ conversationId: id });
-		for (const who of ["keyuser", "superadmin", ...DENIED] as DemoUser[]) {
+		for (const who of DENIED) {
 			await expectForbidden(async () =>
 				(await asUser(who)).client.chat.messages({ conversationId: id }),
 			);

@@ -38,6 +38,9 @@ export function Select(props: SelectProps) {
 			onChange={(opt) => props.onChange?.(opt?.value)}
 			disabled={props.disabled}
 			placeholder={props.placeholder}
+			// Modal: an open list is the one layer screen readers see, also when
+			// the select sits in a dialog that hides everything outside itself.
+			modal
 			itemComponent={(itemProps) => (
 				<KSelect.Item
 					item={itemProps.item}

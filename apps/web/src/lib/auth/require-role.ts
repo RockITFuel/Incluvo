@@ -19,7 +19,7 @@ import { getCachedSession } from "./session";
 export async function requireRole(
 	minRole: UserRole,
 	to?: string,
-	options: { coaching?: boolean } = {},
+	options: { coaching?: boolean; only?: UserRole[] } = {},
 ): Promise<{ role: UserRole }> {
 	// Skip the session probe during the Bun SPA-shell prerender (no `window`,
 	// empty auth baseURL → "fetch() URL is invalid", which would bake an error
@@ -34,7 +34,11 @@ export async function requireRole(
 	if (!data?.session) {
 		throw redirect({ to: "/login" });
 	}
-	if (!atLeast(role, minRole) || (options.coaching && !coachesLeerlingen(role))) {
+	if (
+		!atLeast(role, minRole) ||
+		(options.coaching && !coachesLeerlingen(role)) ||
+		(options.only && !options.only.includes(role))
+	) {
 		// Default: the role's own home, so nobody bounces through "/".
 		throw redirect({ to: to ?? roleHome(role) });
 	}

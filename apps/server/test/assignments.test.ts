@@ -111,27 +111,25 @@ describe("koppelingen", () => {
 		expect(list.leerlingen.map((l) => l.id)).toEqual([andereLeerling]);
 	});
 
-	test("a keyuser can coach: koppeling and chat", async () => {
+	test("a keyuser manages koppelingen but isn't a coach in one (INC-16)", async () => {
 		const keyuser = await asUser("keyuser");
 		const leerlingId = await userId("leerling2");
 		const list = await keyuser.client.admin.assignments.list();
-		expect(list.coaches.map((c) => c.id)).toContain(keyuser.id);
+		expect(list.coaches.map((c) => c.id)).not.toContain(keyuser.id);
 
-		await keyuser.client.admin.assignments.set({
-			coachId: keyuser.id,
-			leerlingId,
-			assigned: true,
-		});
+		let code: string | undefined;
+		try {
+			await keyuser.client.admin.assignments.set({
+				coachId: keyuser.id,
+				leerlingId,
+				assigned: true,
+			});
+		} catch (e) {
+			code = (e as { code?: string }).code;
+		}
+		expect(code).toBe("BAD_REQUEST");
 		const partners = await keyuser.client.chat.partners();
-		expect(partners.map((p) => p.id)).toContain(leerlingId);
-		const { id } = await keyuser.client.chat.ensureDirect({ otherUserId: leerlingId });
-		expect(id).toBeTruthy();
-
-		await keyuser.client.admin.assignments.set({
-			coachId: keyuser.id,
-			leerlingId,
-			assigned: false,
-		});
+		expect(partners.map((p) => p.id)).not.toContain(leerlingId);
 	});
 
 	test("changing a coach's role drops their koppelingen", async () => {
@@ -146,17 +144,8 @@ describe("koppelingen", () => {
 		const leerlingId = await userId("leerling");
 		await keyuser.client.admin.assignments.set({ coachId, leerlingId, assigned: true });
 
-		// Keyuser still coaches (D1): the koppeling stays.
+		// A keyuser doesn't coach (INC-16): the koppeling goes.
 		await keyuser.client.account.users.setRole({ userId: coachId, role: "keyuser" });
-		const kept = await db
-			.select({ id: coachAssignment.id })
-			.from(coachAssignment)
-			.where(
-				and(eq(coachAssignment.coachId, coachId), eq(coachAssignment.leerlingId, leerlingId)),
-			);
-		expect(kept).toHaveLength(1);
-
-		await keyuser.client.account.users.setRole({ userId: coachId, role: "ontwikkelaar" });
 
 		const left = await db
 			.select({ id: coachAssignment.id })
