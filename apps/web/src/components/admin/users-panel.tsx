@@ -20,6 +20,7 @@ import { Dialog } from "../ui/dialog";
 import { Pagination } from "../ui/pagination";
 import { Input } from "../ui/text-field";
 import { Select } from "../ui/select";
+import { RolesDialog } from "./roles-dialog";
 import { toast } from "../ui/toast";
 import { roleLabel } from "../shell/nav";
 import { useMe } from "../../lib/auth/use-me";
@@ -32,7 +33,7 @@ const ALL_SCHOOLS = "__all__";
 /**
  * Gebruikersbeheer (#60). Lists through `admin.users.overview` (tenant-pinned
  * for a keyuser, cross-tenant for the superadmin) and re-uses
- * `account.users.setRole` / `invite` (Epic 1) for the writes.
+ * `account.users.setRoles` / `invite` (Epic 1) for the writes.
  *
  * - keyuser: their own school; invites always land there.
  * - superadmin: every school, with a school column + filter, and a required
@@ -130,14 +131,23 @@ export function UsersPanel(props: {
 		});
 	};
 
-	const setRole = useMutation(() =>
-		orpc.account.users.setRole.mutationOptions({
+	// INC-24: one person, several roles.
+	const [rolesFor, setRolesFor] = createSignal<{ id: string; name: string; roles: UserRole[] } | null>(
+		null,
+	);
+	const setRoles = useMutation(() =>
+		orpc.account.users.setRoles.mutationOptions({
 			onSuccess: () => {
 				invalidate();
-				toast({ title: "Rol bijgewerkt", tone: "success" });
+				setRolesFor(null);
+				toast({ title: "Rollen bijgewerkt", tone: "success" });
 			},
-			onError: () =>
-				toast({ title: "Kon rol niet wijzigen", tone: "danger" }),
+			onError: (error) =>
+				toast({
+					title: "Kon de rollen niet wijzigen",
+					description: friendlyError(error),
+					tone: "danger",
+				}),
 		}),
 	);
 
@@ -304,26 +314,21 @@ export function UsersPanel(props: {
 												</Button>
 											</Show>
 										</Show>
-										<Select
-											aria-label={`Rol voor ${u.name}`}
-											options={roleOptions()}
-											value={
-												roleOptions().some((o) => o.value === u.role)
-													? u.role
-													: undefined
-											}
-											placeholder={roleLabel(u.role as UserRole)}
-											disabled={setRole.isPending || props.readOnly}
-											triggerClass="min-w-40"
-											onChange={(value) => {
-												if (value && value !== u.role) {
-													setRole.mutate({
-														userId: u.id,
-														role: value as never,
-													});
-												}
-											}}
-										/>
+										<div class="flex flex-wrap gap-1.5" aria-label={`Rollen van ${u.name}`}>
+											<For each={u.roles}>
+												{(r) => <Badge variant="outline">{roleLabel(r)}</Badge>}
+											</For>
+										</div>
+										<Show when={!props.readOnly}>
+											<Button
+												size="sm"
+												variant="ghost"
+												aria-label={`Rollen van ${u.name} wijzigen`}
+												onClick={() => setRolesFor({ id: u.id, name: u.name, roles: u.roles })}
+											>
+												Rollen
+											</Button>
+										</Show>
 									</div>
 								</li>
 							)}
@@ -345,6 +350,21 @@ export function UsersPanel(props: {
 					{search() ? "Geen gebruikers gevonden." : "Nog geen gebruikers."}
 				</p>
 			</Show>
+
+			<RolesDialog
+				open={rolesFor() !== null}
+				onOpenChange={(open) => {
+					if (!open) setRolesFor(null);
+				}}
+				name={rolesFor()?.name ?? ""}
+				roles={rolesFor()?.roles ?? []}
+				options={roleOptions().map((o) => o.value)}
+				saving={setRoles.isPending}
+				onSave={(roles) => {
+					const target = rolesFor();
+					if (target) setRoles.mutate({ userId: target.id, roles });
+				}}
+			/>
 
 			<Dialog
 				open={inviteOpen()}

@@ -2,6 +2,7 @@ import { relations } from "drizzle-orm";
 import {
 	boolean,
 	pgTable,
+	uniqueIndex,
 	text,
 	timestamp,
 	uuid,
@@ -19,8 +20,10 @@ export const user = pgTable("user", {
 	email: text("email").notNull().unique(),
 	emailVerified: boolean("email_verified").notNull().default(false),
 	image: text("image"),
-	// App-level role, mirrored onto the session for fast access checks: the
-	// @incluvo/permissions UserRole (leerling … superadmin).
+	// The active role, mirrored onto the session for fast access checks: the
+	// @incluvo/permissions UserRole (leerling … superadmin). Always one of the
+	// user's `assigned_role` rows; switching roles changes it (INC-24), so it
+	// is also the role a user comes back to after signing in again.
 	role: userRole("role").notNull().default("leerling"),
 	// Tenant the user belongs to (multi-tenant, QUESTIONS 3.x).
 	// ASSUMPTION: one user belongs to exactly one tenant for now (QUESTIONS 3.2).
@@ -30,6 +33,25 @@ export const user = pgTable("user", {
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 	updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
+
+/**
+ * Every role a user has (INC-24). Someone can be keyuser and coach with one
+ * account and switch between them; `user.role` is the active one. A leerling
+ * or superadmin has only that role (see `apps/server/src/roles.ts`).
+ */
+export const assignedRole = pgTable(
+	"assigned_role",
+	{
+		// Own id so the audit trigger can record who got or lost a role.
+		id: uuid("id").primaryKey().defaultRandom(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		role: userRole("role").notNull(),
+		createdAt: timestamp("created_at").notNull().defaultNow(),
+	},
+	(t) => [uniqueIndex("assigned_role_user_role_uq").on(t.userId, t.role)],
+);
 
 export const session = pgTable("session", {
 	id: text("id").primaryKey(),

@@ -88,7 +88,7 @@ DECLARE
 	audited jsonb := jsonb_build_object(
 		-- Multi-tenant & roles. For `user` only role + organization: who became
 		-- what where (no e-mail/name copies).
-		'user', 'only:role,organization_id',
+		'user', 'only:role,organization_id', 'assigned_role', 'full',
 		'organization', 'full', 'coach_assignment', 'full',
 		-- Coachplan / formulieren (#8–#21)
 		'form_template', 'full', 'form_question', 'full', 'form_assignment', 'full',

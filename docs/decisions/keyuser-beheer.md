@@ -11,8 +11,8 @@ Besluit 08-10-2026. Vervangt D1 ("een keyuser handelt als elke coach van de scho
   taken, cursus, stemming of chat van een leerling, en `reachableLeerlingen`
   geeft de keyuser geen leerlingen. Beheer en Formulieren blijven zoals ze waren.
 - Bestaande koppelingen met een keyuser als coach vervallen (migratie 0017).
-- Open punt: een account heeft één rol. Iemand die keyuser én coach is, kan dat
-  nu niet met één account zijn (INC-16 AC8 gaat uit van meerdere rollen).
+- Iemand die keyuser én coach is, doet dat met één account en wisselt van rol
+  (INC-24, zie `meerdere-rollen.md`).
 
 ## Leerling of coach toevoegen
 

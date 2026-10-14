@@ -12,6 +12,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { assertNotArchived } from "../../access";
 import { type KoppelingKind, setKoppeling } from "../../koppelingen";
+import { hasRole } from "../../roles";
 import { createPerson, sendInvite } from "../../users";
 import { type AuthedContext, base, ownTenant, protectedProcedure, withPolicy } from "../base";
 
@@ -279,7 +280,7 @@ const coachesList = keyuserProcedure
 			})
 			.from(user)
 			.leftJoin(personProfile, eq(personProfile.userId, user.id))
-			.where(and(eq(user.organizationId, organizationId), eq(user.role, "coach")))
+			.where(and(eq(user.organizationId, organizationId), hasRole("coach")))
 			.orderBy(user.name);
 		const counts = rows.length
 			? await context.db

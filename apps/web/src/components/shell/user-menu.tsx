@@ -1,7 +1,7 @@
 import { DropdownMenu } from "@kobalte/core/dropdown-menu";
 import { useRouter } from "@tanstack/solid-router";
-import { ChevronDown, LogOut, User as UserIcon } from "lucide-solid";
-import { Show } from "solid-js";
+import { Check, ChevronDown, LogOut, User as UserIcon } from "lucide-solid";
+import { For, Show } from "solid-js";
 import { authClient } from "../../lib/auth/auth-client";
 import { clearCachedSession } from "../../lib/auth/session";
 import { queryClient } from "../../lib/orpc/query-provider";
@@ -15,6 +15,13 @@ export type ShellUser = {
 	/** Human-readable role label (e.g. "Coach"). */
 	roleLabel?: string;
 	tone?: "leerling" | "coach";
+	/**
+	 * Every role of a user with more than one (INC-24): the menu then offers a
+	 * switch. `activeRole` is the role the user works in now.
+	 */
+	roles?: { value: string; label: string }[];
+	activeRole?: string;
+	onSwitchRole?: (role: string) => void;
 };
 
 const itemClass =
@@ -72,6 +79,33 @@ export function UserMenu(props: { user: ShellUser }) {
 						</div>
 					</div>
 					<DropdownMenu.Separator class="my-1 border-line-2 border-t" />
+					<Show when={(props.user.roles?.length ?? 0) > 1}>
+						<DropdownMenu.Group>
+							<DropdownMenu.GroupLabel class="px-3 pt-1 pb-1.5 text-micro font-medium text-muted">
+								Werken als
+							</DropdownMenu.GroupLabel>
+							<DropdownMenu.RadioGroup
+								value={props.user.activeRole}
+								onChange={(role) => {
+									if (role !== props.user.activeRole) props.user.onSwitchRole?.(role);
+								}}
+							>
+								<For each={props.user.roles}>
+									{(r) => (
+										<DropdownMenu.RadioItem value={r.value} class={itemClass} closeOnSelect>
+											<span class="flex size-4 items-center justify-center">
+												<DropdownMenu.ItemIndicator>
+													<Check class="size-4" />
+												</DropdownMenu.ItemIndicator>
+											</span>
+											<DropdownMenu.ItemLabel>{r.label}</DropdownMenu.ItemLabel>
+										</DropdownMenu.RadioItem>
+									)}
+								</For>
+							</DropdownMenu.RadioGroup>
+						</DropdownMenu.Group>
+						<DropdownMenu.Separator class="my-1 border-line-2 border-t" />
+					</Show>
 					<DropdownMenu.Item
 						class={itemClass}
 						closeOnSelect

@@ -8,6 +8,7 @@ import type { UserRole } from "@incluvo/permissions";
 import { generateId } from "better-auth";
 import { eq } from "drizzle-orm";
 import { auth } from "./auth";
+import { setRoles } from "./roles";
 import { env } from "./env";
 import { sendMail } from "./mail";
 
@@ -31,15 +32,16 @@ export async function createAccount(input: {
 		name: input.name,
 		emailVerified: false,
 	});
-	// Not better-auth fields, so set them on the row directly.
-	await db
-		.update(user)
-		.set({ role: input.role, organizationId: input.organizationId })
-		.where(eq(user.id, created.id));
-	// Leerlingen and coaches get their school record (and ID) right away.
-	if (input.role === "leerling" || input.role === "coach") {
-		await db.insert(personProfile).values({ userId: created.id }).onConflictDoNothing();
-	}
+	// Not better-auth fields, so set them on the row directly. better-auth
+	// created the row with the default role; `setRoles` makes the given role the
+	// only one, and gives leerlingen and coaches their school record (and ID).
+	await db.transaction(async (tx) => {
+		await tx
+			.update(user)
+			.set({ organizationId: input.organizationId })
+			.where(eq(user.id, created.id));
+		await setRoles(tx, created.id, [input.role]);
+	});
 	if (input.password) {
 		await ctx.internalAdapter.linkAccount({
 			userId: created.id,

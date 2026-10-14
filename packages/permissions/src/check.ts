@@ -30,6 +30,16 @@ export function coachesLeerlingen(role: UserRole): boolean {
 	return role === "coach";
 }
 
+/**
+ * Several roles per account (INC-24): the school roles — ontwikkelaar, coach,
+ * keyuser — combine freely; a leerling is only a leerling and the superadmin
+ * (Ondivera, no school) only superadmin.
+ */
+export function rolesCombine(roles: readonly UserRole[]): boolean {
+	const set = new Set(roles);
+	return set.size <= 1 || (!set.has("leerling") && !set.has("superadmin"));
+}
+
 /** A resource that is scoped to a tenant (organization). */
 export interface TenantScoped {
 	organizationId?: string | null;
