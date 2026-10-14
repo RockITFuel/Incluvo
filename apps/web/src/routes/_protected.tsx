@@ -6,13 +6,16 @@ import {
 	redirect,
 	useNavigate,
 } from "@tanstack/solid-router";
-import { useQuery } from "@tanstack/solid-query";
+import { useQuery, useQueryClient } from "@tanstack/solid-query";
 import { createEffect, createSignal, onMount, Show } from "solid-js";
 import { AppShell } from "../components/shell/app-shell";
 import { navForRole, roleLabel } from "../components/shell/nav";
-import { getCachedSession } from "../lib/auth/session";
+import { toast } from "../components/ui/toast";
+import { roleHome } from "../lib/auth/role-home";
+import { clearCachedSession, getCachedSession } from "../lib/auth/session";
 import { useMe } from "../lib/auth/use-me";
-import { orpc } from "../lib/orpc";
+import { friendlyError } from "../lib/errors";
+import { client, orpc } from "../lib/orpc";
 
 /**
  * Layout route that gates everything under it behind an authenticated session
@@ -116,6 +119,23 @@ function AuthedShell() {
 			).length ?? 0,
 	});
 
+	// INC-24: work in another of your roles. Everything cached belongs to the
+	// old role, so it goes; the new role starts on its own start screen.
+	const queryClient = useQueryClient();
+	const switchRole = async (next: string) => {
+		try {
+			await client.account.switchRole({ role: next as UserRole });
+		} catch (error) {
+			toast({ title: "Wisselen lukte niet", description: friendlyError(error), tone: "danger" });
+			return;
+		}
+		clearCachedSession();
+		// Drops every cached answer and refetches what is on screen (the menu).
+		await queryClient.resetQueries();
+		await navigate({ to: roleHome(next as UserRole) });
+		toast({ title: `Je werkt nu als ${roleLabel(next as UserRole).toLowerCase()}`, tone: "success" });
+	};
+
 	const user = () => {
 		const tone = role() === "coach" ? "coach" : "leerling";
 		return {
@@ -124,6 +144,9 @@ function AuthedShell() {
 			organization: me.organization()?.name,
 			roleLabel: roleLabel(role()),
 			tone,
+			roles: (me.query.data?.roles ?? []).map((r) => ({ value: r, label: roleLabel(r) })),
+			activeRole: role() ?? undefined,
+			onSwitchRole: switchRole,
 		} as const;
 	};
 

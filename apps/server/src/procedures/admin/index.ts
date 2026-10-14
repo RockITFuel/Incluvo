@@ -1,5 +1,6 @@
 import {
 	account,
+	assignedRole,
 	auditLog,
 	coachAssignment,
 	course,
@@ -11,18 +12,19 @@ import {
 } from "@incluvo/drizzle/schema";
 import {
 	atLeast,
-	coachesLeerlingen,
+	ROLES,
 	isSuperadmin,
 	policies,
 	sameTenant,
 } from "@incluvo/permissions";
 import type { Database } from "@incluvo/drizzle";
 import { ORPCError } from "@orpc/server";
-import { and, count, countDistinct, desc, eq, inArray, max, ne, sql } from "drizzle-orm";
+import { and, count, countDistinct, desc, eq, inArray, max, ne, or, sql } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import { assertNotArchived } from "../../access";
 import { toggleKoppeling } from "../../koppelingen";
+import { hasRole, rolesByUser } from "../../roles";
 import { env } from "../../env";
 import {
 	type AuthedContext,
@@ -116,15 +118,17 @@ async function schoolStats(
 	const inOrgs = (column: PgColumn) =>
 		orgIds ? inArray(column, orgIds) : undefined;
 
+	// Per role a person has: a keyuser who also coaches counts as both (INC-24).
 	const usersByOrg = await db
 		.select({
 			organizationId: user.organizationId,
-			role: user.role,
+			role: assignedRole.role,
 			value: count(),
 		})
 		.from(user)
+		.innerJoin(assignedRole, eq(assignedRole.userId, user.id))
 		.where(inOrgs(user.organizationId))
-		.groupBy(user.organizationId, user.role);
+		.groupBy(user.organizationId, assignedRole.role);
 
 	const templatesByOrg = await db
 		.select({ organizationId: formTemplate.organizationId, value: count() })
@@ -450,6 +454,8 @@ const AdminUserRowSchema = z.object({
 	name: z.string(),
 	email: z.string(),
 	role: z.string(),
+	/** Every role the user has (INC-24); `role` is the active one. */
+	roles: z.array(z.enum(ROLES)),
 	organizationId: z.string().nullable(),
 	organizationName: z.string().nullable(),
 	/** INC-6: "invited" until the user has set a password via the invite link. */
@@ -502,7 +508,12 @@ const usersOverview = protectedProcedure
 			.orderBy(user.name);
 
 		// Defence in depth: never leak cross-tenant rows to a non-superadmin.
-		return rows.filter((r) => sameTenant(actor, r));
+		const visible = rows.filter((r) => sameTenant(actor, r));
+		const roles = await rolesByUser(
+			context.db,
+			visible.map((r) => r.id),
+		);
+		return visible.map((r) => ({ ...r, roles: roles.get(r.id) ?? [r.role] }));
 	});
 
 const usersRouter = base.router({
@@ -813,10 +824,16 @@ const assignmentsList = protectedProcedure
 			.where(
 				and(
 					eq(user.organizationId, orgId),
-					inArray(user.role, ["coach", "leerling"]),
+					or(eq(user.role, "leerling"), hasRole("coach")),
 				),
 			)
 			.orderBy(user.name);
+		// A coach may also be keyuser, and be working as keyuser now (INC-24).
+		const coachIds = new Set(
+			[...(await rolesByUser(context.db, people.map((p) => p.id)))]
+				.filter(([, roles]) => roles.includes("coach"))
+				.map(([id]) => id),
+		);
 
 		const links = await context.db
 			.select({
@@ -838,7 +855,7 @@ const assignmentsList = protectedProcedure
 		return {
 			organizationId: orgId,
 			// Only coaches coach; the keyuser manages (INC-16).
-			coaches: people.filter((p) => coachesLeerlingen(p.role)).map(person),
+			coaches: people.filter((p) => coachIds.has(p.id)).map(person),
 			leerlingen: people
 				.filter((p) => p.role === "leerling")
 				.map((p) => ({ ...person(p), coachIds: coachIdsOf.get(p.id) ?? [] })),
@@ -872,7 +889,8 @@ const assignmentsSet = protectedProcedure
 		const coach = rows.find((r) => r.id === input.coachId);
 		const leerling = rows.find((r) => r.id === input.leerlingId);
 		if (!coach || !leerling) throw new ORPCError("NOT_FOUND");
-		if (!coachesLeerlingen(coach.role) || leerling.role !== "leerling") {
+		const coachRoles = (await rolesByUser(context.db, [coach.id])).get(coach.id) ?? [];
+		if (!coachRoles.includes("coach") || leerling.role !== "leerling") {
 			throw new ORPCError("BAD_REQUEST", {
 				message: "Koppel een coach aan een leerling",
 			});

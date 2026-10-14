@@ -10,6 +10,7 @@ import type { Database } from "@incluvo/drizzle";
 import { coachAssignment, user } from "@incluvo/drizzle/schema";
 import { ORPCError } from "@orpc/server";
 import { and, eq, inArray } from "drizzle-orm";
+import { rolesByUser } from "./roles";
 
 export type KoppelingKind = "vast" | "vervanger";
 
@@ -24,7 +25,9 @@ async function loadPair(tx: Tx, coachId: string, leerlingId: string, organizatio
 	const coach = rows.find((r) => r.id === coachId);
 	const leerling = rows.find((r) => r.id === leerlingId);
 	if (!coach || !leerling) throw new ORPCError("NOT_FOUND");
-	if (coach.role !== "coach" || leerling.role !== "leerling") {
+	// The coach role may be one of several (a keyuser who also coaches, INC-24).
+	const coachRoles = (await rolesByUser(tx, [coachId])).get(coachId) ?? [];
+	if (!coachRoles.includes("coach") || leerling.role !== "leerling") {
 		throw new ORPCError("BAD_REQUEST", { message: "Koppel een coach aan een leerling" });
 	}
 	if (coach.organizationId !== organizationId || leerling.organizationId !== organizationId) {

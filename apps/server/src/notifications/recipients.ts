@@ -1,6 +1,7 @@
 import type { Database } from "@incluvo/drizzle";
 import { coachAssignment, user } from "@incluvo/drizzle/schema";
 import { and, eq } from "drizzle-orm";
+import { hasRole } from "../roles";
 
 /**
  * Who hears about something a leerling did (plan ingeleverd, opdracht
@@ -22,6 +23,6 @@ export async function leerlingCoachRecipients(
 	const keyusers = await db
 		.select({ id: user.id })
 		.from(user)
-		.where(and(eq(user.organizationId, organizationId), eq(user.role, "keyuser")));
+		.where(and(eq(user.organizationId, organizationId), hasRole("keyuser")));
 	return keyusers.map((k) => k.id);
 }

@@ -1,13 +1,13 @@
-import { coachAssignment, organization, user } from "@incluvo/drizzle/schema";
+import { organization, user } from "@incluvo/drizzle/schema";
 import {
 	atLeast,
 	canBuildCourses,
 	can,
-	coachesLeerlingen,
 	INCLUVO_ROLES,
 	type IncluvoRole,
 	isSuperadmin,
 	policies,
+	rolesCombine,
 	sameTenant,
 	type UserRole,
 } from "@incluvo/permissions";
@@ -16,8 +16,15 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { assertNotArchived } from "../../access";
 import { rateLimit } from "../../rate-limit";
+import {
+	rolesByUser,
+	rolesOf,
+	setRoles,
+	sortRoles,
+	switchRole as switchActiveRole,
+} from "../../roles";
 import { createAccount, hasPassword, sendInvite } from "../../users";
-import { base, ownTenant, protectedProcedure, withPolicy } from "../base";
+import { type AuthedContext, base, ownTenant, protectedProcedure, withPolicy } from "../base";
 
 /**
  * Account / organization / user-management domain (Epic 1: auth, rollen &
@@ -44,7 +51,10 @@ const UserRowSchema = z.object({
 	id: z.string(),
 	name: z.string(),
 	email: z.string(),
+	/** The active role. */
 	role: z.string(),
+	/** Every role the user has (INC-24). */
+	roles: z.array(RoleSchema),
 	organizationId: z.string().nullable(),
 });
 
@@ -71,7 +81,10 @@ const me = protectedProcedure
 				email: z.string(),
 				role: z.string(),
 			}),
+			/** The active role. */
 			role: z.string(),
+			/** Every role the user can switch to (INC-24); one entry for most people. */
+			roles: z.array(RoleSchema),
 			organization: OrganizationSchema.nullable(),
 			capabilities: CapabilitiesSchema,
 		}),
@@ -113,6 +126,7 @@ const me = protectedProcedure
 				role: row.role,
 			},
 			role: row.role,
+			roles: await rolesOf(context.db, actor.userId),
 			organization: org,
 			capabilities: {
 				canManageTenant: can(actor, policies.manageTenant),
@@ -122,6 +136,19 @@ const me = protectedProcedure
 				isSuperadmin: isSuperadmin(actor.role),
 			},
 		};
+	});
+
+/**
+ * Work in another of your own roles (INC-24). The navigation, start screen and
+ * every permission follow the active role; it stays active on the next sign-in.
+ */
+const switchRole = protectedProcedure
+	.route({ method: "POST", path: "/account/switch-role", tags: ["account"] })
+	.input(z.object({ role: RoleSchema }))
+	.output(z.object({ role: RoleSchema }))
+	.handler(async ({ input, context }) => {
+		await switchActiveRole(context.db, context.actor.userId, input.role);
+		return { role: input.role };
 	});
 
 // ---------------------------------------------------------------------------
@@ -281,73 +308,73 @@ const usersList = protectedProcedure
 			)
 			.orderBy(user.name);
 		// Defence in depth: never leak cross-tenant rows.
-		return rows.filter((r) => sameTenant(actor, r));
+		const visible = rows.filter((r) => sameTenant(actor, r));
+		const roles = await rolesByUser(
+			context.db,
+			visible.map((r) => r.id),
+		);
+		return visible.map((r) => ({ ...r, roles: roles.get(r.id) ?? [r.role] }));
 	});
 
-/** Change a user's role (keyuser+ via manageUsers, tenant-scoped). */
+/**
+ * Give a user exactly these roles (keyuser+ via manageUsers, tenant-scoped).
+ * Koppelingen that no longer fit are dropped; when the active role is taken
+ * away, the user continues in a remaining one (INC-24 AC11).
+ */
+async function changeRoles(
+	context: AuthedContext,
+	userId: string,
+	roles: IncluvoRole[],
+): Promise<z.infer<typeof UserRowSchema>> {
+	const { actor } = context;
+	const [target] = await context.db
+		.select({ id: user.id, organizationId: user.organizationId })
+		.from(user)
+		.where(eq(user.id, userId));
+	if (!target) throw new ORPCError("NOT_FOUND");
+
+	// Tenant scope + role-transition validation.
+	assertCanManage(actor, target);
+	const forbidden = roles.find((r) => !assignableRoles(actor.role).includes(r));
+	if (forbidden) {
+		throw new ORPCError("FORBIDDEN", {
+			message: `Not allowed to assign role "${forbidden}"`,
+		});
+	}
+	if (target.organizationId) {
+		await assertNotArchived(context.db, target.organizationId);
+	}
+
+	await context.db.transaction((tx) => setRoles(tx, userId, roles));
+	const [row] = await context.db
+		.select({
+			id: user.id,
+			name: user.name,
+			email: user.email,
+			role: user.role,
+			organizationId: user.organizationId,
+		})
+		.from(user)
+		.where(eq(user.id, userId));
+	if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
+	return { ...row, roles: sortRoles(roles) };
+}
+
+/** Give a user one role, replacing any others. */
 const usersSetRole = protectedProcedure
 	.use(withPolicy(policies.manageUsers, ownTenant))
 	.route({ method: "POST", path: "/account/users/set-role", tags: ["account"] })
-	.input(
-		z.object({
-			userId: z.string(),
-			role: RoleSchema,
-		}),
-	)
+	.input(z.object({ userId: z.string(), role: RoleSchema }))
 	.output(UserRowSchema)
-	.handler(async ({ input, context }) => {
-		const { actor } = context;
+	.handler(({ input, context }) => changeRoles(context, input.userId, [input.role]));
 
-		const [target] = await context.db
-			.select({
-				id: user.id,
-				name: user.name,
-				email: user.email,
-				role: user.role,
-				organizationId: user.organizationId,
-			})
-			.from(user)
-			.where(eq(user.id, input.userId));
-		if (!target) throw new ORPCError("NOT_FOUND");
-
-		// Tenant scope + role-transition validation.
-		assertCanManage(actor, target);
-		if (!assignableRoles(actor.role).includes(input.role)) {
-			throw new ORPCError("FORBIDDEN", {
-				message: `Not allowed to assign role "${input.role}"`,
-			});
-		}
-		if (target.organizationId) {
-			await assertNotArchived(context.db, target.organizationId);
-		}
-
-		const [row] = await context.db
-			.update(user)
-			.set({ role: input.role, updatedAt: new Date() })
-			.where(eq(user.id, input.userId))
-			.returning({
-				id: user.id,
-				name: user.name,
-				email: user.email,
-				role: user.role,
-				organizationId: user.organizationId,
-			});
-		if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
-
-		// Koppelingen only make sense for a coach and a leerling: drop the ones
-		// the new role no longer fits.
-		if (!coachesLeerlingen(input.role)) {
-			await context.db
-				.delete(coachAssignment)
-				.where(eq(coachAssignment.coachId, input.userId));
-		}
-		if (input.role !== "leerling") {
-			await context.db
-				.delete(coachAssignment)
-				.where(eq(coachAssignment.leerlingId, input.userId));
-		}
-		return row;
-	});
+/** Give a user several roles at once, e.g. keyuser and coach (INC-24). */
+const usersSetRoles = protectedProcedure
+	.use(withPolicy(policies.manageUsers, ownTenant))
+	.route({ method: "POST", path: "/account/users/set-roles", tags: ["account"] })
+	.input(z.object({ userId: z.string(), roles: z.array(RoleSchema).min(1) }))
+	.output(UserRowSchema)
+	.handler(({ input, context }) => changeRoles(context, input.userId, input.roles));
 
 /**
  * Invite a user into a tenant (keyuser+ via manageUsers). A keyuser may only
@@ -436,10 +463,15 @@ const usersInvite = protectedProcedure
 			});
 		}
 
-		await context.db
-			.update(user)
-			.set({ role: input.role, updatedAt: new Date() })
-			.where(eq(user.id, userId));
+		if (existing) {
+			// An existing account gets the role on top of its others when they
+			// combine (a coach who also becomes keyuser); otherwise it replaces them.
+			const current = await rolesOf(context.db, userId);
+			const combined = [...current, input.role];
+			await context.db.transaction((tx) =>
+				setRoles(tx, userId, rolesCombine(combined) ? combined : [input.role]),
+			);
+		}
 
 		let mailSent = true;
 		if (!existing || !(await hasPassword(userId))) {
@@ -505,6 +537,7 @@ const usersResendInvite = protectedProcedure
 const usersRouter = base.router({
 	listInTenant: usersList,
 	setRole: usersSetRole,
+	setRoles: usersSetRoles,
 	invite: usersInvite,
 	resendInvite: usersResendInvite,
 });
@@ -515,6 +548,7 @@ const usersRouter = base.router({
 
 export const accountRouter = base.router({
 	me,
+	switchRole,
 	organizations: organizationsRouter,
 	users: usersRouter,
 });

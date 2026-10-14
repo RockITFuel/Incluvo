@@ -134,6 +134,13 @@
       "when": 1791970118222,
       "tag": "0018_answer_not_skipped",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1791970885588,
+      "tag": "0019_assigned_role",
+      "breakpoints": true
     }
   ]
 }

@@ -15,6 +15,7 @@ export {
 	checkPermission,
 	coachesLeerlingen,
 	isSuperadmin,
+	rolesCombine,
 	sameSchool,
 	sameTenant,
 } from "./src/check";
