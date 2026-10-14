@@ -60,12 +60,12 @@ export function FormsPanel(props: { organizationId?: string }) {
 								class="flex flex-wrap items-center justify-between gap-3"
 							>
 								<div class="min-w-0">
-									<p class="font-medium text-ink">{f.name}</p>
+									<p class="font-medium text-ink [overflow-wrap:anywhere]">{f.name}</p>
 									<p class="text-micro text-muted">
 										Aangemaakt {formatDate(f.createdAt)}
 									</p>
 								</div>
-								<div class="flex items-center gap-2">
+								<div class="flex flex-wrap items-center gap-2">
 									<Show when={f.isSchoolDefault}>
 										<Badge variant="success">Standaard</Badge>
 									</Show>

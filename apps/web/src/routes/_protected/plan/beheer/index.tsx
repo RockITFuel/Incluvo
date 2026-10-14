@@ -247,11 +247,12 @@ function FormManager() {
 							>
 								<button
 									type="button"
-									class="text-left"
+									class="flex min-w-0 flex-col items-start gap-2 text-left"
 									onClick={() => setSelectedId(tpl.id)}
 								>
-									<div class="flex items-center gap-2">
-										<span class="font-medium text-ink">{tpl.name}</span>
+									{/* Name and labels wrap inside the card (INC-23). */}
+									<div class="flex min-w-0 flex-wrap items-center gap-2">
+										<span class="min-w-0 font-medium text-ink [overflow-wrap:anywhere]">{tpl.name}</span>
 										<Badge variant="outline">v{tpl.version}</Badge>
 										<Show when={tpl.publishedAt} fallback={<Badge variant="warning">Concept</Badge>}>
 											<Badge variant="neutral">Gepubliceerd</Badge>

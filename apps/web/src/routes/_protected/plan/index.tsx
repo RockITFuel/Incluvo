@@ -452,6 +452,12 @@ function PlanWizard(props: {
 	};
 	const prev = () => setStep(Math.max(0, step() - 1));
 	const skip = (q: QuestionDTO) => {
+		// An answered question isn't skipped: "Sla over" just moves on, so the
+		// answer is kept and never shown as "Overgeslagen" (INC-22).
+		if (renderAnswerText(q, answers[q.id]).kind !== "empty") {
+			next();
+			return;
+		}
 		// Set the whole entry: a question without a saved answer has none yet, and
 		// a path-set on a missing entry throws before `next()` runs.
 		setFlags(q.id, { ...flagFor(q.id), deliberatelySkipped: true });
@@ -500,7 +506,8 @@ function PlanWizard(props: {
 				discussWithCoach: d.discussWithCoach,
 				deliberatelySkipped: d.deliberatelySkipped,
 			});
-			setAnswers(q.id, d.value);
+			// The server clears the answer of a skipped question (INC-22).
+			setAnswers(q.id, d.deliberatelySkipped ? { value: null, valueJson: null } : d.value);
 			setFlags(q.id, {
 				discussWithCoach: d.discussWithCoach,
 				deliberatelySkipped: d.deliberatelySkipped,
@@ -844,7 +851,11 @@ function Overview(props: {
 													/>
 													<Switch
 														checked={d().deliberatelySkipped}
-														onChange={(on) => setDrafts(q.id, "deliberatelySkipped", on)}
+														onChange={(on) => {
+															setDrafts(q.id, "deliberatelySkipped", on);
+															// Skipping empties the answer, as it is saved (INC-22).
+															if (on) setDrafts(q.id, "value", { value: null, valueJson: null });
+														}}
 														label="Deze vraag sla ik bewust over"
 													/>
 													<Show when={props.locked}>

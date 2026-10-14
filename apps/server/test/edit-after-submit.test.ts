@@ -112,6 +112,43 @@ describe("editing a handed-in plan", () => {
 		);
 	});
 
+	test("a skipped question has no answer, so it never shows as skipped with text (INC-22)", async () => {
+		const plan = await handedIn();
+		const answerOf = async () =>
+			(await plan.client.coachplan.getSubmission({ id: plan.submissionId })).answers.find(
+				(a) => a.questionId === plan.question.id,
+			);
+		// Skipping an answered question clears its answer; the marker stays.
+		await plan.client.coachplan.saveAnswer({
+			submissionId: plan.submissionId,
+			questionId: plan.question.id,
+			discussWithCoach: true,
+			deliberatelySkipped: true,
+		});
+		let answer = await answerOf();
+		expect(answer?.deliberatelySkipped).toBe(true);
+		expect(answer?.value).toBeNull();
+		expect(answer?.discussWithCoach).toBe(true);
+		// Text sent together with a skip isn't stored either.
+		await plan.client.coachplan.saveAnswer({
+			submissionId: plan.submissionId,
+			questionId: plan.question.id,
+			value: "Toch iets",
+			deliberatelySkipped: true,
+		});
+		expect((await answerOf())?.value).toBeNull();
+		// Answering again lifts the skip.
+		await plan.client.coachplan.saveAnswer({
+			submissionId: plan.submissionId,
+			questionId: plan.question.id,
+			value: "Nu wel",
+			deliberatelySkipped: false,
+		});
+		answer = await answerOf();
+		expect(answer?.value).toBe("Nu wel");
+		expect(answer?.deliberatelySkipped).toBe(false);
+	});
+
 	test("the coach's first input locks the leerling's answers, for good", async () => {
 		const plan = await handedIn();
 		// Reading the plan doesn't lock it.

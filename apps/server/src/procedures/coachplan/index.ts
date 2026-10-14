@@ -939,11 +939,18 @@ const saveAnswer = protectedProcedure
 			});
 		}
 
+		// Skipped and answered exclude each other (INC-22): a skip clears the answer,
+		// so no screen shows "Overgeslagen" for a question that has text.
+		const skipping = input.deliberatelySkipped === true;
 		const patch = {
-			...(input.value !== undefined ? { value: input.value } : {}),
-			...(input.valueJson !== undefined
-				? { valueJson: input.valueJson as never }
-				: {}),
+			...(skipping
+				? { value: null, valueJson: null }
+				: {
+						...(input.value !== undefined ? { value: input.value } : {}),
+						...(input.valueJson !== undefined
+							? { valueJson: input.valueJson as never }
+							: {}),
+					}),
 			...(input.discussWithCoach !== undefined
 				? { discussWithCoach: input.discussWithCoach }
 				: {}),
@@ -1020,8 +1027,8 @@ async function upsertLeerlingAnswer(
 		.values({
 			submissionId: input.submissionId,
 			questionId: input.questionId,
-			value: input.value ?? null,
-			valueJson: (input.valueJson ?? null) as never,
+			value: input.deliberatelySkipped ? null : (input.value ?? null),
+			valueJson: (input.deliberatelySkipped ? null : (input.valueJson ?? null)) as never,
 			discussWithCoach: input.discussWithCoach ?? false,
 			deliberatelySkipped: input.deliberatelySkipped ?? false,
 		})
