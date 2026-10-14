@@ -1,5 +1,65 @@
 # Changelog
 
+## Release 14 oktober 2026
+
+Alles wat er sinds de vorige release (woensdag 7 oktober 2026, PR #12) bij is gekomen.
+Jira: INC-4 (feedback uit de test), INC-15 t/m INC-21.
+
+### Keyuser beheert leerlingen en coaches
+
+- **Nieuw menu voor de keyuser (INC-16):** *Leerlingen, Coaches, Cursussen, Beheer,
+  Formulieren*. Na inloggen komt de keyuser op *Leerlingen*. Dashboard, Coachplannen, Chat en
+  Assistent zijn weg, ook op de server: de keyuser ziet geen plannen, chats of taken van
+  leerlingen meer. Dit vervangt de eerdere regel dat een keyuser als elke coach van de school kon
+  handelen (zie `docs/decisions/keyuser-beheer.md`).
+- **Leerling toevoegen (INC-15) en Coach toevoegen (INC-17)** met alle velden uit de tickets:
+  ECK-ID, naam, roepnaam, geboortedatum, geslacht, gebruikersnaam, foto, start-/stopdatum
+  (leerling) of in-/uitdienstdatum (coach) en status. Het systeem maakt een vast ID aan
+  (L-00012, C-00007). Fouten staan bij het veld; het account ontstaat pas als alles klopt, en
+  daarna krijgt de persoon een uitnodiging per mail.
+- **Vaste coach en vervanger (INC-18).** Elke leerling heeft één vaste coach en hoogstens één
+  vervanger, die een ander moet zijn. Beide hebben dezelfde toegang. Wordt de vervanging
+  beëindigd, dan verliest alleen de vervanger de toegang; wat tijdens de vervanging is
+  vastgelegd, blijft.
+
+### Coachplan
+
+- **Ingeleverde antwoorden direct wijzigen (INC-21).** In *Je antwoorden aanpassen* opent
+  *Wijzig* de vraag op dezelfde plek, met *Opslaan* en *Annuleren* per vraag. *Klaar met
+  aanpassen* vraagt eerst of je niet-opgeslagen wijzigingen wilt laten vallen. Zodra de coach
+  begint, staan de antwoorden nog steeds vast.
+
+### Takenlijst
+
+- **Groep *Ooit* (INC-4).** Onder *Toekomst* staan nu *Deze week*, *Volgende week*, *Later* en
+  *Ooit*. Taken zonder datum staan onder *Ooit*.
+- **Lange toelichting past in de kaart (INC-19)**, ook 1000 tekens zonder spatie. Geen
+  horizontaal scrollen meer op desktop of telefoon.
+- **Juiste labels (INC-20).** *Belangrijk* stond bij elke taak met een datum en *Eigen* bij
+  elke taak die geen opdracht was. Taken van de coach heten nu *Van coach*. Het label
+  *Belangrijk* is weg tot is afgesproken wanneer een taak belangrijk is.
+
+### Toegankelijkheid
+
+- In dialogen waren de keuzes van een keuzelijst onzichtbaar voor schermlezers, onder meer bij
+  de rolkeuze in *Gebruiker uitnodigen*. Dat is opgelost.
+
+### Voor de beheerder
+
+- **Database-migratie 0017** draait automatisch bij het opstarten van de server. Ze:
+  - voegt de tabel `person_profile` toe en geeft bestaande leerlingen en coaches een ID;
+  - verwijdert koppelingen met een keyuser als coach;
+  - maakt per leerling de oudste koppeling de vaste coach en de tweede de vervanger, en
+    verwijdert verdere koppelingen.
+- Geen nieuwe omgevingsvariabelen.
+
+### Open vragen (staan in Jira)
+
+- INC-15: een gegenereerd ID (zoals nu) of het eigen leerlingnummer van de school?
+- INC-16: blijft *Cursussen* bij de keyuser? En moet iemand keyuser én coach kunnen zijn met één
+  account?
+- INC-20: wanneer telt een taak als *Belangrijk*?
+
 ## Release oktober 2026
 
 Vergeleken met de versie die nu op productie draait (`c0564ac`, 2 september 2026).
