@@ -18,8 +18,10 @@ import { Route as ProtectedTakenIndexRouteImport } from './routes/_protected/tak
 import { Route as ProtectedProfielIndexRouteImport } from './routes/_protected/profiel/index'
 import { Route as ProtectedPlanIndexRouteImport } from './routes/_protected/plan/index'
 import { Route as ProtectedNotificatiesIndexRouteImport } from './routes/_protected/notificaties/index'
+import { Route as ProtectedLeerlingenIndexRouteImport } from './routes/_protected/leerlingen/index'
 import { Route as ProtectedDashboardIndexRouteImport } from './routes/_protected/dashboard/index'
 import { Route as ProtectedCursussenIndexRouteImport } from './routes/_protected/cursussen/index'
+import { Route as ProtectedCoachesIndexRouteImport } from './routes/_protected/coaches/index'
 import { Route as ProtectedChatIndexRouteImport } from './routes/_protected/chat/index'
 import { Route as ProtectedBeheerIndexRouteImport } from './routes/_protected/beheer/index'
 import { Route as ProtectedAssistentIndexRouteImport } from './routes/_protected/assistent/index'
@@ -76,6 +78,12 @@ const ProtectedNotificatiesIndexRoute =
     path: '/notificaties/',
     getParentRoute: () => ProtectedRoute,
   } as any)
+const ProtectedLeerlingenIndexRoute =
+  ProtectedLeerlingenIndexRouteImport.update({
+    id: '/leerlingen/',
+    path: '/leerlingen/',
+    getParentRoute: () => ProtectedRoute,
+  } as any)
 const ProtectedDashboardIndexRoute = ProtectedDashboardIndexRouteImport.update({
   id: '/dashboard/',
   path: '/dashboard/',
@@ -84,6 +92,11 @@ const ProtectedDashboardIndexRoute = ProtectedDashboardIndexRouteImport.update({
 const ProtectedCursussenIndexRoute = ProtectedCursussenIndexRouteImport.update({
   id: '/cursussen/',
   path: '/cursussen/',
+  getParentRoute: () => ProtectedRoute,
+} as any)
+const ProtectedCoachesIndexRoute = ProtectedCoachesIndexRouteImport.update({
+  id: '/coaches/',
+  path: '/coaches/',
   getParentRoute: () => ProtectedRoute,
 } as any)
 const ProtectedChatIndexRoute = ProtectedChatIndexRouteImport.update({
@@ -155,8 +168,10 @@ export interface FileRoutesByFullPath {
   '/assistent/': typeof ProtectedAssistentIndexRoute
   '/beheer/': typeof ProtectedBeheerIndexRoute
   '/chat/': typeof ProtectedChatIndexRoute
+  '/coaches/': typeof ProtectedCoachesIndexRoute
   '/cursussen/': typeof ProtectedCursussenIndexRoute
   '/dashboard/': typeof ProtectedDashboardIndexRoute
+  '/leerlingen/': typeof ProtectedLeerlingenIndexRoute
   '/notificaties/': typeof ProtectedNotificatiesIndexRoute
   '/plan/': typeof ProtectedPlanIndexRoute
   '/profiel/': typeof ProtectedProfielIndexRoute
@@ -177,8 +192,10 @@ export interface FileRoutesByTo {
   '/assistent': typeof ProtectedAssistentIndexRoute
   '/beheer': typeof ProtectedBeheerIndexRoute
   '/chat': typeof ProtectedChatIndexRoute
+  '/coaches': typeof ProtectedCoachesIndexRoute
   '/cursussen': typeof ProtectedCursussenIndexRoute
   '/dashboard': typeof ProtectedDashboardIndexRoute
+  '/leerlingen': typeof ProtectedLeerlingenIndexRoute
   '/notificaties': typeof ProtectedNotificatiesIndexRoute
   '/plan': typeof ProtectedPlanIndexRoute
   '/profiel': typeof ProtectedProfielIndexRoute
@@ -201,8 +218,10 @@ export interface FileRoutesById {
   '/_protected/assistent/': typeof ProtectedAssistentIndexRoute
   '/_protected/beheer/': typeof ProtectedBeheerIndexRoute
   '/_protected/chat/': typeof ProtectedChatIndexRoute
+  '/_protected/coaches/': typeof ProtectedCoachesIndexRoute
   '/_protected/cursussen/': typeof ProtectedCursussenIndexRoute
   '/_protected/dashboard/': typeof ProtectedDashboardIndexRoute
+  '/_protected/leerlingen/': typeof ProtectedLeerlingenIndexRoute
   '/_protected/notificaties/': typeof ProtectedNotificatiesIndexRoute
   '/_protected/plan/': typeof ProtectedPlanIndexRoute
   '/_protected/profiel/': typeof ProtectedProfielIndexRoute
@@ -225,8 +244,10 @@ export interface FileRouteTypes {
     | '/assistent/'
     | '/beheer/'
     | '/chat/'
+    | '/coaches/'
     | '/cursussen/'
     | '/dashboard/'
+    | '/leerlingen/'
     | '/notificaties/'
     | '/plan/'
     | '/profiel/'
@@ -247,8 +268,10 @@ export interface FileRouteTypes {
     | '/assistent'
     | '/beheer'
     | '/chat'
+    | '/coaches'
     | '/cursussen'
     | '/dashboard'
+    | '/leerlingen'
     | '/notificaties'
     | '/plan'
     | '/profiel'
@@ -270,8 +293,10 @@ export interface FileRouteTypes {
     | '/_protected/assistent/'
     | '/_protected/beheer/'
     | '/_protected/chat/'
+    | '/_protected/coaches/'
     | '/_protected/cursussen/'
     | '/_protected/dashboard/'
+    | '/_protected/leerlingen/'
     | '/_protected/notificaties/'
     | '/_protected/plan/'
     | '/_protected/profiel/'
@@ -354,6 +379,13 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof ProtectedNotificatiesIndexRouteImport
       parentRoute: typeof ProtectedRoute
     }
+    '/_protected/leerlingen/': {
+      id: '/_protected/leerlingen/'
+      path: '/leerlingen'
+      fullPath: '/leerlingen/'
+      preLoaderRoute: typeof ProtectedLeerlingenIndexRouteImport
+      parentRoute: typeof ProtectedRoute
+    }
     '/_protected/dashboard/': {
       id: '/_protected/dashboard/'
       path: '/dashboard'
@@ -366,6 +398,13 @@ declare module '@tanstack/solid-router' {
       path: '/cursussen'
       fullPath: '/cursussen/'
       preLoaderRoute: typeof ProtectedCursussenIndexRouteImport
+      parentRoute: typeof ProtectedRoute
+    }
+    '/_protected/coaches/': {
+      id: '/_protected/coaches/'
+      path: '/coaches'
+      fullPath: '/coaches/'
+      preLoaderRoute: typeof ProtectedCoachesIndexRouteImport
       parentRoute: typeof ProtectedRoute
     }
     '/_protected/chat/': {
@@ -449,8 +488,10 @@ interface ProtectedRouteChildren {
   ProtectedAssistentIndexRoute: typeof ProtectedAssistentIndexRoute
   ProtectedBeheerIndexRoute: typeof ProtectedBeheerIndexRoute
   ProtectedChatIndexRoute: typeof ProtectedChatIndexRoute
+  ProtectedCoachesIndexRoute: typeof ProtectedCoachesIndexRoute
   ProtectedCursussenIndexRoute: typeof ProtectedCursussenIndexRoute
   ProtectedDashboardIndexRoute: typeof ProtectedDashboardIndexRoute
+  ProtectedLeerlingenIndexRoute: typeof ProtectedLeerlingenIndexRoute
   ProtectedNotificatiesIndexRoute: typeof ProtectedNotificatiesIndexRoute
   ProtectedPlanIndexRoute: typeof ProtectedPlanIndexRoute
   ProtectedProfielIndexRoute: typeof ProtectedProfielIndexRoute
@@ -469,8 +510,10 @@ const ProtectedRouteChildren: ProtectedRouteChildren = {
   ProtectedAssistentIndexRoute: ProtectedAssistentIndexRoute,
   ProtectedBeheerIndexRoute: ProtectedBeheerIndexRoute,
   ProtectedChatIndexRoute: ProtectedChatIndexRoute,
+  ProtectedCoachesIndexRoute: ProtectedCoachesIndexRoute,
   ProtectedCursussenIndexRoute: ProtectedCursussenIndexRoute,
   ProtectedDashboardIndexRoute: ProtectedDashboardIndexRoute,
+  ProtectedLeerlingenIndexRoute: ProtectedLeerlingenIndexRoute,
   ProtectedNotificatiesIndexRoute: ProtectedNotificatiesIndexRoute,
   ProtectedPlanIndexRoute: ProtectedPlanIndexRoute,
   ProtectedProfielIndexRoute: ProtectedProfielIndexRoute,

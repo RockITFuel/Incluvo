@@ -2,6 +2,7 @@ import { relations } from "drizzle-orm";
 import {
 	boolean,
 	index,
+	pgEnum,
 	uniqueIndex,
 	pgTable,
 	text,
@@ -10,6 +11,12 @@ import {
 } from "drizzle-orm/pg-core";
 import { user } from "./better-auth";
 import { organization } from "./organization";
+
+/**
+ * A leerling has one vaste coach and, while that coach is away, at most one
+ * vervanger (INC-18). Both reach the leerling the same way.
+ */
+export const coachAssignmentKind = pgEnum("coach_assignment_kind", ["vast", "vervanger"]);
 
 /**
  * Coach <-> leerling assignment within a tenant. Drives the coach dashboard
@@ -26,6 +33,7 @@ export const coachAssignment = pgTable("coach_assignment", {
 	leerlingId: text("leerling_id")
 		.notNull()
 		.references(() => user.id, { onDelete: "cascade" }),
+	kind: coachAssignmentKind("kind").notNull().default("vast"),
 	// Coach can temporarily hide the leerling's task list (#39).
 	taskListHidden: boolean("task_list_hidden").notNull().default(false),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -35,6 +43,8 @@ export const coachAssignment = pgTable("coach_assignment", {
 	index("coach_assignment_coach_idx").on(t.coachId),
 	index("coach_assignment_leerling_idx").on(t.leerlingId),
 	uniqueIndex("coach_assignment_pair_uq").on(t.coachId, t.leerlingId),
+	// One vaste coach and one vervanger per leerling at most.
+	uniqueIndex("coach_assignment_kind_uq").on(t.leerlingId, t.kind),
 ]);
 
 export type CoachAssignment = typeof coachAssignment.$inferSelect;

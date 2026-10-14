@@ -45,6 +45,8 @@ const TaskSchema = z.object({
 const ListTaskSchema = TaskSchema.extend({
 	/** Open and due before today: shown under Vandaag as "Te laat". */
 	overdue: z.boolean(),
+	/** Made by someone else than the leerling (their coach), not by the leerling. */
+	byCoach: z.boolean(),
 });
 
 export const TASK_TITLE_MAX = 64;
@@ -62,6 +64,7 @@ const taskColumns = {
 	done: task.done,
 	doneAt: task.doneAt,
 	createdAt: task.createdAt,
+	createdById: task.createdById,
 } as const;
 
 /** A date falls "today" when it lands within the Dutch calendar day. */
@@ -175,13 +178,14 @@ const list = protectedProcedure
 
 		// Overdue open tasks belong to today's work, not to "later".
 		const { start: startOfToday } = dutchDay();
-		type Row = (typeof rows)[number] & { overdue: boolean };
+		type Row = (typeof rows)[number] & { overdue: boolean; byCoach: boolean };
 		const vandaag: Row[] = [];
 		const toekomst: Row[] = [];
 		const klaar: Row[] = [];
 		for (const r of rows) {
 			const overdue = !r.done && r.dueAt !== null && r.dueAt < startOfToday;
-			const row = { ...r, overdue };
+			const byCoach = r.createdById !== null && r.createdById !== r.leerlingId;
+			const row = { ...r, overdue, byCoach };
 			if (row.done) {
 				klaar.push(row);
 			} else if (overdue || isDueToday(row.dueAt) || row.pinnedForToday) {

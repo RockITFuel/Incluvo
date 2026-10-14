@@ -22,6 +22,7 @@ import { and, count, countDistinct, desc, eq, inArray, max, ne, sql } from "driz
 import type { PgColumn } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import { assertNotArchived } from "../../access";
+import { toggleKoppeling } from "../../koppelingen";
 import { env } from "../../env";
 import {
 	type AuthedContext,
@@ -812,7 +813,7 @@ const assignmentsList = protectedProcedure
 			.where(
 				and(
 					eq(user.organizationId, orgId),
-					inArray(user.role, ["coach", "keyuser", "leerling"]),
+					inArray(user.role, ["coach", "leerling"]),
 				),
 			)
 			.orderBy(user.name);
@@ -836,7 +837,7 @@ const assignmentsList = protectedProcedure
 		});
 		return {
 			organizationId: orgId,
-			// A keyuser can coach too (D1) — e.g. at a small school.
+			// Only coaches coach; the keyuser manages (INC-16).
 			coaches: people.filter((p) => coachesLeerlingen(p.role)).map(person),
 			leerlingen: people
 				.filter((p) => p.role === "leerling")
@@ -883,26 +884,13 @@ const assignmentsSet = protectedProcedure
 		}
 		const orgId = assignmentScope(context.actor, coach.organizationId);
 		await assertNotArchived(context.db, orgId);
-
-		if (input.assigned) {
-			await context.db
-				.insert(coachAssignment)
-				.values({
-					organizationId: orgId,
-					coachId: input.coachId,
-					leerlingId: input.leerlingId,
-				})
-				.onConflictDoNothing();
-		} else {
-			await context.db
-				.delete(coachAssignment)
-				.where(
-					and(
-						eq(coachAssignment.coachId, input.coachId),
-						eq(coachAssignment.leerlingId, input.leerlingId),
-					),
-				);
-		}
+		// Vaste coach first, then a vervanger (INC-18).
+		await toggleKoppeling(context.db, {
+			organizationId: orgId,
+			leerlingId: input.leerlingId,
+			coachId: input.coachId,
+			assigned: input.assigned,
+		});
 		return { assigned: input.assigned };
 	});
 

@@ -21,12 +21,13 @@ export function canBuildCourses(role: UserRole): boolean {
 }
 
 /**
- * Who works with leerlingen (plans, taken, chat, AI-advies): the coach and the
- * keyuser (D1: a keyuser acts as any coach of their school). Not the
- * superadmin — Ondivera manages the platform (see `sameSchool`).
+ * Who works with leerlingen (plans, taken, chat, AI-advies): the coach. Not
+ * the keyuser — they manage the school's leerlingen, coaches and koppelingen
+ * (INC-16, replacing D1) — and not the superadmin, who manages the platform
+ * (see `sameSchool`).
  */
 export function coachesLeerlingen(role: UserRole): boolean {
-	return role === "coach" || role === "keyuser";
+	return role === "coach";
 }
 
 /** A resource that is scoped to a tenant (organization). */

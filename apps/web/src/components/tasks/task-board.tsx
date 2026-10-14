@@ -20,12 +20,15 @@ export type TaskRow = {
 	createdAt: Date;
 	/** Open and due before today; listed under Vandaag. */
 	overdue?: boolean;
+	/** Made by the coach rather than by the leerling. */
+	byCoach?: boolean;
 };
 
-const SOURCE_LABEL: Record<TaskRow["source"], string> = {
-	assignment: "Opdracht",
-	manual: "Eigen",
-};
+/** Where a task comes from: an opdracht, the coach, or the leerling ("Eigen"). */
+function sourceLabel(task: TaskRow): string {
+	if (task.source === "assignment") return "Opdracht";
+	return task.byCoach ? "Van coach" : "Eigen";
+}
 
 function formatDue(due: Date | null): string | null {
 	if (!due) return null;
@@ -52,20 +55,40 @@ function isSameDay(a: Date, b: Date): boolean {
 	);
 }
 
-/** 23:59:59.999 on the coming Sunday — used to split `toekomst` into week buckets. */
-function endOfThisWeek(): Date {
+/**
+ * 23:59:59.999 on the Sunday `weeksAhead` weeks from now (0 = this week) —
+ * used to split `toekomst` into week buckets.
+ */
+function endOfWeek(weeksAhead: number): Date {
 	const now = new Date();
 	const day = now.getDay(); // 0 = zondag … 6 = zaterdag
 	const daysToSunday = day === 0 ? 0 : 7 - day;
 	const end = new Date(now);
-	end.setDate(now.getDate() + daysToSunday);
+	end.setDate(now.getDate() + daysToSunday + 7 * weeksAhead);
 	end.setHours(23, 59, 59, 999);
 	return end;
 }
 
-function subLine(description: string | null, dateLabel: string | null, source: TaskRow["source"]): string {
-	const parts = [description, dateLabel].filter((v): v is string => Boolean(v));
-	return parts.length > 0 ? parts.join(" · ") : SOURCE_LABEL[source];
+/**
+ * A task's description: wraps within the card, also a long word without
+ * spaces, and keeps the line breaks it was typed with.
+ */
+function Description(props: { text: string | null; size: string }) {
+	return (
+		<Show when={props.text}>
+			<div
+				style={{
+					"font-size": props.size,
+					color: "rgb(var(--ink-2))",
+					"margin-top": "4px",
+					"white-space": "pre-wrap",
+					"overflow-wrap": "anywhere",
+				}}
+			>
+				{props.text}
+			</div>
+		</Show>
+	);
 }
 
 type TabKey = "vandaag" | "toekomst" | "klaar";
@@ -168,11 +191,19 @@ export function TaskBoard(props: {
 	// Real streak: consecutive days with ≥1 afgeronde taak (never a demo number).
 	const streak = () => doneStreak(props.data.klaar.map((t) => t.doneAt));
 
-	const weekEnd = endOfThisWeek();
-	const deWeek = () =>
-		props.data.toekomst.filter((t) => t.dueAt && new Date(t.dueAt) <= weekEnd);
-	const volgendeWeek = () =>
-		props.data.toekomst.filter((t) => !t.dueAt || new Date(t.dueAt) > weekEnd);
+	const weekEnd = endOfWeek(0);
+	const nextWeekEnd = endOfWeek(1);
+	const dueIn = (from: Date | null, to: Date | null) =>
+		props.data.toekomst.filter((t) => {
+			if (!t.dueAt) return false;
+			const due = new Date(t.dueAt);
+			return (!from || due > from) && (!to || due <= to);
+		});
+	const deWeek = () => dueIn(null, weekEnd);
+	const volgendeWeek = () => dueIn(weekEnd, nextWeekEnd);
+	const later = () => dueIn(nextWeekEnd, null);
+	// Tasks without a date have no week: they go under "Ooit".
+	const ooit = () => props.data.toekomst.filter((t) => !t.dueAt);
 
 	return (
 		<>
@@ -339,6 +370,22 @@ export function TaskBoard(props: {
 						canManage={props.canManage}
 						onMove={(id) => setPinned.mutate({ id, pinned: true })}
 					/>
+					<Show when={later().length > 0}>
+						<FutureGroup
+							label="Later"
+							tasks={later()}
+							canManage={props.canManage}
+							onMove={(id) => setPinned.mutate({ id, pinned: true })}
+						/>
+					</Show>
+					<Show when={ooit().length > 0}>
+						<FutureGroup
+							label="Ooit"
+							tasks={ooit()}
+							canManage={props.canManage}
+							onMove={(id) => setPinned.mutate({ id, pinned: true })}
+						/>
+					</Show>
 					<Show when={props.data.toekomst.length === 0}>
 						<div style={{ padding: "32px", "text-align": "center", color: "rgb(var(--muted))" }}>
 							Geen taken in de planning.
@@ -399,15 +446,11 @@ function TabButton(props: {
 }
 
 function BigTask(props: { task: TaskRow; canManage: boolean; onToggle: () => void }) {
-	const sub = () =>
-		subLine(
-			props.task.description,
-			// An overdue task shows its date: "Vandaag" would be wrong.
-			formatTime(props.task.dueAt) && !props.task.overdue
-				? `Vandaag ${formatTime(props.task.dueAt)}`
-				: formatDue(props.task.dueAt),
-			props.task.source,
-		);
+	// An overdue task shows its date: "Vandaag" would be wrong.
+	const dateLabel = () =>
+		formatTime(props.task.dueAt) && !props.task.overdue
+			? `Vandaag ${formatTime(props.task.dueAt)}`
+			: formatDue(props.task.dueAt);
 	// A task literally due today (vs. merely self-pinned for today) reads as urgent.
 	const urgent = () => !props.task.done && props.task.dueAt !== null;
 	// An opdracht task is done by handing the opdracht in, not by ticking it.
@@ -463,30 +506,37 @@ function BigTask(props: { task: TaskRow; canManage: boolean; onToggle: () => voi
 					color: props.task.done ? "rgb(var(--muted))" : "rgb(var(--ink))",
 				}}
 			>
-				<div style={{ "font-weight": "500", "font-size": "0.9375rem" }}>{props.task.title}</div>
-				<div style={{ "font-size": "0.8125rem", color: "rgb(var(--muted))", "margin-top": "2px" }}>
-					{sub()}
+				<div style={{ "font-weight": "500", "font-size": "0.9375rem", "overflow-wrap": "anywhere" }}>
+					{props.task.title}
 				</div>
+				<Description text={props.task.description} size="0.8125rem" />
+				<Show when={dateLabel()}>
+					<div style={{ "font-size": "0.8125rem", color: "rgb(var(--muted))", "margin-top": "2px" }}>
+						{dateLabel()}
+					</div>
+				</Show>
 			</div>
 			{/* Overdue reads calm, not alarming: it's still today's to-do. */}
-			<Show
-				when={props.task.overdue}
-				fallback={
-					<Show when={urgent()}>
-						<span class="chip danger">Deadline</span>
-					</Show>
-				}
-			>
-				<span class="chip warning">Te laat</span>
-			</Show>
-			<Show
-				when={fromOpdracht() && !props.task.done}
-				fallback={<span class="chip">{SOURCE_LABEL[props.task.source]}</span>}
-			>
-				<Link to="/cursussen" class="chip primary">
-					Naar de opdracht
-				</Link>
-			</Show>
+			<div class="ds-row" style={{ gap: "6px", "flex-shrink": "0", "align-self": "flex-start" }}>
+				<Show
+					when={props.task.overdue}
+					fallback={
+						<Show when={urgent()}>
+							<span class="chip danger">Deadline</span>
+						</Show>
+					}
+				>
+					<span class="chip warning">Te laat</span>
+				</Show>
+				<Show
+					when={fromOpdracht() && !props.task.done}
+					fallback={<span class="chip">{sourceLabel(props.task)}</span>}
+				>
+					<Link to="/cursussen" class="chip primary">
+						Naar de opdracht
+					</Link>
+				</Show>
+			</div>
 		</div>
 	);
 }
@@ -527,27 +577,31 @@ function FutureGroup(props: {
 								gap: "12px",
 							}}
 						>
-							<Clock class="size-4" aria-hidden="true" />
+							<Clock class="size-4" aria-hidden="true" style={{ "flex-shrink": "0", "align-self": "flex-start", "margin-top": "2px" }} />
 							<div class="ds-grow" style={{ "min-width": "0" }}>
-								<div style={{ "font-weight": "500", "font-size": "0.875rem" }}>{t.title}</div>
-								<div style={{ "font-size": "0.75rem", color: "rgb(var(--muted))" }}>
-									{subLine(t.description, formatDue(t.dueAt), t.source)}
+								<div style={{ "font-weight": "500", "font-size": "0.875rem", "overflow-wrap": "anywhere" }}>
+									{t.title}
 								</div>
+								<Description text={t.description} size="0.75rem" />
+								<Show when={formatDue(t.dueAt)}>
+									<div style={{ "font-size": "0.75rem", color: "rgb(var(--muted))", "margin-top": "2px" }}>
+										{formatDue(t.dueAt)}
+									</div>
+								</Show>
 							</div>
-							<Show when={t.dueAt !== null}>
-								<span class="chip danger">Belangrijk</span>
-							</Show>
-							<span class="chip">{SOURCE_LABEL[t.source]}</span>
-							<Show when={props.canManage}>
-								<button
-									type="button"
-									class="btn sm subtle"
-									title="Naar vandaag"
-									onClick={() => props.onMove(t.id)}
-								>
-									+ Vandaag
-								</button>
-							</Show>
+							<div class="ds-row" style={{ gap: "6px", "flex-shrink": "0", "align-self": "flex-start" }}>
+								<span class="chip">{sourceLabel(t)}</span>
+								<Show when={props.canManage}>
+									<button
+										type="button"
+										class="btn sm subtle"
+										title="Naar vandaag"
+										onClick={() => props.onMove(t.id)}
+									>
+										+ Vandaag
+									</button>
+								</Show>
+							</div>
 						</div>
 					)}
 				</For>

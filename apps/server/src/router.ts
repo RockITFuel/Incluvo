@@ -9,6 +9,7 @@ import { dashboardRouter } from "./procedures/dashboard";
 import { health } from "./procedures/health";
 import { moodRouter } from "./procedures/mood";
 import { notificationsRouter } from "./procedures/notifications";
+import { peopleRouter } from "./procedures/people";
 import { tasksRouter } from "./procedures/tasks";
 
 /**
@@ -43,6 +44,8 @@ export const router = base.router({
 	dashboard: dashboardRouter,
 	admin: adminRouter,
 	ai: aiRouter,
+	// Keyuser: leerlingen, coaches and koppelingen (INC-15 – INC-18).
+	people: peopleRouter,
 });
 
 export type Router = typeof router;

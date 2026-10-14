@@ -9,6 +9,8 @@ import {
 	Settings,
 	Sparkles,
 	UserRound,
+	Users,
+	UsersRound,
 } from "lucide-solid";
 import type { NavSection } from "./app-shell";
 
@@ -26,7 +28,8 @@ export type NavBadges = {
  *
  *   - leerling     → Welkom, Mijn taken, Cursussen, Mijn plan, Chat
  *   - coach        → Dashboard, Coachplannen, Cursussen, Chat, Assistent
- *   - keyuser      → coach nav + Beheer, Formulieren
+ *   - keyuser      → Leerlingen, Coaches, Cursussen, Beheer, Formulieren
+ *                    (INC-16: manages the school, doesn't coach)
  *   - superadmin   → Overzicht (all schools), Cursussen, Beheer, Formulieren
  *   - ontwikkelaar → Cursussen (the course builder) and their profiel (D4)
  * While the role is still loading (null) there is no nav yet.
@@ -65,7 +68,28 @@ export function navForRole(role: UserRole | null, badges: NavBadges = {}): NavSe
 			},
 		];
 	}
-	// Coach and above get the coach-oriented nav. There is deliberately no
+	// The keyuser manages the school's leerlingen and coaches (INC-16); no
+	// dashboard, coachplannen, chat or assistent.
+	if (role === "keyuser") {
+		return [
+			{
+				label: "Navigatie",
+				items: [
+					{ label: "Leerlingen", href: "/leerlingen", icon: Users },
+					{ label: "Coaches", href: "/coaches", icon: UsersRound },
+					{ label: "Cursussen", href: "/cursussen", icon: GraduationCap },
+				],
+			},
+			{
+				label: "Beheer",
+				items: [
+					{ label: "Beheer", href: "/beheer", icon: Settings },
+					{ label: "Formulieren", href: "/plan/beheer", icon: NotebookPen },
+				],
+			},
+		];
+	}
+	// The coach gets the coach-oriented nav. There is deliberately no
 	// separate "Leerlingen" entry: /dashboard *is* the leerlingen-overzicht
 	// (backlog #42), the prototype's coach nav does not have one, and the entry
 	// that used to sit here pointed at the keyuser-only /beheer (CODE-REVIEW.md).
@@ -82,19 +106,7 @@ export function navForRole(role: UserRole | null, badges: NavBadges = {}): NavSe
 			{ label: "Chat", href: "/chat", icon: MessageSquare },
 			{ label: "Assistent", href: "/assistent", icon: Sparkles },
 		];
-		const sections: NavSection[] = [{ label: "Navigatie", items }];
-
-		// The keyuser also manages their school and its form templates.
-		if (role === "keyuser") {
-			sections.push({
-				label: "Beheer",
-				items: [
-					{ label: "Beheer", href: "/beheer", icon: Settings },
-					{ label: "Formulieren", href: "/plan/beheer", icon: NotebookPen },
-				],
-			});
-		}
-		return sections;
+		return [{ label: "Navigatie", items }];
 	}
 
 	// leerling: pupil-oriented nav.
