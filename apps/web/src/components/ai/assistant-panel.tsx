@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/solid-query";
-import { Send, Sparkles } from "lucide-solid";
+import { Send, Sparkles } from "../../lib/icons";
 import { createEffect, createSignal, For, on, Show } from "solid-js";
 import { useAssistant } from "../../lib/ai/use-assistant";
 import { orpc } from "../../lib/orpc";

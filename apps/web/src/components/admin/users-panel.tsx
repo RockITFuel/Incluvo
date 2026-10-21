@@ -4,7 +4,7 @@ import {
 	useQuery,
 	useQueryClient,
 } from "@tanstack/solid-query";
-import { Search } from "lucide-solid";
+import { Search } from "../../lib/icons";
 import {
 	createEffect,
 	createMemo,

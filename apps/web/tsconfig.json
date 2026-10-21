@@ -1,12 +1,25 @@
 {
-	"extends": "../../tsconfig.base.json",
-	"compilerOptions": {
-		"lib": ["ESNext", "DOM", "DOM.Iterable"],
-		"jsx": "preserve",
-		"jsxImportSource": "solid-js",
-		"types": ["vite/client", "node"],
-		"noEmit": true,
-		"allowImportingTsExtensions": true
-	},
-	"include": ["src", "vite.config.ts"]
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": [
+      "ESNext",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "jsx": "preserve",
+    "jsxImportSource": "@solidjs/web",
+    "types": [
+      "vite/client",
+      "node"
+    ],
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "customConditions": [
+      "browser"
+    ]
+  },
+  "include": [
+    "src",
+    "vite.config.ts"
+  ]
 }

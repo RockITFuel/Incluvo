@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/solid-query";
-import { Check, Mic, Square, Trash2, Upload, Video } from "lucide-solid";
+import { Check, Mic, Square, Trash2, Upload, Video } from "../../lib/icons";
 import { createSignal, Index, Show } from "solid-js";
 import { useRecorder } from "../../lib/ai/use-recorder";
 import { client, orpc } from "../../lib/orpc";

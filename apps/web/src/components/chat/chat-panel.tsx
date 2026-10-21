@@ -11,7 +11,7 @@ import {
 	Send,
 	Users,
 	X,
-} from "lucide-solid";
+} from "../../lib/icons";
 import { createEffect, createMemo, createSignal, For, on, Show } from "solid-js";
 import { friendlyError } from "../../lib/errors";
 import { client, orpc } from "../../lib/orpc";

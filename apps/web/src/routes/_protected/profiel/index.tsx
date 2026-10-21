@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/solid-router";
-import { Accessibility, Mail, School, UserRound } from "lucide-solid";
+import { Accessibility, Mail, School, UserRound } from "../../../lib/icons";
 import { Show } from "solid-js";
 import { roleLabel } from "../../../components/shell/nav";
 import { useMe } from "../../../lib/auth/use-me";

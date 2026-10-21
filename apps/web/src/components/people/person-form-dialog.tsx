@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/solid-query";
 import { createEffect, createSignal, For, on, Show } from "solid-js";
-import { createStore, reconcile } from "solid-js/store";
+import { createStore, reconcile } from "solid-js";
 import { useMe } from "../../lib/auth/use-me";
 import { friendlyError } from "../../lib/errors";
 import { orpc } from "../../lib/orpc";

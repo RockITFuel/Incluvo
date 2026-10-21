@@ -1,12 +1,9 @@
-import { createAuthClient } from "better-auth/solid";
+import { createAuthClient } from "better-auth/client";
 
-export const authClient = createAuthClient({
-	// Use the current origin at runtime; better-auth defaults its basePath to
-	// "/api/auth" (where the server mounts it), so passing an explicit basePath
-	// alongside the origin baseURL is unnecessary and broke session calls. Mirror
-	// clp's working config: origin-only baseURL.
-	baseURL: typeof window !== "undefined" ? window.location.origin : "",
-});
+// The framework-neutral client: Incluvo only calls it imperatively (sign in/out,
+// session, password reset), so it needs no Solid binding. better-auth defaults
+// its basePath to "/api/auth", where the server mounts it.
+export const authClient = createAuthClient({ baseURL: window.location.origin });
 
 export type Session = typeof authClient.$Infer.Session;
 export type SessionUser = Session["user"];

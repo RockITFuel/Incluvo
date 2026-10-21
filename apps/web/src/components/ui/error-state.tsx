@@ -1,4 +1,4 @@
-import { RotateCw, TriangleAlert } from "lucide-solid";
+import { RotateCw, TriangleAlert } from "../../lib/icons";
 import { Show } from "solid-js";
 import { friendlyError } from "../../lib/errors";
 

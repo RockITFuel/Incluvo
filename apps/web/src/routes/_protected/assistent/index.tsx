@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/solid-query";
 import { createFileRoute, Link } from "@tanstack/solid-router";
-import { ArrowRight, Sparkles } from "lucide-solid";
+import { ArrowRight, Sparkles } from "../../../lib/icons";
 import { For, Show } from "solid-js";
 import { TranscriptionPanel } from "../../../components/ai/transcription-panel";
 import { TranslatePanel } from "../../../components/ai/translate-panel";

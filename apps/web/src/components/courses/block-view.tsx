@@ -6,9 +6,9 @@ import {
 	FileText,
 	Sparkles,
 	Youtube,
-} from "lucide-solid";
+} from "../../lib/icons";
 import { createSignal, For, Show } from "solid-js";
-import { Dynamic } from "solid-js/web";
+import { Dynamic } from "@solidjs/web";
 import { AssignmentBlock } from "./assignment-block";
 import { FileLink } from "./file-link";
 import { PageView } from "./page-view";

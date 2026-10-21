@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/solid-query";
-import { Paperclip, Send } from "lucide-solid";
+import { Paperclip, Send } from "../../lib/icons";
 import { createSignal, For, Show } from "solid-js";
 import { client, orpc } from "../../lib/orpc";
 import { Badge } from "../ui/badge";

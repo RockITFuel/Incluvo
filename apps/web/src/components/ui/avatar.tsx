@@ -1,5 +1,6 @@
 import { type VariantProps, cva } from "class-variance-authority";
-import { Show, createEffect, createSignal, on, splitProps } from "solid-js";
+import { Show, createSignal } from "solid-js";
+import { splitProps } from "../../lib/solid-props";
 import { cn } from "../../lib/cn";
 
 const avatarVariants = cva(
@@ -40,10 +41,9 @@ function initials(name: string) {
 
 export function Avatar(props: AvatarProps) {
 	const [local] = splitProps(props, ["src", "name", "size", "tone", "class"]);
-	const [failed, setFailed] = createSignal(false);
 	// A new src deserves a fresh chance to load (a stale error would otherwise
-	// pin the fallback initials forever).
-	createEffect(on(() => local.src, () => setFailed(false), { defer: true }));
+	// pin the fallback initials forever): the writable memo resets on a new src.
+	const [failed, setFailed] = createSignal(() => (local.src, false));
 	const showImg = () => !!local.src && !failed();
 	return (
 		<span

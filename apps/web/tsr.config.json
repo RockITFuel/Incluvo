@@ -1,0 +1,9 @@
+{
+	"target": "solid",
+	"routesDirectory": "./src/routes",
+	"generatedRouteTree": "./src/routeTree.gen.ts",
+	"disableTypes": false,
+	"autoCodeSplitting": true,
+	"quoteStyle": "double",
+	"semicolons": true
+}

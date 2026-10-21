@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/solid-query";
-import { CalendarDays } from "lucide-solid";
+import { CalendarDays } from "../../lib/icons";
 import { createEffect, createSignal, on, Show } from "solid-js";
 import { friendlyError } from "../../lib/errors";
 import { orpc } from "../../lib/orpc";

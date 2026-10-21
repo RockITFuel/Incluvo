@@ -14,7 +14,7 @@ import {
 	NotebookPen,
 	Pencil,
 	Users,
-} from "lucide-solid";
+} from "../../../../lib/icons";
 import { createSignal, Show } from "solid-js";
 import { AssignmentsPanel } from "../../../../components/admin/assignments-panel";
 import { formatDate, kindLabel } from "../../../../components/admin/format";

@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/solid-router";
 import { useQuery, useQueryClient } from "@tanstack/solid-query";
-import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
-import { createStore } from "solid-js/store";
+import { createMemo, createSignal, For, onCleanup, onSettled, Show } from "solid-js";
+import { createStore } from "solid-js";
 import {
 	type AnswerValue,
 	QuestionInput,
@@ -340,7 +340,7 @@ function PlanWizard(props: {
 			);
 		}
 	};
-	onMount(() => void boot());
+	onSettled(() => void boot());
 
 	const total = () => leerlingQuestions().length;
 	const current = () => leerlingQuestions()[step()];

@@ -8,8 +8,9 @@ import {
 	MessageSquare,
 	NotebookPen,
 	X,
-} from "lucide-solid";
-import { createSignal, For, type JSX, Show } from "solid-js";
+} from "../../lib/icons";
+import type { JSX } from "@solidjs/web";
+import { createSignal, For, Show } from "solid-js";
 import { cn } from "../../lib/cn";
 import { orpc } from "../../lib/orpc";
 import { PlanStatusBadge } from "./plan-status";

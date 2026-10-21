@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/solid-query";
 import { createFileRoute, useNavigate } from "@tanstack/solid-router";
-import { Bell, CheckCheck } from "lucide-solid";
+import { Bell, CheckCheck } from "../../../lib/icons";
 import { createSignal, For, Show } from "solid-js";
 import { metaFor, relativeTime } from "../../../components/notifications";
 import { Button } from "../../../components/ui/button";

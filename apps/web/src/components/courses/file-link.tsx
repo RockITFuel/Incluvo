@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/solid-query";
-import { Download, FileText } from "lucide-solid";
+import { Download, FileText } from "../../lib/icons";
 import { Show } from "solid-js";
 import { orpc } from "../../lib/orpc";
 import { buttonVariants } from "../ui/button";

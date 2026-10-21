@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/solid-router";
 import { useQuery, useQueryClient } from "@tanstack/solid-query";
-import { BookOpen, Compass, FlaskConical, Plus, Search } from "lucide-solid";
+import { BookOpen, Compass, FlaskConical, Plus, Search } from "../../../lib/icons";
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { CreateCourseDialog } from "../../../components/admin/create-course-dialog";
 import { Select } from "../../../components/ui/select";

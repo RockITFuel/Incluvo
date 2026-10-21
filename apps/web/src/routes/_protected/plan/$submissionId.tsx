@@ -10,9 +10,9 @@ import {
 	Save,
 	Send,
 	Sparkles,
-} from "lucide-solid";
+} from "../../../lib/icons";
 import { createEffect, createMemo, createSignal, For, Match, Show, Switch } from "solid-js";
-import { createStore } from "solid-js/store";
+import { createStore } from "solid-js";
 import { AssistantPanel } from "../../../components/ai/assistant-panel";
 import { TranscriptionPanel } from "../../../components/ai/transcription-panel";
 import {

@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "@tanstack/solid-router";
-import { ArrowRight, Building2, Search } from "lucide-solid";
+import { ArrowRight, Building2, Search } from "../../lib/icons";
 import { createEffect, createMemo, createSignal, For, on, Show } from "solid-js";
 import { relativeTime } from "../dashboard/plan-status";
 import { Pagination } from "../ui/pagination";

@@ -11,7 +11,7 @@ import {
 	UserRound,
 	Users,
 	UsersRound,
-} from "lucide-solid";
+} from "../../lib/icons";
 import type { NavSection } from "./app-shell";
 
 /** Live counts for the sidebar nav-badges (the prototype shows these too). */

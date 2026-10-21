@@ -11,8 +11,9 @@ import {
 	NotebookPen,
 	Sparkles,
 	type LucideProps,
-} from "lucide-solid";
-import { createMemo, For, type JSX, Show } from "solid-js";
+} from "../../../lib/icons";
+import type { JSX } from "@solidjs/web";
+import { createMemo, For, Show } from "solid-js";
 import {
 	PlanStatusBadge,
 	relativeTime,

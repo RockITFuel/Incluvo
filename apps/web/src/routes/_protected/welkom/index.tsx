@@ -8,16 +8,9 @@ import {
 	MessageSquare,
 	NotebookPen,
 	Star,
-} from "lucide-solid";
-import {
-	createEffect,
-	createMemo,
-	createSignal,
-	For,
-	type JSX,
-	onMount,
-	Show,
-} from "solid-js";
+} from "../../../lib/icons";
+import type { JSX } from "@solidjs/web";
+import { createEffect, createMemo, createSignal, For, onSettled, Show } from "solid-js";
 import { useMe } from "../../../lib/auth/use-me";
 import { MOODS } from "../../../lib/mood";
 import { orpc } from "../../../lib/orpc";
@@ -135,7 +128,7 @@ function WelkomPage() {
 		}),
 	);
 
-	onMount(() => {
+	onSettled(() => {
 		const stored = localStorage.getItem(`incluvo-mood:${todayKey()}`);
 		if (stored !== null && !Number.isNaN(Number(stored))) setMood(Number(stored));
 		setMoodSkipped(localStorage.getItem(`incluvo-mood-skip:${todayKey()}`) === "1");

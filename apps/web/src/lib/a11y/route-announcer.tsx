@@ -1,5 +1,5 @@
 import { useRouter } from "@tanstack/solid-router";
-import { createSignal, onCleanup, onMount } from "solid-js";
+import { createSignal, onCleanup, onSettled } from "solid-js";
 
 const APP = "Incluvo";
 
@@ -55,7 +55,7 @@ export function RouteAnnouncer() {
 		heading.focus({ preventScroll: true });
 	};
 
-	onMount(() => {
+	onSettled(() => {
 		const unsubscribe = router.subscribe("onResolved", async () => {
 			const heading = await findHeading();
 			const name = pageName(heading);

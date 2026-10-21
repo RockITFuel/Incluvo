@@ -1,7 +1,8 @@
 import { Toast as KToast, toaster } from "@kobalte/core/toast";
-import { CheckCircle2, Info, TriangleAlert, X, XCircle } from "lucide-solid";
-import { type JSX, Show } from "solid-js";
-import { Dynamic } from "solid-js/web";
+import { CheckCircle2, Info, TriangleAlert, X, XCircle } from "../../lib/icons";
+import type { JSX } from "@solidjs/web";
+import { Show } from "solid-js";
+import { Dynamic } from "@solidjs/web";
 import { cn } from "../../lib/cn";
 
 type ToastTone = "neutral" | "success" | "warning" | "danger";

@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/solid-query";
 import { Link } from "@tanstack/solid-router";
-import { ArrowRight, Building2, Plus, Search, Tags } from "lucide-solid";
+import { ArrowRight, Building2, Plus, Search, Tags } from "../../lib/icons";
 import { createEffect, createMemo, createSignal, For, on, Show } from "solid-js";
 import { orpc } from "../../lib/orpc";
 import { useServerEvent } from "../../lib/sse/use-events";

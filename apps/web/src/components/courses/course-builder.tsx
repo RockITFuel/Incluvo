@@ -16,10 +16,10 @@ import {
 	Trash2,
 	Upload,
 	Youtube,
-} from "lucide-solid";
+} from "../../lib/icons";
 import { createSignal, For, Show } from "solid-js";
 import type { Component } from "solid-js";
-import { Dynamic } from "solid-js/web";
+import { Dynamic } from "@solidjs/web";
 import { client, orpc } from "../../lib/orpc";
 import { Button } from "../ui/button";
 import { Dialog } from "../ui/dialog";

@@ -7,7 +7,7 @@ import {
 	GitBranch,
 	Lightbulb,
 	Sparkles,
-} from "lucide-solid";
+} from "../../../lib/icons";
 import { createSignal, For, Show } from "solid-js";
 import { type BlockDTO, BlockView } from "../../../components/courses/block-view";
 import { CourseBuilder } from "../../../components/courses/course-builder";

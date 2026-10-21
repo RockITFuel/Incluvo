@@ -1,5 +1,5 @@
-import type { LucideProps } from "lucide-solid";
-import type { JSX } from "solid-js";
+import type { LucideProps } from "../../lib/icons";
+import type { JSX } from "@solidjs/web";
 
 /** KPI tile for the dashboards: label, big value, subline and a tinted icon. */
 export function KPI(props: {

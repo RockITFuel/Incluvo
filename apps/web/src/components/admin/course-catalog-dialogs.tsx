@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/solid-query";
-import { Check, Pencil, Search, Trash2, X } from "lucide-solid";
+import { Check, Pencil, Search, Trash2, X } from "../../lib/icons";
 import { createEffect, createMemo, createSignal, For, on, Show } from "solid-js";
 import { friendlyError } from "../../lib/errors";
 import { orpc } from "../../lib/orpc";

@@ -1,5 +1,5 @@
 import { Tooltip as KTooltip } from "@kobalte/core/tooltip";
-import type { JSX } from "solid-js";
+import type { JSX } from "@solidjs/web";
 
 export type TooltipProps = {
 	/** Short label shown in the bubble. */

@@ -1,5 +1,7 @@
 import { TextField as KTextField } from "@kobalte/core/text-field";
-import { type JSX, Show, splitProps } from "solid-js";
+import type { JSX } from "@solidjs/web";
+import { Show } from "solid-js";
+import { splitProps } from "../../lib/solid-props";
 import { cn } from "../../lib/cn";
 
 const controlClass =

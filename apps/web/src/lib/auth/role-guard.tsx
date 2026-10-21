@@ -1,6 +1,7 @@
 import { coachesLeerlingen, type UserRole } from "@incluvo/permissions";
 import { useNavigate } from "@tanstack/solid-router";
-import { createEffect, type JSX, Show } from "solid-js";
+import type { JSX } from "@solidjs/web";
+import { createEffect, Show } from "solid-js";
 import { roleHome } from "./role-home";
 import { useMe } from "./use-me";
 

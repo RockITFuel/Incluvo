@@ -1,7 +1,7 @@
 import { DropdownMenu } from "@kobalte/core/dropdown-menu";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/solid-query";
 import { Link, useNavigate } from "@tanstack/solid-router";
-import { Bell, CheckCheck } from "lucide-solid";
+import { Bell, CheckCheck } from "../../lib/icons";
 import { type Component, For, Show } from "solid-js";
 import { useMe } from "../../lib/auth/use-me";
 import { orpc } from "../../lib/orpc";

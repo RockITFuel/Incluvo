@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight } from "lucide-solid";
+import { ChevronLeft, ChevronRight } from "../../lib/icons";
 import { For, Show } from "solid-js";
 
 export type PaginationProps = {

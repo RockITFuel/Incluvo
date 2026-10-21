@@ -8,7 +8,7 @@ import {
 	Search,
 	TrendingUp,
 	User,
-} from "lucide-solid";
+} from "../../../lib/icons";
 import {
 	createEffect,
 	createMemo,

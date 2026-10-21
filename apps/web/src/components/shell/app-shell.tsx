@@ -1,9 +1,10 @@
 import { Dialog as KDialog } from "@kobalte/core/dialog";
 import { Link, useRouterState } from "@tanstack/solid-router";
-import { Menu, X } from "lucide-solid";
+import { Menu, X } from "../../lib/icons";
 import { NotificationsBell } from "../notifications";
-import { For, type JSX, Show, createMemo, createSignal } from "solid-js";
-import { Dynamic } from "solid-js/web";
+import type { JSX } from "@solidjs/web";
+import { For, Show, createMemo, createSignal } from "solid-js";
+import { Dynamic } from "@solidjs/web";
 import { cn } from "../../lib/cn";
 import { A11yPanel } from "../a11y-panel";
 import { UserMenu, type ShellUser } from "./user-menu";

@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/solid-router";
 import { useQuery } from "@tanstack/solid-query";
-import { Search, UserPlus } from "lucide-solid";
+import { Search, UserPlus } from "../../../lib/icons";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { dutchDate, personId } from "../../../components/people/format";
 import { KoppelDialog } from "../../../components/people/koppel-dialog";

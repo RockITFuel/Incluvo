@@ -1,5 +1,6 @@
 import { type VariantProps, cva } from "class-variance-authority";
-import { type JSX, splitProps } from "solid-js";
+import type { JSX } from "@solidjs/web";
+import { splitProps } from "../../lib/solid-props";
 import { cn } from "../../lib/cn";
 
 const cardVariants = cva("rounded-3 border border-line bg-surface", {

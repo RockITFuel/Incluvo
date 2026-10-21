@@ -1,6 +1,7 @@
 import { Popover } from "@kobalte/core/popover";
-import { Accessibility, X } from "lucide-solid";
-import { Show, type JSX } from "solid-js";
+import { Accessibility, X } from "../lib/icons";
+import type { JSX } from "@solidjs/web";
+import { Show } from "solid-js";
 import { a11y } from "../lib/a11y/store";
 import { SegmentedControl } from "./ui/segmented-control";
 import { Switch } from "./ui/switch";

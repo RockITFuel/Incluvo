@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/solid-query";
-import { Building2, GraduationCap, NotebookPen, Plus, Users } from "lucide-solid";
+import { Building2, GraduationCap, NotebookPen, Plus, Users } from "../../lib/icons";
 import { createMemo, createSignal, Show } from "solid-js";
 import { KPI } from "../dashboard/kpi";
 import { ErrorState } from "../ui/error-state";

@@ -1,5 +1,5 @@
 import { For, Show } from "solid-js";
-import { Dynamic } from "solid-js/web";
+import { Dynamic } from "@solidjs/web";
 
 /**
  * Read-only renderer for a pagina CbS (#29). Rather than mount a second Tiptap

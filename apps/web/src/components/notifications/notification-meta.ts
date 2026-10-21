@@ -6,7 +6,7 @@ import {
 	type LucideProps,
 	MessageCircle,
 	Send,
-} from "lucide-solid";
+} from "../../lib/icons";
 import type { Component } from "solid-js";
 
 /** The notification types as defined by the server's `notification_type` enum. */

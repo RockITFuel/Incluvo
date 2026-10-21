@@ -1,6 +1,8 @@
 import { Dialog as KDialog } from "@kobalte/core/dialog";
-import { X } from "lucide-solid";
-import { type JSX, Show, splitProps } from "solid-js";
+import { X } from "../../lib/icons";
+import type { JSX } from "@solidjs/web";
+import { Show } from "solid-js";
+import { splitProps } from "../../lib/solid-props";
 import { cn } from "../../lib/cn";
 import { type ButtonProps, buttonVariants } from "./button";
 

@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/solid-router";
-import { Show, createSignal, onMount } from "solid-js";
+import { Show, createSignal, onSettled } from "solid-js";
 import { A11yPanel } from "../components/a11y-panel";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/text-field";
@@ -25,7 +25,7 @@ function SetPassword() {
 	const [error, setError] = createSignal<string | null>(null);
 	const [busy, setBusy] = createSignal(false);
 
-	onMount(() => {
+	onSettled(() => {
 		const params = new URLSearchParams(window.location.search);
 		setToken(params.get("token"));
 		setInvalid(!params.get("token") || params.has("error"));

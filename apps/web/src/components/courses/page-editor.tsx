@@ -1,5 +1,5 @@
 import StarterKit from "@tiptap/starter-kit";
-import { Bold, Heading2, Italic, List, ListOrdered } from "lucide-solid";
+import { Bold, Heading2, Italic, List, ListOrdered } from "../../lib/icons";
 import { createEditor } from "solid-tiptap";
 import { createSignal, For, onCleanup, Show } from "solid-js";
 import { cn } from "../../lib/cn";

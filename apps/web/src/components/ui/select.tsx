@@ -1,5 +1,5 @@
 import { Select as KSelect } from "@kobalte/core/select";
-import { Check, ChevronDown } from "lucide-solid";
+import { Check, ChevronDown } from "../../lib/icons";
 import { Show } from "solid-js";
 import { cn } from "../../lib/cn";
 

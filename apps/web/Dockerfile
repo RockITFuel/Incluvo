@@ -19,10 +19,9 @@ RUN bun install --ignore-scripts
 COPY --from=pruner /app/out/full/ .
 RUN bunx turbo run build --filter=@incluvo/web
 
-# Production runtime — Bun serves the built TanStack Start SPA (see serve.ts)
+# Production runtime — Bun serves the built SPA (see serve.ts)
 FROM base AS runner
 WORKDIR /app
-COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/apps/web/dist ./dist
 COPY apps/web/serve.ts ./serve.ts
 EXPOSE 3000

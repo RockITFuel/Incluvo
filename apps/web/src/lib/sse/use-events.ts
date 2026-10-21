@@ -1,4 +1,4 @@
-import { onCleanup, onMount } from "solid-js";
+import { onSettled } from "solid-js";
 
 /**
  * Shared Server-Sent-Events transport for `/sse/events`.
@@ -63,7 +63,7 @@ function teardownIfIdle() {
 /**
  * Subscribe to a server event type emitted over `/sse/events`.
  *
- *   useServerEvent("item.created", () => refetch());
+ *   useServerEvent("task.changed", () => refresh(router, "tasks"));
  *
  * All calls share one underlying EventSource. The handler is read live on every
  * dispatch, so changing the captured closure between renders is safe.
@@ -73,7 +73,7 @@ export function useServerEvent(type: string, handler: Handler) {
 	const ref = { current: handler };
 	ref.current = handler;
 
-	onMount(() => {
+	onSettled(() => {
 		ensureSource();
 		ensureDomListener(type);
 		let subs = registry.get(type);
@@ -84,7 +84,7 @@ export function useServerEvent(type: string, handler: Handler) {
 		subs.add(ref);
 		refCount += 1;
 
-		onCleanup(() => {
+		return () => {
 			const set = registry.get(type);
 			if (set) {
 				set.delete(ref);
@@ -92,6 +92,6 @@ export function useServerEvent(type: string, handler: Handler) {
 			}
 			refCount = Math.max(0, refCount - 1);
 			teardownIfIdle();
-		});
+		};
 	});
 }

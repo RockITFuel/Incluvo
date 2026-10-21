@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/solid-query";
-import { Mic, Star } from "lucide-solid";
+import { Mic, Star } from "../../lib/icons";
 import { createSignal, For, Show } from "solid-js";
 import { client, orpc } from "../../lib/orpc";
 import { Badge } from "../ui/badge";

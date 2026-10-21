@@ -3,7 +3,7 @@ import {
 	useQuery,
 	useQueryClient,
 } from "@tanstack/solid-query";
-import { Search, X } from "lucide-solid";
+import { Search, X } from "../../lib/icons";
 import {
 	createEffect,
 	createMemo,

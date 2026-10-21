@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/solid-query";
-import { Languages } from "lucide-solid";
+import { Languages } from "../../lib/icons";
 import { createSignal, Show } from "solid-js";
 import { orpc } from "../../lib/orpc";
 import { Button } from "../ui/button";
