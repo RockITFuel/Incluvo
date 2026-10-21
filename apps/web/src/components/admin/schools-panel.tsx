@@ -1,19 +1,16 @@
-import { useQuery } from "@tanstack/solid-query";
-import { createSignal, Show } from "solid-js";
+import { createSignal } from "solid-js";
 import { Button } from "../ui/button";
-import { ErrorState } from "../ui/error-state";
-import { orpc } from "../../lib/orpc";
 import { CreateSchoolDialog } from "./create-school-dialog";
 import { SchoolsTable } from "./schools-table";
+import type { OrganizationRow } from "./users-panel";
 
 /**
  * Scholen (#60) — superadmin only. The same filterable, paginated schools
  * table as the platform overview; a row opens the school page, where rename,
  * archive, users, koppelingen and courses live.
  */
-export function SchoolsPanel() {
+export function SchoolsPanel(props: { orgs: OrganizationRow[] }) {
 	const [createOpen, setCreateOpen] = createSignal(false);
-	const orgs = useQuery(() => orpc.admin.organizations.listAll.queryOptions());
 
 	return (
 		<section class="flex flex-col gap-4">
@@ -28,15 +25,7 @@ export function SchoolsPanel() {
 				<Button onClick={() => setCreateOpen(true)}>Nieuwe school</Button>
 			</div>
 
-			<Show when={orgs.isLoading}>
-				<p class="text-muted">Laden…</p>
-			</Show>
-			<Show when={orgs.error}>
-				<ErrorState error={orgs.error} what="de scholen" onRetry={() => orgs.refetch()} />
-			</Show>
-			<Show when={orgs.data}>
-				<SchoolsTable orgs={orgs.data ?? []} />
-			</Show>
+			<SchoolsTable orgs={props.orgs} />
 
 			<CreateSchoolDialog open={createOpen()} onOpenChange={setCreateOpen} />
 		</section>

@@ -1,6 +1,6 @@
 import { ORPCError } from "@orpc/client";
 import { client, type Output } from "../orpc";
-import { clearCachedSession } from "./session";
+import { clearCachedSession, getCachedSession } from "./session";
 
 export type Me = Output<typeof client.account.me>;
 
@@ -20,9 +20,14 @@ export const isUnauthenticated = (error: unknown) =>
 
 export function loadMe(): Promise<Me | null> {
 	if (cached && Date.now() - cached.at < TTL_MS) return Promise.resolve(cached.me);
-	inflight ??= client.account
-		.me()
+	inflight ??= getCachedSession()
+		// No session: answer null without asking the API (which would 401).
+		.then((session) => (session?.session ? client.account.me() : null))
 		.then((me) => {
+			if (!me) {
+				cached = null;
+				return null;
+			}
 			cached = { me, at: Date.now() };
 			return me;
 		})

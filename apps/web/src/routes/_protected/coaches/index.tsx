@@ -1,5 +1,4 @@
-import { createFileRoute } from "@tanstack/solid-router";
-import { useQuery } from "@tanstack/solid-query";
+import { createFileRoute, useRouter } from "@tanstack/solid-router";
 import { Search, UserPlus } from "../../../lib/icons";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { dutchDate, personId } from "../../../components/people/format";
@@ -7,12 +6,13 @@ import { PersonFormDialog } from "../../../components/people/person-form-dialog"
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
 import { Card } from "../../../components/ui/card";
-import { ErrorState } from "../../../components/ui/error-state";
 import { Pagination } from "../../../components/ui/pagination";
-import { requireRole } from "../../../lib/auth/require-role";
-import { RequireRole } from "../../../lib/auth/role-guard";
+import { RouteDataView } from "../../../components/ui/route-data-view";
+import { requireRole } from "../../../lib/auth/role-guard";
 import { useMe } from "../../../lib/auth/use-me";
-import { orpc } from "../../../lib/orpc";
+import { client } from "../../../lib/orpc";
+import { refresh } from "../../../lib/refresh";
+import { granted, loadRouteData } from "../../../lib/route-data";
 
 /**
  * Coaches (INC-16): the coaches of the keyuser's school, with "Coach
@@ -20,26 +20,30 @@ import { orpc } from "../../../lib/orpc";
  * them on the Leerlingen page.
  */
 export const Route = createFileRoute("/_protected/coaches/")({
-	beforeLoad: () => requireRole("keyuser", undefined, { only: ["keyuser"] }),
-	component: () => (
-		<RequireRole min="keyuser" only={["keyuser"]}>
-			<CoachesPage />
-		</RequireRole>
-	),
+	beforeLoad: ({ context }) => requireRole(context.me, { min: "keyuser", only: ["keyuser"] }),
+	loader: async ({ abortController }) => ({
+		coaches: await loadRouteData(abortController.signal, (s) =>
+			client.people.coaches.list(undefined, { signal: s }),
+		),
+	}),
+	component: CoachesPage,
 });
 
 const PAGE_SIZE = 20;
 
 function CoachesPage() {
 	const me = useMe();
-	const query = useQuery(() => orpc.people.coaches.list.queryOptions());
+	const router = useRouter();
+	const data = Route.useLoaderData();
+	const all = () => granted(data().coaches) ?? [];
 	const [adding, setAdding] = createSignal(false);
 	const [search, setSearch] = createSignal("");
-	const [page, setPage] = createSignal(1);
+	// Back to the first page whenever the search changes.
+	const [page, setPage] = createSignal(() => (search(), 1));
 
 	const filtered = createMemo(() => {
 		const q = search().trim().toLowerCase();
-		const rows = query.data ?? [];
+		const rows = all();
 		if (!q) return rows;
 		return rows.filter((r) =>
 			[r.name, r.email, personId("coach", r.number)].some((v) => v.toLowerCase().includes(q)),
@@ -64,14 +68,13 @@ function CoachesPage() {
 				</Button>
 			</div>
 
-			<Show when={query.error}>
-				<ErrorState error={query.error} what="de coaches" onRetry={() => query.refetch()} />
-			</Show>
-			<Show when={query.isLoading}>
-				<p class="text-muted">Laden…</p>
+			<Show when={data().coaches.access !== "granted"}>
+				<RouteDataView data={data().coaches} what="de coaches" onRetry={() => void refresh(router, "people")}>
+					{() => null}
+				</RouteDataView>
 			</Show>
 
-			<Show when={query.data && query.data.length === 0}>
+			<Show when={data().coaches.access === "granted" && all().length === 0}>
 				<Card class="flex flex-col items-start gap-3">
 					<h2 class="font-head text-h3 text-ink">Nog geen coaches</h2>
 					<p class="text-body text-ink-2">
@@ -82,15 +85,12 @@ function CoachesPage() {
 				</Card>
 			</Show>
 
-			<Show when={(query.data?.length ?? 0) > 0}>
+			<Show when={all().length > 0}>
 				<label class="flex max-w-96 items-center gap-2 rounded-2 border border-line bg-surface px-3 py-2">
 					<Search class="size-3.5 text-muted" aria-hidden="true" />
 					<input
 						value={search()}
-						onInput={(e) => {
-							setSearch(e.currentTarget.value);
-							setPage(1);
-						}}
+						onInput={(e) => setSearch(e.currentTarget.value)}
 						class="w-full bg-transparent text-small text-ink outline-none"
 						placeholder="Zoek op naam, e-mail of ID…"
 						aria-label="Zoek coach"

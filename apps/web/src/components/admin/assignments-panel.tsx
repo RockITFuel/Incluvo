@@ -1,24 +1,15 @@
-import {
-	useMutation,
-	useQuery,
-	useQueryClient,
-} from "@tanstack/solid-query";
+import { useRouter } from "@tanstack/solid-router";
 import { Search, X } from "../../lib/icons";
-import {
-	createEffect,
-	createMemo,
-	createSignal,
-	For,
-	on,
-	Show,
-} from "solid-js";
+import { createMemo, createSignal, For, Show } from "solid-js";
 import { Card } from "../ui/card";
 import { Pagination } from "../ui/pagination";
 import { Select } from "../ui/select";
 import { toast } from "../ui/toast";
+import { createAction } from "../../lib/action";
 import { useMe } from "../../lib/auth/use-me";
-import { orpc } from "../../lib/orpc";
-import { friendlyError } from "../../lib/errors";
+import { createLoad } from "../../lib/load";
+import { client } from "../../lib/orpc";
+import { refresh } from "../../lib/refresh";
 
 const PAGE_SIZE = 20;
 
@@ -37,40 +28,39 @@ export function AssignmentsPanel(props: {
 	readOnly?: boolean;
 }) {
 	const me = useMe();
-	const queryClient = useQueryClient();
+	const router = useRouter();
 	const [school, setSchool] = createSignal<string | undefined>();
 	const [filter, setFilter] = createSignal<Filter>("all");
 	const [search, setSearch] = createSignal("");
-	const [page, setPage] = createSignal(1);
+	// Back to page 1 whenever the filter, the search or the school changes.
+	const [page, setPage] = createSignal(() => (filter(), search(), school(), 1));
 
 	/** Superadmin without a pinned school chooses one first. */
 	const choosesSchool = () => me.is("superadmin") && !props.organizationId;
 	const scopeId = () => props.organizationId ?? (choosesSchool() ? school() : undefined);
 
-	const orgs = useQuery(() => ({
-		...orpc.admin.organizations.listAll.queryOptions(),
-		enabled: choosesSchool(),
-	}));
+	const orgs = createLoad(
+		() => choosesSchool(),
+		(_, signal) => client.admin.organizations.listAll(undefined, { signal }),
+	);
 
-	const list = useQuery(() => ({
-		...orpc.admin.assignments.list.queryOptions({
-			input: { organizationId: scopeId() },
-		}),
-		enabled: !choosesSchool() || scopeId() !== undefined,
-	}));
+	const list = createLoad(
+		() => (!choosesSchool() || scopeId() !== undefined) && { organizationId: scopeId() },
+		(input, signal) => client.admin.assignments.list(input, { signal }),
+	);
 
 	const coachName = createMemo(() => {
 		const m = new Map<string, string>();
-		for (const c of list.data?.coaches ?? []) m.set(c.id, c.name);
+		for (const c of list.data()?.coaches ?? []) m.set(c.id, c.name);
 		return m;
 	});
 
 	const withoutCoach = createMemo(
-		() => (list.data?.leerlingen ?? []).filter((l) => l.coachIds.length === 0).length,
+		() => (list.data()?.leerlingen ?? []).filter((l) => l.coachIds.length === 0).length,
 	);
 
 	const filtered = createMemo(() => {
-		let rows = list.data?.leerlingen ?? [];
+		let rows = list.data()?.leerlingen ?? [];
 		if (filter() === "without") rows = rows.filter((l) => l.coachIds.length === 0);
 		const q = search().trim().toLowerCase();
 		if (q) {
@@ -83,7 +73,6 @@ export function AssignmentsPanel(props: {
 		}
 		return rows;
 	});
-	createEffect(on([filter, search, school], () => setPage(1), { defer: true }));
 	const pageCount = createMemo(() =>
 		Math.max(1, Math.ceil(filtered().length / PAGE_SIZE)),
 	);
@@ -93,23 +82,17 @@ export function AssignmentsPanel(props: {
 		return filtered().slice(start, start + PAGE_SIZE);
 	});
 
-	const set = useMutation(() =>
-		orpc.admin.assignments.set.mutationOptions({
-			onSuccess: (_res, vars) => {
-				queryClient.invalidateQueries({ queryKey: orpc.admin.assignments.key() });
-				queryClient.invalidateQueries({ queryKey: orpc.dashboard.key() });
-				toast({
-					title: vars.assigned ? "Coach gekoppeld" : "Coach ontkoppeld",
-					tone: "success",
-				});
-			},
-			onError: (error) =>
-				toast({
-					title: "Koppelen mislukt",
-					description: friendlyError(error),
-					tone: "danger",
-				}),
-		}),
+	const set = createAction(
+		async (input: { coachId: string; leerlingId: string; assigned: boolean }) => {
+			await client.admin.assignments.set(input);
+			toast({
+				title: input.assigned ? "Coach gekoppeld" : "Coach ontkoppeld",
+				tone: "success",
+			});
+			list.reload();
+			await refresh(router, "people", "admin");
+		},
+		{ error: "Koppelen mislukt" },
 	);
 
 	return (
@@ -127,7 +110,7 @@ export function AssignmentsPanel(props: {
 					<Select
 						aria-label="School"
 						placeholder="Kies een school"
-						options={(orgs.data ?? [])
+						options={(orgs.data() ?? [])
 							.filter((o) => o.kind === "school")
 							.map((o) => ({
 								value: o.id,
@@ -138,20 +121,20 @@ export function AssignmentsPanel(props: {
 						triggerClass="min-w-52"
 					/>
 				</Show>
-				<Show when={list.data}>
+				<Show when={list.data()}>
 					<div class="seg" role="group" aria-label="Filter leerlingen">
 						<button
 							type="button"
 							class={filter() === "all" ? "on" : ""}
-							aria-pressed={filter() === "all"}
+							aria-pressed={filter() === "all" ? "true" : "false"}
 							onClick={() => setFilter("all")}
 						>
-							Alle leerlingen ({list.data?.leerlingen.length ?? 0})
+							Alle leerlingen ({list.data()?.leerlingen.length ?? 0})
 						</button>
 						<button
 							type="button"
 							class={filter() === "without" ? "on" : ""}
-							aria-pressed={filter() === "without"}
+							aria-pressed={filter() === "without" ? "true" : "false"}
 							onClick={() => setFilter("without")}
 						>
 							Zonder coach ({withoutCoach()})
@@ -173,14 +156,14 @@ export function AssignmentsPanel(props: {
 			<Show when={choosesSchool() && !school()}>
 				<p class="text-muted">Kies een school om de koppelingen te zien.</p>
 			</Show>
-			<Show when={list.isLoading && list.fetchStatus !== "idle"}>
+			<Show when={list.loading() && !list.data()}>
 				<p class="text-muted">Laden…</p>
 			</Show>
-			<Show when={list.error}>
+			<Show when={list.error()}>
 				<p class="text-danger">Kon de koppelingen niet laden.</p>
 			</Show>
 
-			<Show when={list.data}>
+			<Show when={list.data()}>
 				{(data) => (
 					<>
 						<Show when={data().coaches.length === 0}>
@@ -229,9 +212,9 @@ export function AssignmentsPanel(props: {
 																				type="button"
 																				class="-mr-1 ml-0.5 rounded-full p-0.5 hover:bg-primary-100"
 																				aria-label={`Ontkoppel ${coachName().get(coachId) ?? "coach"} van ${l.name}`}
-																				disabled={set.isPending}
+																				disabled={set.pending()}
 																				onClick={() =>
-																					set.mutate({
+																					void set.run({
 																						coachId,
 																						leerlingId: l.id,
 																						assigned: false,
@@ -259,11 +242,11 @@ export function AssignmentsPanel(props: {
 																.coaches.filter((c) => !l.coachIds.includes(c.id))
 																.map((c) => ({ value: c.id, label: c.name }))}
 															value={undefined}
-															disabled={set.isPending}
+															disabled={set.pending()}
 															triggerClass="min-w-44"
 															onChange={(coachId) => {
 																if (coachId) {
-																	set.mutate({
+																	void set.run({
 																		coachId,
 																		leerlingId: l.id,
 																		assigned: true,

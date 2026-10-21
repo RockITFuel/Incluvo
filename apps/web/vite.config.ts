@@ -28,5 +28,7 @@ export default defineConfig({
 	// package.json `overrides` pins one version, this keeps Vite to one copy.
 	resolve: { dedupe: ["solid-js", "@solidjs/web"] },
 	server: { port: 3200, proxy },
-	preview: { port: 3200, proxy },
+	// Explicit IPv4 loopback: in CI (Bun) "localhost" can resolve to ::1 on one
+	// side and 127.0.0.1 on the other.
+	preview: { host: "127.0.0.1", port: 3200, proxy },
 });

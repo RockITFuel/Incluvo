@@ -1,16 +1,12 @@
 import { Link, useNavigate } from "@tanstack/solid-router";
 import { ArrowRight, Building2, Search } from "../../lib/icons";
-import { createEffect, createMemo, createSignal, For, on, Show } from "solid-js";
+import { createMemo, createSignal, For, Show } from "solid-js";
 import { relativeTime } from "../dashboard/plan-status";
 import { Pagination } from "../ui/pagination";
 import { Tooltip } from "../ui/tooltip";
-import type { orpc } from "../../lib/orpc";
+import type { OrganizationRow as School } from "./users-panel";
 
 type Filter = "active" | "no-keyuser" | "archived";
-
-type School = Awaited<
-	ReturnType<typeof orpc.admin.organizations.listAll.call>
->[number];
 
 const PAGE_SIZE = 20;
 
@@ -23,7 +19,8 @@ export function SchoolsTable(props: { orgs: School[] }) {
 	const navigate = useNavigate();
 	const [filter, setFilter] = createSignal<Filter>("active");
 	const [search, setSearch] = createSignal("");
-	const [page, setPage] = createSignal(1);
+	// Back to the first page whenever the filter or the search changes.
+	const [page, setPage] = createSignal(() => (filter(), search(), 1));
 
 	const schools = createMemo(() => props.orgs.filter((o) => o.kind === "school"));
 	const active = createMemo(() => schools().filter((o) => !o.archivedAt));
@@ -38,7 +35,6 @@ export function SchoolsTable(props: { orgs: School[] }) {
 		return list;
 	});
 
-	createEffect(on([filter, search], () => setPage(1), { defer: true }));
 	const pageCount = createMemo(() => Math.max(1, Math.ceil(filtered().length / PAGE_SIZE)));
 	const currentPage = createMemo(() => Math.min(page(), pageCount()));
 	const paged = createMemo(() => {
@@ -61,7 +57,7 @@ export function SchoolsTable(props: { orgs: School[] }) {
 						<button
 							type="button"
 							class={filter() === "active" ? "on" : ""}
-							aria-pressed={filter() === "active"}
+							aria-pressed={filter() === "active" ? "true" : "false"}
 							onClick={() => setFilter("active")}
 						>
 							Actief ({active().length})
@@ -69,7 +65,7 @@ export function SchoolsTable(props: { orgs: School[] }) {
 						<button
 							type="button"
 							class={filter() === "no-keyuser" ? "on" : ""}
-							aria-pressed={filter() === "no-keyuser"}
+							aria-pressed={filter() === "no-keyuser" ? "true" : "false"}
 							onClick={() => setFilter("no-keyuser")}
 						>
 							Zonder keyuser ({noKeyuser().length})
@@ -77,7 +73,7 @@ export function SchoolsTable(props: { orgs: School[] }) {
 						<button
 							type="button"
 							class={filter() === "archived" ? "on" : ""}
-							aria-pressed={filter() === "archived"}
+							aria-pressed={filter() === "archived" ? "true" : "false"}
 							onClick={() => setFilter("archived")}
 						>
 							Gearchiveerd ({archived().length})

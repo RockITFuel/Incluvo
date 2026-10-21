@@ -122,7 +122,7 @@ export function BlockView(props: {
 				<button
 					type="button"
 					onClick={() => setOpen((v) => !v)}
-					aria-expanded={open()}
+					aria-expanded={open() ? "true" : "false"}
 					style={{
 						display: "flex",
 						"align-items": "center",
@@ -222,7 +222,7 @@ export function BlockView(props: {
 						<button
 							type="button"
 							class="chip success"
-							aria-pressed={true}
+							aria-pressed="true"
 							title="Markeren als niet gedaan"
 							onClick={() => props.onToggleDone(false)}
 							style={{ border: "0", cursor: "pointer" }}

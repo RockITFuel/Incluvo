@@ -1,8 +1,8 @@
-import { useQuery } from "@tanstack/solid-query";
-import { For, Show } from "solid-js";
+import { For } from "solid-js";
 import { Card } from "../ui/card";
-import { ErrorState } from "../ui/error-state";
-import { orpc } from "../../lib/orpc";
+import type { client, Output } from "../../lib/orpc";
+
+export type RetentionPolicy = Output<typeof client.admin.settings.getRetention>;
 
 /**
  * Bewaartermijnen (#4, AVG). Read-only: the policy is decided centrally
@@ -10,15 +10,12 @@ import { orpc } from "../../lib/orpc";
  * limit for now, audio is never stored, the audit log is purged after a fixed
  * number of days. Schools have nothing to configure until that changes.
  */
-export function SettingsPanel() {
-	const policy = useQuery(() => orpc.admin.settings.getRetention.queryOptions());
-
+export function SettingsPanel(props: { policy: RetentionPolicy }) {
 	const days = (n: number | null) =>
 		n === null ? "Onbeperkt" : `${n} dagen`;
 
 	const rows = () => {
-		const p = policy.data;
-		if (!p) return [];
+		const p = props.policy;
 		return [
 			{ label: "Coachplannen", value: days(p.coachplanDays) },
 			{ label: "Chats", value: days(p.chatDays) },
@@ -43,19 +40,7 @@ export function SettingsPanel() {
 				</p>
 			</div>
 
-			<Show when={policy.isLoading}>
-				<p class="text-muted">Laden…</p>
-			</Show>
-			<Show when={policy.error}>
-				<ErrorState
-					error={policy.error}
-					what="de bewaartermijnen"
-					onRetry={() => policy.refetch()}
-				/>
-			</Show>
-
-			<Show when={policy.data}>
-				<Card padding="none" class="overflow-hidden">
+			<Card padding="none" class="overflow-hidden">
 					<dl>
 						<For each={rows()}>
 							{(row) => (
@@ -72,7 +57,6 @@ export function SettingsPanel() {
 					school of ouder gegevens laten verwijderen, neem dan contact op met
 					Ondivera.
 				</p>
-			</Show>
 		</section>
 	);
 }

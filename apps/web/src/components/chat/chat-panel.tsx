@@ -1,5 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/solid-query";
 import { coachesLeerlingen } from "@incluvo/permissions";
+import { useRouter } from "@tanstack/solid-router";
 import {
 	ClipboardList,
 	Download,
@@ -12,9 +12,12 @@ import {
 	Users,
 	X,
 } from "../../lib/icons";
-import { createEffect, createMemo, createSignal, For, on, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
+import { createAction } from "../../lib/action";
 import { friendlyError } from "../../lib/errors";
-import { client, orpc } from "../../lib/orpc";
+import { createLoad } from "../../lib/load";
+import { client } from "../../lib/orpc";
+import { refresh } from "../../lib/refresh";
 import { uploadFile } from "../courses/upload";
 import { Dialog } from "../ui/dialog";
 import { Tooltip } from "../ui/tooltip";
@@ -28,6 +31,10 @@ import { ErrorState } from "../../components/ui/error-state";
  * port of the approved "Chat" prototype: a 320px conversation list next to
  * the active thread + composer, inside one bordered pane. Realtime via the
  * `chat.message` SSE event — new messages append live.
+ *
+ * Self-contained: it loads its own conversations and messages (createLoad), so
+ * it can sit on /chat and inside the coach's leerling page without either
+ * route loading chat data for it.
  *
  * Role-aware: a coach may start a chat with each assigned leerling and may
  * read along in supervised group/forum chats (memberRole "coach" = read-along
@@ -108,18 +115,45 @@ export function ChatPanel(props: {
 	otherUserId?: string;
 }) {
 	const me = useMe();
-	const queryClient = useQueryClient();
-	const [activeId, setActiveId] = createSignal<string | null>(null);
+	const router = useRouter();
 	const [query, setQuery] = createSignal("");
 	const [newOpen, setNewOpen] = createSignal(false);
 	const [partnerQuery, setPartnerQuery] = createSignal("");
-	// Track which deep-link we've already handled, so re-renders don't re-trigger.
-	let handledDeepLink: string | null = null;
 
-	const conversationsQuery = useQuery(() => orpc.chat.list.queryOptions());
-	const partnersQuery = useQuery(() => orpc.chat.partners.queryOptions());
+	const conversationsLoad = createLoad(
+		() => ({}),
+		(_, signal) => client.chat.list(undefined, { signal }),
+	);
+	const partnersLoad = createLoad(
+		() => ({}),
+		(_, signal) => client.chat.partners(undefined, { signal }),
+	);
+	const listLoading = () => conversationsLoad.data() === undefined && !conversationsLoad.error();
+	const partners = () => partnersLoad.data() ?? [];
 
-	const conversations = createMemo(() => conversationsQuery.data ?? []);
+	const conversations = createMemo((): Conversation[] => conversationsLoad.data() ?? []);
+
+	/** Reload the list here and every page that shows chat data. */
+	const reloadList = () => {
+		conversationsLoad.reload();
+		void refresh(router, "chat");
+	};
+
+	// The thread you picked. A new `?conversationId=` deep link (e.g. from a
+	// notification while already on /chat) clears the pick, so the link wins.
+	const [chosenId, setChosenId] = createSignal<string | null>(
+		() => (props.conversationId, null),
+	);
+	// Shown thread: your pick, else the deep-linked one, else the first.
+	const activeId = createMemo(() => {
+		const chosen = chosenId();
+		if (chosen) return chosen;
+		const list = conversations();
+		if (props.conversationId && list.some((c) => c.id === props.conversationId)) {
+			return props.conversationId;
+		}
+		return list[0]?.id ?? null;
+	});
 	const active = createMemo(() => conversations().find((c) => c.id === activeId()) ?? null);
 
 	// Client-side filter over the real list — matches the prototype's search
@@ -134,46 +168,34 @@ export function ChatPanel(props: {
 		);
 	});
 
-	const refetchList = () => queryClient.invalidateQueries({ queryKey: orpc.chat.list.key() });
-
 	// Start (or open existing) a direct chat with a partner.
-	const ensureDirect = useMutation(() =>
-		orpc.chat.ensureDirect.mutationOptions({
-			onSuccess: (res) => {
-				refetchList();
-				setActiveId(res.id);
-			},
-			onError: () => toast({ title: "Kon gesprek niet starten", tone: "danger" }),
-		}),
+	const ensureDirect = createAction(
+		async (otherUserId: string) => {
+			const res = await client.chat.ensureDirect({ otherUserId });
+			setChosenId(res.id);
+			reloadList();
+		},
+		{ error: "Kon gesprek niet starten" },
 	);
 
-	// Deep-link handling (#42 snelactie): once conversations have loaded, honour
-	// `?conversationId=` (preselect) or, failing that, `?otherUserId=` (ensure a
-	// 1:1 chat then select it). Falls back to auto-selecting the first thread.
-	createEffect(() => {
-		if (conversationsQuery.isLoading) return;
+	// Deep link `?otherUserId=` (#42 snelactie): once the list has loaded and no
+	// `?conversationId=` is given, ensure the 1:1 chat with that user and open it.
+	let handledUser: string | null = null;
+	createEffect(
+		() => ({
+			user: props.conversationId ? undefined : props.otherUserId,
+			loaded: conversationsLoad.data() !== undefined,
+		}),
+		({ user, loaded }) => {
+			if (!user || !loaded || handledUser === user) return;
+			handledUser = user;
+			// The action writes signals: run it outside the effect.
+			queueMicrotask(() => void ensureDirect.run(user));
+		},
+	);
 
-		const wantConvo = props.conversationId;
-		const wantUser = props.otherUserId;
-		const linkKey = wantConvo ?? (wantUser ? `user:${wantUser}` : null);
-
-		if (linkKey && handledDeepLink !== linkKey) {
-			handledDeepLink = linkKey;
-			if (wantConvo && conversations().some((c) => c.id === wantConvo)) {
-				setActiveId(wantConvo);
-				return;
-			}
-			if (wantUser) {
-				ensureDirect.mutate({ otherUserId: wantUser });
-				return;
-			}
-		}
-
-		// Auto-select the first conversation once loaded (no deep-link in play).
-		if (!activeId() && conversations().length > 0) {
-			setActiveId(conversations()[0]?.id ?? null);
-		}
-	});
+	// A message anywhere changes the list's latest-message previews.
+	useServerEvent("chat.message", () => reloadList());
 
 	// Conversations the actor doesn't have a thread with yet (start-new list).
 	const partnersWithoutChat = createMemo(() => {
@@ -182,7 +204,7 @@ export function ChatPanel(props: {
 				.filter((c) => c.kind === "direct" && c.otherUserId)
 				.map((c) => c.otherUserId),
 		);
-		return (partnersQuery.data ?? []).filter((p) => !existing.has(p.id));
+		return partners().filter((p) => !existing.has(p.id));
 	});
 
 	/** Open the chat with a partner: the existing one, or start it. */
@@ -192,18 +214,15 @@ export function ChatPanel(props: {
 		const existing = conversations().find(
 			(c) => c.kind === "direct" && c.otherUserId === partnerId,
 		);
-		if (existing) setActiveId(existing.id);
-		else ensureDirect.mutate({ otherUserId: partnerId });
+		if (existing) setChosenId(existing.id);
+		else void ensureDirect.run(partnerId);
 	};
 	const shownPartners = createMemo(() => {
 		const q = partnerQuery().trim().toLowerCase();
-		const all = partnersQuery.data ?? [];
+		const all = partners();
 		return q ? all.filter((p) => p.name.toLowerCase().includes(q)) : all;
 	});
-	const coaching = () => {
-		const r = me.role();
-		return r !== null && coachesLeerlingen(r);
-	};
+	const coaching = () => coachesLeerlingen(me.role());
 
 	return (
 		<div class="grid h-[calc(100vh-12rem)] grid-cols-1 overflow-hidden rounded-3 border border-line bg-surface md:grid-cols-[20rem_1fr]">
@@ -214,7 +233,7 @@ export function ChatPanel(props: {
 				description={coaching() ? "Kies een leerling." : "Kies je coach."}
 			>
 				<div class="flex flex-col gap-2">
-					<Show when={(partnersQuery.data?.length ?? 0) > 6}>
+					<Show when={partners().length > 6}>
 						<label class="flex items-center gap-2 rounded-2 border border-line px-3 py-2">
 							<Search size={14} class="text-muted" aria-hidden="true" />
 							<input
@@ -236,7 +255,7 @@ export function ChatPanel(props: {
 									<button
 										type="button"
 										class="flex w-full items-center gap-2 rounded-2 px-2 py-2 text-left text-body text-ink hover:bg-bg-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-										disabled={ensureDirect.isPending}
+										disabled={ensureDirect.pending()}
 										onClick={() => openChatWith(p.id)}
 									>
 										<div
@@ -268,7 +287,7 @@ export function ChatPanel(props: {
 							Chat
 						</h1>
 						{/* Hidden when there is nobody to chat with (INC-8 AC3). */}
-						<Show when={(partnersQuery.data?.length ?? 0) > 0}>
+						<Show when={partners().length > 0}>
 							<Tooltip content="Nieuw gesprek">
 								{(trigger) => (
 									<button
@@ -318,22 +337,24 @@ export function ChatPanel(props: {
 				</div>
 
 				<div class="min-h-0 flex-1 overflow-y-auto">
-					<Show when={conversationsQuery.isLoading}>
+					<Show when={listLoading()}>
 						<p class="px-4 py-3 text-muted text-small">Laden…</p>
 					</Show>
-					<Show when={conversationsQuery.error}>
-						<ErrorState
-							class="m-3"
-							error={conversationsQuery.error}
-							what="je gesprekken"
-							onRetry={() => conversationsQuery.refetch()}
-						/>
+					<Show when={conversationsLoad.error()}>
+						{(error) => (
+							<ErrorState
+								class="m-3"
+								error={error()}
+								what="je gesprekken"
+								onRetry={() => conversationsLoad.reload()}
+							/>
+						)}
 					</Show>
 
 					<Show
 						when={filteredConversations().length > 0}
 						fallback={
-							<Show when={!conversationsQuery.isLoading && !conversationsQuery.error}>
+							<Show when={!listLoading() && !conversationsLoad.error()}>
 								<p class="px-4 py-3 text-muted text-small">
 									{query() ? "Geen gesprekken gevonden." : "Nog geen gesprekken."}
 								</p>
@@ -347,7 +368,7 @@ export function ChatPanel(props: {
 										<ConversationButton
 											conversation={c}
 											active={c.id === activeId()}
-											onSelect={() => setActiveId(c.id)}
+											onSelect={() => setChosenId(c.id)}
 										/>
 									</li>
 								)}
@@ -368,8 +389,8 @@ export function ChatPanel(props: {
 											<button
 												type="button"
 												class="flex w-full items-center gap-2 rounded-2 px-2 py-2 text-left text-body text-ink hover:bg-bg-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-												disabled={ensureDirect.isPending}
-												onClick={() => ensureDirect.mutate({ otherUserId: p.id })}
+												disabled={ensureDirect.pending()}
+												onClick={() => void ensureDirect.run(p.id)}
 											>
 												<div
 													class="avatar shrink-0"
@@ -395,7 +416,7 @@ export function ChatPanel(props: {
 					<div style={{ padding: "32px", color: "rgb(var(--muted))" }}>Selecteer een gesprek</div>
 				}
 			>
-				{(conv) => <ChatThread conversation={conv()} />}
+				{(conv) => <ChatThread conversation={conv()} onChanged={reloadList} />}
 			</Show>
 		</div>
 	);
@@ -418,11 +439,13 @@ function ConversationButton(props: {
 			type="button"
 			onClick={props.onSelect}
 			aria-current={props.active ? "true" : undefined}
-			class="flex w-full items-start gap-3 border-l-[3px] px-4 py-3 text-left hover:bg-bg-2 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring"
-			classList={{
-				"bg-primary-50 border-l-primary": props.active,
-				"border-l-transparent": !props.active,
-			}}
+			class={[
+				"flex w-full items-start gap-3 border-l-[3px] px-4 py-3 text-left hover:bg-bg-2 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring",
+				{
+					"bg-primary-50 border-l-primary": props.active,
+					"border-l-transparent": !props.active,
+				},
+			]}
 		>
 			<div
 				class="avatar shrink-0"
@@ -460,28 +483,32 @@ function ConversationButton(props: {
 	);
 }
 
-function ChatThread(props: { conversation: Conversation }) {
+function ChatThread(props: { conversation: Conversation; onChanged: () => void }) {
 	const me = useMe();
-	const queryClient = useQueryClient();
-	const [draft, setDraft] = createSignal("");
 	let scrollEl: HTMLDivElement | undefined;
+	let fileInput: HTMLInputElement | undefined;
 
 	const conversationId = createMemo(() => props.conversation.id);
 	const isGroup = () => props.conversation.kind === "forum";
 
-	// Clear the composer when switching conversations so a half-typed draft can't
-	// be sent to the wrong person (ChatThread isn't remounted across selections).
-	createEffect(on(conversationId, () => setDraft(""), { defer: true }));
+	// Clear the composer and the picked file when switching conversations, so a
+	// half-typed draft can't be sent to the wrong person (ChatThread isn't
+	// remounted across selections): writable memos reset on a new id.
+	const [draft, setDraft] = createSignal(() => (conversationId(), ""));
+	const [file, setFile] = createSignal<File | null>(() => (conversationId(), null));
 
-	const messagesQuery = useQuery(() => ({
-		...orpc.chat.messages.queryOptions({
-			input: { conversationId: conversationId() },
-		}),
-	}));
-
-	const messages = createMemo<ChatMessage[]>(() => messagesQuery.data?.messages ?? []);
-
-	const messagesKey = () => orpc.chat.messages.key({ input: { conversationId: conversationId() } });
+	const messagesLoad = createLoad(
+		() => conversationId(),
+		async (id, signal) => ({ id, ...(await client.chat.messages({ conversationId: id }, { signal })) }),
+	);
+	// Only this conversation's messages: the previous thread's stay out while
+	// the new one loads.
+	const loaded = () => {
+		const data = messagesLoad.data();
+		return data?.id === conversationId() ? data : undefined;
+	};
+	const messagesLoading = () => !loaded() && !messagesLoad.error();
+	const messages = createMemo((): ChatMessage[] => loaded()?.messages ?? []);
 
 	const scrollToBottom = () => {
 		queueMicrotask(() => {
@@ -490,22 +517,17 @@ function ChatThread(props: { conversation: Conversation }) {
 	};
 
 	// Scroll to bottom on conversation change / new messages.
-	createEffect(on(messages, () => scrollToBottom()));
+	createEffect(
+		() => messages(),
+		() => scrollToBottom(),
+	);
 
 	// Live append: when a chat.message SSE frame arrives for this conversation,
-	// refetch this thread (and the list, for the latest-message preview).
+	// reload this thread (ChatPanel reloads the list).
 	useServerEvent("chat.message", (payload) => {
 		const p = payload as { conversationId?: string } | null;
-		if (p?.conversationId === conversationId()) {
-			queryClient.invalidateQueries({ queryKey: messagesKey() });
-		}
-		queryClient.invalidateQueries({ queryKey: orpc.chat.list.key() });
+		if (p?.conversationId === conversationId()) messagesLoad.reload();
 	});
-
-	const [file, setFile] = createSignal<File | null>(null);
-	const [sending, setSending] = createSignal(false);
-	let fileInput: HTMLInputElement | undefined;
-	createEffect(on(conversationId, () => setFile(null), { defer: true }));
 
 	const pickFile = (f: File | undefined) => {
 		if (!f) return;
@@ -520,24 +542,25 @@ function ChatThread(props: { conversation: Conversation }) {
 	// belong to (memberRole "coach" = read-along only).
 	const canPost = () => props.conversation.memberRole !== "coach";
 
-	const submit = async () => {
-		const body = draft().trim();
-		const attach = file();
-		if ((!body && !attach) || sending()) return;
-		setSending(true);
-		try {
+	// Draft and file stay when sending fails, so nothing has to be redone.
+	const send = createAction(
+		async (body: string, attach: File | null) => {
 			const attachmentStorageKey = attach ? await uploadFile(attach, "chat") : undefined;
 			await client.chat.send({ conversationId: conversationId(), body, attachmentStorageKey });
 			setDraft("");
 			setFile(null);
-			queryClient.invalidateQueries({ queryKey: messagesKey() });
-			queryClient.invalidateQueries({ queryKey: orpc.chat.list.key() });
-		} catch (err) {
-			// Draft and file stay, so nothing has to be redone.
-			toast({ title: "Bericht niet verzonden", description: friendlyError(err), tone: "danger" });
-		} finally {
-			setSending(false);
-		}
+			messagesLoad.reload();
+			props.onChanged();
+		},
+		{ error: "Bericht niet verzonden" },
+	);
+	const sending = send.pending;
+
+	const submit = () => {
+		const body = draft().trim();
+		const attach = file();
+		if (!body && !attach) return;
+		void send.run(body, attach);
 	};
 
 	return (
@@ -603,20 +626,22 @@ function ChatThread(props: { conversation: Conversation }) {
 				}}
 				aria-live="polite"
 			>
-				<Show when={messagesQuery.isLoading}>
+				<Show when={messagesLoading()}>
 					<p class="text-muted text-small">Berichten laden…</p>
 				</Show>
-				<Show when={messagesQuery.error}>
-					<ErrorState
-						error={messagesQuery.error}
-						what="de berichten"
-						onRetry={() => messagesQuery.refetch()}
-					/>
+				<Show when={messagesLoad.error()}>
+					{(error) => (
+						<ErrorState
+							error={error()}
+							what="de berichten"
+							onRetry={() => messagesLoad.reload()}
+						/>
+					)}
 				</Show>
 				<Show
 					when={messages().length > 0}
 					fallback={
-						<Show when={!messagesQuery.isLoading}>
+						<Show when={!messagesLoading()}>
 							<p class="text-muted text-small">Nog geen berichten. Stuur het eerste bericht.</p>
 						</Show>
 					}
@@ -624,7 +649,7 @@ function ChatThread(props: { conversation: Conversation }) {
 					<ul style={{ display: "flex", "flex-direction": "column", gap: "10px" }}>
 						<For each={messages()}>
 							{(m) => {
-								const mine = () => m.senderId === me.user()?.id;
+								const mine = () => m.senderId === me.user().id;
 								return (
 									<li style={{ "align-self": mine() ? "flex-end" : "flex-start", "max-width": "70%" }}>
 										<Show when={!mine()}>
@@ -723,7 +748,7 @@ function ChatThread(props: { conversation: Conversation }) {
 						type="file"
 						accept={ACCEPT}
 						class="sr-only"
-						tabIndex={-1}
+						tabindex={-1}
 						aria-hidden="true"
 						onChange={(e) => {
 							pickFile(e.currentTarget.files?.[0]);
@@ -808,11 +833,10 @@ function Attachment(props: {
 	mine: boolean;
 }) {
 	const isImage = () => props.attachment.contentType.startsWith("image/");
-	const image = useQuery(() => ({
-		...orpc.chat.attachmentUrl.queryOptions({ input: { messageId: props.messageId } }),
-		enabled: isImage(),
-		staleTime: 4 * 60_000,
-	}));
+	const image = createLoad(
+		() => isImage() && props.messageId,
+		(messageId, signal) => client.chat.attachmentUrl({ messageId }, { signal }),
+	);
 
 	const open = async () => {
 		try {
@@ -830,7 +854,7 @@ function Attachment(props: {
 
 	return (
 		<Show
-			when={isImage() && image.data}
+			when={isImage() && image.data()}
 			fallback={
 				<button
 					type="button"
@@ -864,7 +888,7 @@ function Attachment(props: {
 				style={{ display: "block", "margin-top": "6px" }}
 			>
 				<img
-					src={image.data?.url}
+					src={image.data()?.url}
 					alt={props.attachment.name}
 					style={{ "max-width": "240px", "max-height": "240px", "border-radius": "10px" }}
 				/>

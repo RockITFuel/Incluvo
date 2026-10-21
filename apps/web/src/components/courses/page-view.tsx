@@ -1,4 +1,4 @@
-import { For, Show } from "solid-js";
+import { For, Show, untrack } from "solid-js";
 import { Dynamic } from "@solidjs/web";
 
 /**
@@ -17,9 +17,11 @@ type PMNode = {
 	content?: PMNode[];
 };
 
+// A saved page is static data: the nodes are read once, deliberately untracked.
 function Text(props: { node: PMNode }) {
-	const marks = props.node.marks?.map((m) => m.type) ?? [];
-	let el: unknown = props.node.text ?? "";
+	const node = untrack(() => props.node);
+	const marks = node.marks?.map((m) => m.type) ?? [];
+	let el: unknown = node.text ?? "";
 	if (marks.includes("code")) el = <code>{el as never}</code>;
 	if (marks.includes("italic")) el = <em>{el as never}</em>;
 	if (marks.includes("bold")) el = <strong>{el as never}</strong>;
@@ -33,7 +35,7 @@ function Inline(props: { nodes?: PMNode[] }) {
 }
 
 function Block(props: { node: PMNode }) {
-	const n = props.node;
+	const n = untrack(() => props.node);
 	switch (n.type) {
 		case "heading": {
 			const level = Math.min(Math.max(n.attrs?.level ?? 2, 2), 4);

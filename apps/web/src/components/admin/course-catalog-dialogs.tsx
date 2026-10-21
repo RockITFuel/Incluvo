@@ -1,24 +1,22 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/solid-query";
+import { useRouter } from "@tanstack/solid-router";
 import { Check, Pencil, Search, Trash2, X } from "../../lib/icons";
-import { createEffect, createMemo, createSignal, For, on, Show } from "solid-js";
-import { friendlyError } from "../../lib/errors";
-import { orpc } from "../../lib/orpc";
+import { createMemo, createSignal, For, Show } from "solid-js";
+import { createAction } from "../../lib/action";
+import { client, type Output } from "../../lib/orpc";
+import { refresh } from "../../lib/refresh";
 import { Button } from "../ui/button";
 import { Dialog } from "../ui/dialog";
 import { Input } from "../ui/text-field";
 import { toast } from "../ui/toast";
 
-/** Refresh everything the catalogue shows after a change. */
-function useInvalidateCatalog() {
-	const queryClient = useQueryClient();
-	return () => {
-		void queryClient.invalidateQueries({ queryKey: orpc.courses.list.key() });
-		void queryClient.invalidateQueries({ queryKey: orpc.courses.catalog.key() });
-	};
-}
+export type Category = Output<typeof client.courses.catalog.categories.list>[number];
+export type Organization = Output<typeof client.admin.organizations.listAll>[number];
 
-const onError = (title: string) => (error: unknown) =>
-	toast({ title, description: friendlyError(error), tone: "danger" });
+/** Refresh everything the catalogue shows (courses, categories) after a change. */
+function useRefreshCatalog() {
+	const router = useRouter();
+	return () => refresh(router, "courses");
+}
 
 /** A labelled native checkbox: keyboard- and screen-reader friendly. */
 function CheckRow(props: {
@@ -64,40 +62,40 @@ function SearchBox(props: { value: string; onInput: (v: string) => void; label: 
 // Categorieën beheren
 // ---------------------------------------------------------------------------
 
-export function CategoryManagerDialog(props: { open: boolean; onOpenChange: (o: boolean) => void }) {
-	const invalidate = useInvalidateCatalog();
-	const categories = useQuery(() => orpc.courses.catalog.categories.list.queryOptions());
+export function CategoryManagerDialog(props: {
+	open: boolean;
+	onOpenChange: (o: boolean) => void;
+	categories: Category[];
+}) {
+	const refreshCatalog = useRefreshCatalog();
 	const [newName, setNewName] = createSignal("");
 	const [editing, setEditing] = createSignal<string | null>(null);
 	const [editName, setEditName] = createSignal("");
 	const [confirmDelete, setConfirmDelete] = createSignal<string | null>(null);
 
-	const create = useMutation(() =>
-		orpc.courses.catalog.categories.create.mutationOptions({
-			onSuccess: () => {
-				setNewName("");
-				invalidate();
-			},
-			onError: onError("Toevoegen mislukt"),
-		}),
+	const create = createAction(
+		async (input: { name: string }) => {
+			await client.courses.catalog.categories.create(input);
+			setNewName("");
+			await refreshCatalog();
+		},
+		{ error: "Toevoegen mislukt" },
 	);
-	const rename = useMutation(() =>
-		orpc.courses.catalog.categories.rename.mutationOptions({
-			onSuccess: () => {
-				setEditing(null);
-				invalidate();
-			},
-			onError: onError("Wijzigen mislukt"),
-		}),
+	const rename = createAction(
+		async (input: { id: string; name: string }) => {
+			await client.courses.catalog.categories.rename(input);
+			setEditing(null);
+			await refreshCatalog();
+		},
+		{ error: "Wijzigen mislukt" },
 	);
-	const remove = useMutation(() =>
-		orpc.courses.catalog.categories.delete.mutationOptions({
-			onSuccess: () => {
-				setConfirmDelete(null);
-				invalidate();
-			},
-			onError: onError("Verwijderen mislukt"),
-		}),
+	const remove = createAction(
+		async (input: { id: string }) => {
+			await client.courses.catalog.categories.delete(input);
+			setConfirmDelete(null);
+			await refreshCatalog();
+		},
+		{ error: "Verwijderen mislukt" },
 	);
 
 	return (
@@ -112,7 +110,7 @@ export function CategoryManagerDialog(props: { open: boolean; onOpenChange: (o: 
 				class="mb-4 flex items-end gap-2"
 				onSubmit={(e) => {
 					e.preventDefault();
-					if (newName().trim()) create.mutate({ name: newName().trim() });
+					if (newName().trim()) void create.run({ name: newName().trim() });
 				}}
 			>
 				<div class="flex-1">
@@ -123,17 +121,17 @@ export function CategoryManagerDialog(props: { open: boolean; onOpenChange: (o: 
 						onInput={(e) => setNewName(e.currentTarget.value)}
 					/>
 				</div>
-				<Button type="submit" disabled={create.isPending || !newName().trim()}>
+				<Button type="submit" disabled={create.pending() || !newName().trim()}>
 					Toevoegen
 				</Button>
 			</form>
 
 			<Show
-				when={(categories.data?.length ?? 0) > 0}
+				when={props.categories.length > 0}
 				fallback={<p class="text-small text-muted">Nog geen categorieën.</p>}
 			>
 				<ul class="flex max-h-80 flex-col overflow-y-auto rounded-2 border border-line">
-					<For each={categories.data}>
+					<For each={props.categories}>
 						{(c) => (
 							<li class="flex items-center gap-2 border-line-2 border-b px-3 py-2 last:border-b-0">
 								<Show
@@ -176,8 +174,8 @@ export function CategoryManagerDialog(props: { open: boolean; onOpenChange: (o: 
 												<Button
 													size="sm"
 													variant="danger"
-													disabled={remove.isPending}
-													onClick={() => remove.mutate({ id: c.id })}
+													disabled={remove.pending()}
+													onClick={() => void remove.run({ id: c.id })}
 												>
 													Ja
 												</Button>
@@ -192,7 +190,7 @@ export function CategoryManagerDialog(props: { open: boolean; onOpenChange: (o: 
 										class="flex flex-1 items-center gap-2"
 										onSubmit={(e) => {
 											e.preventDefault();
-											if (editName().trim()) rename.mutate({ id: c.id, name: editName().trim() });
+											if (editName().trim()) void rename.run({ id: c.id, name: editName().trim() });
 										}}
 									>
 										<input
@@ -237,26 +235,20 @@ export function CourseCategoriesDialog(props: {
 	course: { id: string; title: string; categoryIds: string[] } | null;
 	onClose: () => void;
 	onManage: () => void;
+	categories: Category[];
 }) {
-	const invalidate = useInvalidateCatalog();
-	const categories = useQuery(() => orpc.courses.catalog.categories.list.queryOptions());
-	const [selected, setSelected] = createSignal<Set<string>>(new Set());
-	createEffect(
-		on(
-			() => props.course,
-			(c) => setSelected(new Set(c?.categoryIds ?? [])),
-		),
-	);
+	const refreshCatalog = useRefreshCatalog();
+	// Starts from the opened course's categories, each time another one opens.
+	const [selected, setSelected] = createSignal(() => new Set(props.course?.categoryIds ?? []));
 
-	const save = useMutation(() =>
-		orpc.courses.catalog.setCategories.mutationOptions({
-			onSuccess: () => {
-				invalidate();
-				toast({ title: "Categorieën opgeslagen", tone: "success" });
-				props.onClose();
-			},
-			onError: onError("Opslaan mislukt"),
-		}),
+	const save = createAction(
+		async (input: { courseId: string; categoryIds: string[] }) => {
+			await client.courses.catalog.setCategories(input);
+			toast({ title: "Categorieën opgeslagen", tone: "success" });
+			props.onClose();
+			await refreshCatalog();
+		},
+		{ error: "Opslaan mislukt" },
 	);
 
 	const toggle = (id: string, on: boolean) => {
@@ -281,10 +273,10 @@ export function CourseCategoriesDialog(props: {
 						Annuleren
 					</Button>
 					<Button
-						disabled={save.isPending}
+						disabled={save.pending()}
 						onClick={() =>
 							props.course &&
-							save.mutate({ courseId: props.course.id, categoryIds: [...selected()] })
+							void save.run({ courseId: props.course.id, categoryIds: [...selected()] })
 						}
 					>
 						Opslaan
@@ -293,7 +285,7 @@ export function CourseCategoriesDialog(props: {
 			}
 		>
 			<Show
-				when={(categories.data?.length ?? 0) > 0}
+				when={props.categories.length > 0}
 				fallback={
 					<p class="text-small text-muted">
 						Er zijn nog geen categorieën. Maak ze aan via Categorieën beheren.
@@ -301,7 +293,7 @@ export function CourseCategoriesDialog(props: {
 				}
 			>
 				<div class="flex max-h-80 flex-col overflow-y-auto">
-					<For each={categories.data}>
+					<For each={props.categories}>
 						{(c) => (
 							<CheckRow
 								checked={selected().has(c.id)}
@@ -327,26 +319,20 @@ export function AvailabilityDialog(props: {
 		availability: { allSchools: boolean; organizationIds: string[] } | null;
 	} | null;
 	onClose: () => void;
+	organizations: Organization[];
 }) {
-	const invalidate = useInvalidateCatalog();
-	const orgs = useQuery(() => orpc.admin.organizations.listAll.queryOptions());
-	const [allSchools, setAllSchools] = createSignal(false);
-	const [selected, setSelected] = createSignal<Set<string>>(new Set());
-	const [search, setSearch] = createSignal("");
-
-	createEffect(
-		on(
-			() => props.course,
-			(c) => {
-				setAllSchools(c?.availability?.allSchools ?? false);
-				setSelected(new Set(c?.availability?.organizationIds ?? []));
-				setSearch("");
-			},
-		),
+	const refreshCatalog = useRefreshCatalog();
+	// Each starts from the opened course, each time another one opens.
+	const [allSchools, setAllSchools] = createSignal(
+		() => props.course?.availability?.allSchools ?? false,
 	);
+	const [selected, setSelected] = createSignal(
+		() => new Set(props.course?.availability?.organizationIds ?? []),
+	);
+	const [search, setSearch] = createSignal(() => (props.course, ""));
 
 	const schools = createMemo(() =>
-		(orgs.data ?? [])
+		props.organizations
 			.filter((o) => o.kind === "school")
 			.sort((a, b) => Number(Boolean(a.archivedAt)) - Number(Boolean(b.archivedAt))),
 	);
@@ -355,15 +341,14 @@ export function AvailabilityDialog(props: {
 		return q ? schools().filter((s) => s.name.toLowerCase().includes(q)) : schools();
 	});
 
-	const save = useMutation(() =>
-		orpc.courses.catalog.availability.set.mutationOptions({
-			onSuccess: () => {
-				invalidate();
-				toast({ title: "Beschikbaarheid opgeslagen", tone: "success" });
-				props.onClose();
-			},
-			onError: onError("Opslaan mislukt"),
-		}),
+	const save = createAction(
+		async (input: { courseId: string; allSchools: boolean; organizationIds: string[] }) => {
+			await client.courses.catalog.availability.set(input);
+			toast({ title: "Beschikbaarheid opgeslagen", tone: "success" });
+			props.onClose();
+			await refreshCatalog();
+		},
+		{ error: "Opslaan mislukt" },
 	);
 
 	const toggle = (id: string, on: boolean) => {
@@ -393,10 +378,10 @@ export function AvailabilityDialog(props: {
 						Annuleren
 					</Button>
 					<Button
-						disabled={save.isPending}
+						disabled={save.pending()}
 						onClick={() =>
 							props.course &&
-							save.mutate({
+							void save.run({
 								courseId: props.course.id,
 								allSchools: allSchools(),
 								organizationIds: [...selected()],

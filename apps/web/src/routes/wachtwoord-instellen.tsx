@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/solid-router";
-import { Show, createSignal, onSettled } from "solid-js";
+import { Show, createSignal } from "solid-js";
 import { A11yPanel } from "../components/a11y-panel";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/text-field";
@@ -18,18 +18,15 @@ const MIN_LENGTH = 8;
 
 function SetPassword() {
 	const navigate = useNavigate();
-	const [token, setToken] = createSignal<string | null>(null);
-	const [invalid, setInvalid] = createSignal(false);
+	// Client-rendered: the link's query string is there from the start.
+	const params = new URLSearchParams(window.location.search);
+	const token = () => params.get("token");
+	// Also set when the server refuses the token (used up or expired).
+	const [invalid, setInvalid] = createSignal(!params.get("token") || params.has("error"));
 	const [password, setPassword] = createSignal("");
 	const [repeat, setRepeat] = createSignal("");
 	const [error, setError] = createSignal<string | null>(null);
 	const [busy, setBusy] = createSignal(false);
-
-	onSettled(() => {
-		const params = new URLSearchParams(window.location.search);
-		setToken(params.get("token"));
-		setInvalid(!params.get("token") || params.has("error"));
-	});
 
 	async function submit(e: Event) {
 		e.preventDefault();

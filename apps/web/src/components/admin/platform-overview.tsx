@@ -1,9 +1,9 @@
-import { useQuery } from "@tanstack/solid-query";
 import { Building2, GraduationCap, NotebookPen, Plus, Users } from "../../lib/icons";
 import { createMemo, createSignal, Show } from "solid-js";
 import { KPI } from "../dashboard/kpi";
 import { ErrorState } from "../ui/error-state";
-import { orpc } from "../../lib/orpc";
+import { createLoad } from "../../lib/load";
+import { client } from "../../lib/orpc";
 import { CreateSchoolDialog } from "./create-school-dialog";
 import { SchoolsTable } from "./schools-table";
 
@@ -23,13 +23,19 @@ const todayLabel = (): string =>
  * matter for Ondivera and a "Geen keyuser" flag: a new school's next step.
  * All from `admin.organizations.listAll` (grouped queries, no per-leerling
  * fan-out), so it stays cheap as schools are added.
+ *
+ * It loads its own data: it is the superadmin's half of the dashboard route,
+ * whose loader serves the coach.
  */
 export function PlatformOverview() {
-	const orgs = useQuery(() => orpc.admin.organizations.listAll.queryOptions());
+	const orgs = createLoad(
+		() => true,
+		(_, signal) => client.admin.organizations.listAll(undefined, { signal }),
+	);
 	const [createOpen, setCreateOpen] = createSignal(false);
 
 	const schools = createMemo(() =>
-		(orgs.data ?? []).filter((o) => o.kind === "school"),
+		(orgs.data() ?? []).filter((o) => o.kind === "school"),
 	);
 	const active = createMemo(() => schools().filter((o) => !o.archivedAt));
 	const noKeyuser = createMemo(() =>
@@ -69,14 +75,14 @@ export function PlatformOverview() {
 				</div>
 			</div>
 
-			<Show when={orgs.isLoading}>
+			<Show when={orgs.loading() && !orgs.data()}>
 				<div class="card text-muted">Laden…</div>
 			</Show>
-			<Show when={orgs.error}>
-				<ErrorState error={orgs.error} what="de scholen" onRetry={() => orgs.refetch()} />
+			<Show when={orgs.error()}>
+				{(error) => <ErrorState error={error()} what="de scholen" onRetry={orgs.reload} />}
 			</Show>
 
-			<Show when={orgs.data}>
+			<Show when={orgs.data()}>
 				<div class="ds-grid-tiles" style={{ "margin-bottom": "24px" }}>
 					<KPI
 						label="Actieve scholen"
@@ -112,7 +118,7 @@ export function PlatformOverview() {
 					/>
 				</div>
 
-				<SchoolsTable orgs={orgs.data ?? []} />
+				<SchoolsTable orgs={orgs.data() ?? []} />
 			</Show>
 
 			<CreateSchoolDialog open={createOpen()} onOpenChange={setCreateOpen} />

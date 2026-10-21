@@ -1,5 +1,5 @@
 import { useRouter } from "@tanstack/solid-router";
-import { createSignal, onCleanup, onSettled } from "solid-js";
+import { createSignal, onSettled } from "solid-js";
 
 const APP = "Incluvo";
 
@@ -81,7 +81,7 @@ export function RouteAnnouncer() {
 			setMessage("");
 			queueMicrotask(() => setMessage(name ? `Pagina: ${name}` : ""));
 		});
-		onCleanup(unsubscribe);
+		return unsubscribe;
 	});
 
 	return (

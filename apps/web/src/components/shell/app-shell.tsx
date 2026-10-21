@@ -4,6 +4,7 @@ import { Menu, X } from "../../lib/icons";
 import { NotificationsBell } from "../notifications";
 import type { JSX } from "@solidjs/web";
 import { For, Show, createMemo, createSignal } from "solid-js";
+import { closeOnEscape } from "../ui/escape";
 import { Dynamic } from "@solidjs/web";
 import { cn } from "../../lib/cn";
 import { A11yPanel } from "../a11y-panel";
@@ -180,7 +181,9 @@ export function AppShell(props: AppShellProps) {
 			<KDialog open={menuOpen()} onOpenChange={setMenuOpen}>
 				<KDialog.Portal>
 					<KDialog.Overlay class="fixed inset-0 z-40 bg-ink/40 md:hidden" />
-					<KDialog.Content class="fixed inset-y-0 left-0 z-50 w-[248px] max-w-[80vw] bg-surface shadow-3 md:hidden">
+					<KDialog.Content
+						onKeyDown={closeOnEscape(() => setMenuOpen(false))}
+						class="fixed inset-y-0 left-0 z-50 w-[248px] max-w-[80vw] bg-surface shadow-3 md:hidden">
 						<KDialog.Title class="sr-only">Navigatiemenu</KDialog.Title>
 						<div class="absolute right-2 top-2 z-10">
 							<KDialog.CloseButton

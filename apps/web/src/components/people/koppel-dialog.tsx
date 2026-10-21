@@ -1,7 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/solid-query";
-import { createEffect, createSignal, on, Show } from "solid-js";
-import { friendlyError } from "../../lib/errors";
-import { orpc } from "../../lib/orpc";
+import { useRouter } from "@tanstack/solid-router";
+import { createSignal, Show } from "solid-js";
+import { createAction } from "../../lib/action";
+import { createLoad } from "../../lib/load";
+import { client } from "../../lib/orpc";
+import { refresh } from "../../lib/refresh";
 import { Button } from "../ui/button";
 import { Dialog } from "../ui/dialog";
 import { Select } from "../ui/select";
@@ -19,48 +21,39 @@ export function KoppelDialog(props: {
 	leerling: { id: string; name: string; vasteCoach: Ref; vervanger: Ref } | null;
 	onOpenChange: (open: boolean) => void;
 }) {
-	const queryClient = useQueryClient();
-	const coaches = useQuery(() => ({
-		...orpc.people.coaches.list.queryOptions(),
-		enabled: props.leerling !== null,
-	}));
-	const [vast, setVast] = createSignal<string | undefined>();
-	const [vervanger, setVervanger] = createSignal<string | undefined>();
-
-	createEffect(
-		on(
-			() => props.leerling,
-			(l) => {
-				setVast(l?.vasteCoach?.id);
-				setVervanger(undefined);
-			},
-		),
+	const router = useRouter();
+	// The coaches to choose from, loaded when the dialog opens.
+	const coaches = createLoad(
+		() => props.leerling !== null,
+		(_, signal) => client.people.coaches.list(undefined, { signal }),
+	);
+	// Start from the leerling's current koppelingen each time it opens.
+	const [vast, setVast] = createSignal<string | undefined>(() => props.leerling?.vasteCoach?.id);
+	const [vervanger, setVervanger] = createSignal<string | undefined>(
+		() => (props.leerling, undefined),
 	);
 
 	const options = (exclude?: string) =>
-		(coaches.data ?? [])
+		(coaches.data() ?? [])
 			.filter((c) => c.status === "actief" && c.id !== exclude)
 			.map((c) => ({ value: c.id, label: c.name }));
 
-	const set = useMutation(() =>
-		orpc.people.koppeling.set.mutationOptions({
-			onSuccess: (_res, input) => {
-				void queryClient.invalidateQueries({ queryKey: orpc.people.key() });
-				void queryClient.invalidateQueries({ queryKey: orpc.admin.assignments.key() });
-				toast({
-					title:
-						input.kind === "vast"
-							? "Vaste coach opgeslagen"
-							: input.coachId
-								? "Vervanger gekoppeld"
-								: "Vervanging beëindigd",
-					tone: "success",
-				});
-				props.onOpenChange(false);
-			},
-			onError: (error) =>
-				toast({ title: "Niet gewijzigd", description: friendlyError(error), tone: "danger" }),
-		}),
+	const set = createAction(
+		async (input: { leerlingId: string; kind: "vast" | "vervanger"; coachId: string | null }) => {
+			await client.people.koppeling.set(input);
+			toast({
+				title:
+					input.kind === "vast"
+						? "Vaste coach opgeslagen"
+						: input.coachId
+							? "Vervanger gekoppeld"
+							: "Vervanging beëindigd",
+				tone: "success",
+			});
+			props.onOpenChange(false);
+			await refresh(router, "people", "admin");
+		},
+		{ error: "Niet gewijzigd" },
 	);
 
 	return (
@@ -85,13 +78,13 @@ export function KoppelDialog(props: {
 									class="min-w-60 flex-1"
 									options={options(l().vervanger?.id)}
 									value={vast()}
-									placeholder={coaches.isLoading ? "Laden…" : "Kies een coach"}
+									placeholder={coaches.loading() ? "Laden…" : "Kies een coach"}
 									onChange={setVast}
 								/>
 								<Button
-									disabled={!vast() || vast() === l().vasteCoach?.id || set.isPending}
+									disabled={!vast() || vast() === l().vasteCoach?.id || set.pending()}
 									onClick={() =>
-										set.mutate({ leerlingId: l().id, kind: "vast", coachId: vast() ?? null })
+										void set.run({ leerlingId: l().id, kind: "vast", coachId: vast() ?? null })
 									}
 								>
 									{l().vasteCoach ? "Wijzigen" : "Koppelen"}
@@ -125,9 +118,9 @@ export function KoppelDialog(props: {
 											/>
 											<Button
 												variant="ghost"
-												disabled={!vervanger() || set.isPending}
+												disabled={!vervanger() || set.pending()}
 												onClick={() =>
-													set.mutate({
+													void set.run({
 														leerlingId: l().id,
 														kind: "vervanger",
 														coachId: vervanger() ?? null,
@@ -147,9 +140,9 @@ export function KoppelDialog(props: {
 										</p>
 										<Button
 											variant="ghost"
-											disabled={set.isPending}
+											disabled={set.pending()}
 											onClick={() =>
-												set.mutate({ leerlingId: l().id, kind: "vervanger", coachId: null })
+												void set.run({ leerlingId: l().id, kind: "vervanger", coachId: null })
 											}
 										>
 											Vervanging beëindigen

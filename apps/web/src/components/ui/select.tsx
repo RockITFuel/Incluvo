@@ -1,7 +1,8 @@
 import { Select as KSelect } from "@kobalte/core/select";
 import { Check, ChevronDown } from "../../lib/icons";
-import { Show } from "solid-js";
+import { createSignal, Show } from "solid-js";
 import { cn } from "../../lib/cn";
+import { closeOnEscape } from "./escape";
 
 export type SelectOption = { value: string; label: string };
 
@@ -26,6 +27,8 @@ export type SelectProps = {
 export function Select(props: SelectProps) {
 	const optionFor = (value: string | undefined) =>
 		props.options.find((o) => o.value === value);
+	// Controlled so Escape can close the list (escape.ts).
+	const [open, setOpen] = createSignal(false);
 
 	return (
 		<KSelect<SelectOption>
@@ -36,6 +39,8 @@ export function Select(props: SelectProps) {
 			value={optionFor(props.value)}
 			defaultValue={optionFor(props.defaultValue)}
 			onChange={(opt) => props.onChange?.(opt?.value)}
+			open={open()}
+			onOpenChange={setOpen}
 			disabled={props.disabled}
 			placeholder={props.placeholder}
 			// Modal: an open list is the one layer screen readers see, also when
@@ -66,7 +71,7 @@ export function Select(props: SelectProps) {
 				)}
 			>
 				<KSelect.Value<SelectOption> class="truncate data-[placeholder-shown]:text-muted-2">
-					{(state) => state.selectedOption().label}
+					{(state) => state.selectedOption()?.label}
 				</KSelect.Value>
 				<KSelect.Icon>
 					<ChevronDown class="size-4 text-muted" />
@@ -78,7 +83,9 @@ export function Select(props: SelectProps) {
 				</KSelect.Description>
 			</Show>
 			<KSelect.Portal>
-				<KSelect.Content class="z-50 overflow-hidden rounded-2 border border-line bg-surface p-1 shadow-3 animate-scale-in">
+				<KSelect.Content
+					onKeyDown={closeOnEscape(() => setOpen(false))}
+					class="z-50 overflow-hidden rounded-2 border border-line bg-surface p-1 shadow-3 animate-scale-in">
 					<KSelect.Listbox class="max-h-64 overflow-y-auto" />
 				</KSelect.Content>
 			</KSelect.Portal>

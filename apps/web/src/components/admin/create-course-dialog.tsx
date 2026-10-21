@@ -1,9 +1,9 @@
-import { useQueryClient } from "@tanstack/solid-query";
-import { useNavigate } from "@tanstack/solid-router";
+import { useNavigate, useRouter } from "@tanstack/solid-router";
 import { createSignal } from "solid-js";
 import { useMe } from "../../lib/auth/use-me";
 import { friendlyError } from "../../lib/errors";
-import { client, orpc } from "../../lib/orpc";
+import { client } from "../../lib/orpc";
+import { refresh } from "../../lib/refresh";
 import { Button } from "../ui/button";
 import { Dialog } from "../ui/dialog";
 import { Input, Textarea } from "../ui/text-field";
@@ -16,7 +16,7 @@ import { toast } from "../ui/toast";
  */
 export function CreateCourseDialog(props: { open: boolean; onOpenChange: (open: boolean) => void }) {
 	const me = useMe();
-	const queryClient = useQueryClient();
+	const router = useRouter();
 	const navigate = useNavigate();
 	const [title, setTitle] = createSignal("");
 	const [description, setDescription] = createSignal("");
@@ -36,7 +36,7 @@ export function CreateCourseDialog(props: { open: boolean; onOpenChange: (open: 
 			props.onOpenChange(false);
 			setTitle("");
 			setDescription("");
-			await queryClient.invalidateQueries({ queryKey: orpc.courses.list.key() });
+			await refresh(router, "courses");
 			navigate({ to: "/cursussen/$courseId", params: { courseId: course.id } });
 		} catch (err) {
 			toast({ title: "Aanmaken mislukt", description: friendlyError(err), tone: "danger" });

@@ -1,7 +1,5 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/solid-router";
-import { useQuery, useQueryClient } from "@tanstack/solid-query";
-import { createMemo, createSignal, For, onCleanup, onSettled, Show } from "solid-js";
-import { createStore } from "solid-js";
+import { createFileRoute, Link, useNavigate, useRouter } from "@tanstack/solid-router";
+import { createMemo, createSignal, createStore, For, onSettled, Show, untrack } from "solid-js";
 import {
 	type AnswerValue,
 	QuestionInput,
@@ -17,11 +15,12 @@ import { Switch } from "../../../components/ui/switch";
 import { toast } from "../../../components/ui/toast";
 import { PlanView } from "../../../components/coachplan/plan-view";
 import { downloadPlanPdf } from "../../../lib/coachplan/pdf";
-import { useMe } from "../../../lib/auth/use-me";
-import { client, orpc } from "../../../lib/orpc";
-import { ErrorState } from "../../../components/ui/error-state";
+import { RouteDataView } from "../../../components/ui/route-data-view";
+import { client, type Output } from "../../../lib/orpc";
 import { friendlyError } from "../../../lib/errors";
-import { RequireRole } from "../../../lib/auth/role-guard";
+import { requireRole } from "../../../lib/auth/role-guard";
+import { refresh as refreshRoutes } from "../../../lib/refresh";
+import { loadRouteData, type RouteData } from "../../../lib/route-data";
 import { createAnswerSaver } from "../../../lib/coachplan/answer-saver";
 import { useServerEvent } from "../../../lib/sse/use-events";
 
@@ -34,27 +33,49 @@ const COACH_STARTED =
  * (#15) to open for review; a leerling gets the fill wizard (#11–#14).
  */
 export const Route = createFileRoute("/_protected/plan/")({
+	// The superadmin manages the forms (/plan/beheer) and is sent home; plans
+	// belong to the school.
+	beforeLoad: ({ context }) =>
+		requireRole(context.me, { min: "leerling", only: ["leerling", "coach"] }),
+	loader: async ({ context, abortController }) => {
+		const signal = abortController.signal;
+		// The role is known before anything renders, so a coach never mounts the
+		// leerling wizard (whose `startMine()` has a side effect).
+		return context.me.role === "coach"
+			? {
+					view: "coach" as const,
+					inbox: await loadRouteData(signal, (s) =>
+						client.coachplan.inbox(undefined, { signal: s }),
+					),
+				}
+			: {
+					view: "leerling" as const,
+					mine: await loadRouteData(signal, (s) => client.coachplan.mine(undefined, { signal: s })),
+				};
+	},
 	component: PlanEntry,
 });
 
+type Inbox = Output<typeof client.coachplan.inbox>;
+type Mine = Output<typeof client.coachplan.mine>;
+
 function PlanEntry() {
-	const me = useMe();
-	// RequireRole waits for `account.me` before choosing a view: otherwise a
-	// coach would briefly mount the leerling wizard and fire its side-effectful
-	// `startMine()` RPC. The superadmin manages the forms (/plan/beheer) and is
-	// sent home; plans belong to the school.
+	const data = Route.useLoaderData();
 	return (
-		<RequireRole min="leerling" only={["leerling", "coach"]}>
-			<Show when={me.hasAtLeast("coach")} fallback={<LeerlingPlan />}>
-				<CoachInbox />
+		<>
+			<Show when={data().view === "coach" && data().inbox}>
+				{(inbox) => <CoachInbox inbox={inbox()} />}
 			</Show>
-		</RequireRole>
+			<Show when={data().view === "leerling" && data().mine}>
+				{(mine) => <LeerlingPlan mine={mine()} />}
+			</Show>
+		</>
 	);
 }
 
 /** Coach inbox of submitted/in-review coachplannen (#15). */
-function CoachInbox() {
-	const inboxQuery = useQuery(() => orpc.coachplan.inbox.queryOptions());
+function CoachInbox(props: { inbox: RouteData<Inbox> }) {
+	const router = useRouter();
 	return (
 		<section class="mx-auto flex w-full max-w-4xl flex-col gap-6">
 			<div>
@@ -63,21 +84,18 @@ function CoachInbox() {
 					Ingeleverde plannen van je leerlingen. Open er één om te beoordelen.
 				</p>
 			</div>
-			<Show when={inboxQuery.isLoading}>
-				<p class="text-muted">Laden…</p>
-			</Show>
-			<Show when={inboxQuery.error}>
-				<ErrorState
-					error={inboxQuery.error}
-					what="de coachplannen"
-					onRetry={() => inboxQuery.refetch()}
-				/>
-			</Show>
-			<Show when={inboxQuery.data?.length === 0}>
+			<RouteDataView
+				data={props.inbox}
+				what="de coachplannen"
+				onRetry={() => void refreshRoutes(router, "coachplan")}
+			>
+				{(inbox) => (
+					<>
+			<Show when={inbox().length === 0}>
 				<Card class="text-muted">Nog geen ingeleverde coachplannen.</Card>
 			</Show>
 			<ul class="flex flex-col gap-2">
-				<For each={inboxQuery.data}>
+				<For each={inbox()}>
 					{(row) => (
 						<li>
 							<Link
@@ -109,6 +127,9 @@ function CoachInbox() {
 					)}
 				</For>
 			</ul>
+					</>
+				)}
+			</RouteDataView>
 		</section>
 	);
 }
@@ -117,27 +138,23 @@ function CoachInbox() {
  * The leerling's plan (fix plan 2.1): fill it in, wait for the coach, or read
  * the shared plan and start a new version ("Plan bijwerken").
  */
-function LeerlingPlan() {
-	const queryClient = useQueryClient();
-	const state = useQuery(() => orpc.coachplan.mine.queryOptions());
+function LeerlingPlan(props: { mine: RouteData<Mine> }) {
+	const router = useRouter();
 	const [revising, setRevising] = createSignal(false);
 	const [editing, setEditing] = createSignal(false);
 	const [pdfBusy, setPdfBusy] = createSignal(false);
-	const latest = () => state.data?.latest ?? null;
-	const current = () => state.data?.current ?? null;
+	const state = () => (props.mine.access === "granted" ? props.mine.value : undefined);
+	const latest = () => state()?.latest ?? null;
+	const current = () => state()?.current ?? null;
 	const phase = () => {
 		const l = latest();
 		if (!l || l.status === "draft") return "fill";
 		if (l.status === "submitted" || l.status === "coach_review") return "with_coach";
 		return "shared";
 	};
-	const refresh = () =>
-		queryClient.invalidateQueries({ queryKey: orpc.coachplan.mine.key() });
+	const refresh = () => refreshRoutes(router, "coachplan");
 	// The coach started on the plan or shared it: no more changes (INC-14).
-	const onLocked = () => {
-		void refresh();
-		void queryClient.invalidateQueries({ queryKey: orpc.coachplan.getSubmission.key() });
-	};
+	const onLocked = () => void refresh();
 	useServerEvent("coachplan.locked", onLocked);
 	useServerEvent("coachplan.shared", onLocked);
 	const canEdit = () => latest()?.status === "submitted";
@@ -169,23 +186,11 @@ function LeerlingPlan() {
 	};
 
 	return (
-		<Show
-			when={state.data}
-			fallback={
-				<Show
-					when={state.error}
-					fallback={<p class="text-muted">Bezig met laden…</p>}
-				>
-					<ErrorState
-						error={state.error}
-						what="je plan"
-						onRetry={() => state.refetch()}
-					/>
-				</Show>
-			}
-		>
+		<RouteDataView data={props.mine} what="je plan" onRetry={() => void refresh()}>
+			{() => (
+				<>
 			<Show when={phase() === "fill"}>
-				<PlanWizard onSubmitted={refresh} />
+				<PlanWizard onSubmitted={() => void refresh()} />
 			</Show>
 
 			{/* Changing handed-in answers; stays open when the coach locks the plan
@@ -195,7 +200,7 @@ function LeerlingPlan() {
 					<PlanWizard
 						editId={l().id}
 						locked={!canEdit()}
-						onSubmitted={refresh}
+						onSubmitted={() => void refresh()}
 						onDone={() => {
 							setEditing(false);
 							onLocked();
@@ -271,7 +276,9 @@ function LeerlingPlan() {
 					</section>
 				)}
 			</Show>
-		</Show>
+				</>
+			)}
+		</RouteDataView>
 	);
 }
 
@@ -290,10 +297,9 @@ function PlanWizard(props: {
 	locked?: boolean;
 	onDone?: () => void;
 }) {
-	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 	const [step, setStep] = createSignal(0);
-	const [reviewing, setReviewing] = createSignal(Boolean(props.editId));
+	const [reviewing, setReviewing] = createSignal(untrack(() => Boolean(props.editId)));
 	const [refused, setRefused] = createSignal(false);
 	const [unsaved, setUnsaved] = createSignal(false);
 	const locked = () => Boolean(props.locked) || refused();
@@ -324,16 +330,22 @@ function PlanWizard(props: {
 			setQuestions(
 				("questions" in res ? res.questions : res.template.questions) as unknown as QuestionDTO[],
 			);
-			for (const a of res.answers) {
-				setAnswers(a.questionId, {
-					value: a.value,
-					valueJson: (a.valueJson as string[] | null) ?? null,
-				});
-				setFlags(a.questionId, {
-					discussWithCoach: a.discussWithCoach,
-					deliberatelySkipped: a.deliberatelySkipped,
-				});
-			}
+			setAnswers((draft) => {
+				for (const a of res.answers) {
+					draft[a.questionId] = {
+						value: a.value,
+						valueJson: (a.valueJson as string[] | null) ?? null,
+					};
+				}
+			});
+			setFlags((draft) => {
+				for (const a of res.answers) {
+					draft[a.questionId] = {
+						discussWithCoach: a.discussWithCoach,
+						deliberatelySkipped: a.deliberatelySkipped,
+					};
+				}
+			});
 		} catch (err) {
 			setBootError(
 				friendlyError(err, "Er is nog geen formulier aan jou gekoppeld."),
@@ -403,13 +415,6 @@ function PlanWizard(props: {
 		return ok;
 	};
 
-	// Closing the tab with unsaved typing: let the browser ask first.
-	const beforeUnload = (e: BeforeUnloadEvent) => {
-		if (saver.busy()) e.preventDefault();
-	};
-	window.addEventListener("beforeunload", beforeUnload);
-	onCleanup(() => window.removeEventListener("beforeunload", beforeUnload));
-
 	// Debounced "Opgeslagen"-bevestiging: bij typen worden de autosaves per
 	// toetsaanslag samengevat tot één rustige toast in plaats van een stortvloed.
 	let savedTimer: ReturnType<typeof setTimeout> | undefined;
@@ -420,15 +425,29 @@ function PlanWizard(props: {
 			700,
 		);
 	};
-	onCleanup(() => {
-		if (savedTimer) clearTimeout(savedTimer);
+
+	// Closing the tab with unsaved typing: let the browser ask first.
+	onSettled(() => {
+		const beforeUnload = (e: BeforeUnloadEvent) => {
+			if (saver.busy()) e.preventDefault();
+		};
+		window.addEventListener("beforeunload", beforeUnload);
+		return () => {
+			window.removeEventListener("beforeunload", beforeUnload);
+			if (savedTimer) clearTimeout(savedTimer);
+		};
 	});
 
 	const onAnswer = (q: QuestionDTO, next: AnswerValue) => {
-		setAnswers(q.id, next);
+		setAnswers((draft) => {
+			draft[q.id] = next;
+		});
 		// A real answer clears an accidental skip.
 		if (flagFor(q.id).deliberatelySkipped) {
-			setFlags(q.id, { ...flagFor(q.id), deliberatelySkipped: false });
+			const cleared = { ...flagFor(q.id), deliberatelySkipped: false };
+			setFlags((draft) => {
+				draft[q.id] = cleared;
+			});
 			void save(q.id, { ...next, deliberatelySkipped: false }, flashSaved);
 		} else {
 			void save(q.id, next, flashSaved);
@@ -436,7 +455,10 @@ function PlanWizard(props: {
 	};
 
 	const toggleDiscuss = (q: QuestionDTO, on: boolean) => {
-		setFlags(q.id, { ...flagFor(q.id), discussWithCoach: on });
+		const nextFlags = { ...flagFor(q.id), discussWithCoach: on };
+		setFlags((draft) => {
+			draft[q.id] = nextFlags;
+		});
 		void save(q.id, { discussWithCoach: on }, () =>
 			toast({
 				title: on ? "Gemarkeerd om te bespreken" : "Markering verwijderd",
@@ -458,9 +480,11 @@ function PlanWizard(props: {
 			next();
 			return;
 		}
-		// Set the whole entry: a question without a saved answer has none yet, and
-		// a path-set on a missing entry throws before `next()` runs.
-		setFlags(q.id, { ...flagFor(q.id), deliberatelySkipped: true });
+		// Set the whole entry: a question without a saved answer has none yet.
+		const skipped = { ...flagFor(q.id), deliberatelySkipped: true };
+		setFlags((draft) => {
+			draft[q.id] = skipped;
+		});
 		void save(q.id, { deliberatelySkipped: true }, () =>
 			toast({ title: "Vraag overgeslagen", tone: "success", duration: 2000 }),
 		);
@@ -475,7 +499,6 @@ function PlanWizard(props: {
 		try {
 			await client.coachplan.submit({ submissionId: sub });
 			setSubmitted(true);
-			queryClient.invalidateQueries({ queryKey: orpc.coachplan.listMine.key() });
 			toast({ title: "Mooi gedaan! Verstuurd naar je coach", tone: "success" });
 			props.onSubmitted();
 		} catch (err) {
@@ -507,10 +530,14 @@ function PlanWizard(props: {
 				deliberatelySkipped: d.deliberatelySkipped,
 			});
 			// The server clears the answer of a skipped question (INC-22).
-			setAnswers(q.id, d.deliberatelySkipped ? { value: null, valueJson: null } : d.value);
-			setFlags(q.id, {
-				discussWithCoach: d.discussWithCoach,
-				deliberatelySkipped: d.deliberatelySkipped,
+			setAnswers((draft) => {
+				draft[q.id] = d.deliberatelySkipped ? { value: null, valueJson: null } : d.value;
+			});
+			setFlags((draft) => {
+				draft[q.id] = {
+					discussWithCoach: d.discussWithCoach,
+					deliberatelySkipped: d.deliberatelySkipped,
+				};
 			});
 			toast({ title: "Opgeslagen", description: q.label, tone: "success", duration: 2000 });
 			return true;
@@ -759,8 +786,16 @@ function Overview(props: {
 		discussWithCoach: props.flags[q.id]?.discussWithCoach ?? false,
 		deliberatelySkipped: props.flags[q.id]?.deliberatelySkipped ?? false,
 	});
-	const openEditor = (q: QuestionDTO) => setDrafts(q.id, savedDraft(q));
-	const closeEditor = (q: QuestionDTO) => setDrafts(q.id, undefined);
+	const openEditor = (q: QuestionDTO) => {
+		const draftValue = savedDraft(q);
+		setDrafts((draft) => {
+			draft[q.id] = draftValue;
+		});
+	};
+	const closeEditor = (q: QuestionDTO) =>
+		setDrafts((draft) => {
+			delete draft[q.id];
+		});
 	const changed = () =>
 		props.questions.filter((q) => {
 			const d = drafts[q.id];
@@ -838,24 +873,37 @@ function Overview(props: {
 													<QuestionInput
 														question={q}
 														value={d().value}
-														onChange={(next) => {
-															setDrafts(q.id, "value", next);
-															// A real answer clears a skip, as in the vragenlijst.
-															setDrafts(q.id, "deliberatelySkipped", false);
-														}}
+														onChange={(next) =>
+															setDrafts((draft) => {
+																const entry = draft[q.id];
+																if (!entry) return;
+																entry.value = next;
+																// A real answer clears a skip, as in the vragenlijst.
+																entry.deliberatelySkipped = false;
+															})
+														}
 													/>
 													<Switch
 														checked={d().discussWithCoach}
-														onChange={(on) => setDrafts(q.id, "discussWithCoach", on)}
+														onChange={(on) =>
+															setDrafts((draft) => {
+																const entry = draft[q.id];
+																if (entry) entry.discussWithCoach = on;
+															})
+														}
 														label="Dit wil ik graag bespreken met mijn coach"
 													/>
 													<Switch
 														checked={d().deliberatelySkipped}
-														onChange={(on) => {
-															setDrafts(q.id, "deliberatelySkipped", on);
-															// Skipping empties the answer, as it is saved (INC-22).
-															if (on) setDrafts(q.id, "value", { value: null, valueJson: null });
-														}}
+														onChange={(on) =>
+															setDrafts((draft) => {
+																const entry = draft[q.id];
+																if (!entry) return;
+																entry.deliberatelySkipped = on;
+																// Skipping empties the answer, as it is saved (INC-22).
+																if (on) entry.value = { value: null, valueJson: null };
+															})
+														}
 														label="Deze vraag sla ik bewust over"
 													/>
 													<Show when={props.locked}>

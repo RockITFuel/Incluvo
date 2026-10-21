@@ -1,45 +1,45 @@
 {
-  "name": "incluvo",
-  "private": true,
-  "type": "module",
-  "workspaces": {
-    "packages": [
-      "apps/*",
-      "packages/*"
-    ],
-    "catalog": {
-      "typescript": "^5.7.2"
-    }
-  },
-  "scripts": {
-    "dev": "turbo dev",
-    "dev:web": "turbo -F @incluvo/web dev",
-    "dev:server": "turbo -F @incluvo/server dev",
-    "build": "turbo build",
-    "check-types": "turbo check-types",
-    "test": "turbo test",
-    "lint": "oxlint -c .oxlintrc.json apps/*/src packages && bun scripts/no-px-fonts.ts",
-    "format": "oxfmt --write .",
-    "format:check": "oxfmt --check .",
-    "db:pgvector": "bun run --cwd packages/drizzle pgvector",
-    "db:push": "bun run --cwd packages/drizzle push",
-    "db:generate": "bun run --cwd packages/drizzle generate",
-    "db:migrate": "bun run --cwd packages/drizzle migrate",
-    "db:studio": "bun run --cwd packages/drizzle studio"
-  },
-  "devDependencies": {
-    "@types/node": "^22.15.0",
-    "oxfmt": "^0.46.0",
-    "oxlint": "^1.61.0",
-    "turbo": "^2.9.6"
-  },
-  "packageManager": "bun@1.2.21",
-  "overrides": {
-    "solid-js": "2.0.0-rc.9",
-    "@solidjs/web": "2.0.0-rc.9"
-  },
-  "patchedDependencies": {
-    "@kobalte/core@2.0.0-alpha.2": "patches/@kobalte%2Fcore@2.0.0-alpha.2.patch",
-    "@solid-primitives/focus@1.0.0-next.4": "patches/@solid-primitives%2Ffocus@1.0.0-next.4.patch"
-  }
+	"name": "incluvo",
+	"private": true,
+	"type": "module",
+	"workspaces": {
+		"packages": [
+			"apps/*",
+			"packages/*"
+		],
+		"catalog": {
+			"typescript": "^5.7.2"
+		}
+	},
+	"scripts": {
+		"dev": "turbo dev",
+		"dev:web": "turbo -F @incluvo/web dev",
+		"dev:server": "turbo -F @incluvo/server dev",
+		"build": "turbo build",
+		"check-types": "turbo check-types",
+		"test": "turbo test",
+		"lint": "oxlint -c .oxlintrc.json apps/*/src packages && bun scripts/no-px-fonts.ts",
+		"format": "oxfmt --write .",
+		"format:check": "oxfmt --check .",
+		"db:pgvector": "bun run --cwd packages/drizzle pgvector",
+		"db:push": "bun run --cwd packages/drizzle push",
+		"db:generate": "bun run --cwd packages/drizzle generate",
+		"db:migrate": "bun run --cwd packages/drizzle migrate",
+		"db:studio": "bun run --cwd packages/drizzle studio"
+	},
+	"devDependencies": {
+		"@types/node": "^22.15.0",
+		"oxfmt": "^0.46.0",
+		"oxlint": "^1.61.0",
+		"turbo": "^2.9.6"
+	},
+	"packageManager": "bun@1.2.21",
+	"overrides": {
+		"solid-js": "2.0.0-rc.9",
+		"@solidjs/web": "2.0.0-rc.9"
+	},
+	"patchedDependencies": {
+		"@kobalte/core@2.0.0-alpha.2": "patches/@kobalte%2Fcore@2.0.0-alpha.2.patch",
+		"@solid-primitives/focus@1.0.0-next.4": "patches/@solid-primitives%2Ffocus@1.0.0-next.4.patch"
+	}
 }

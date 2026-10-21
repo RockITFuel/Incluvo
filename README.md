@@ -23,7 +23,7 @@ SolidStart (Solid + TanStack Router) frontend. Everything runs on **Bun**.
 | Realtime       | Server-Sent Events at `/sse/events`                              |
 | Validation     | Zod                                                              |
 | Env            | `@t3-oss/env-core` (lazy, validated)                             |
-| Frontend       | Solid + TanStack Start (SPA) + TanStack Query + Tailwind         |
+| Frontend       | Solid 2 + TanStack Router (SPA, route loaders) + Tailwind — see docs/solid-2-architecture.md |
 
 ## Layout
 

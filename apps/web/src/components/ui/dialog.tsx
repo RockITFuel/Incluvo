@@ -1,10 +1,11 @@
 import { Dialog as KDialog } from "@kobalte/core/dialog";
 import { X } from "../../lib/icons";
 import type { JSX } from "@solidjs/web";
-import { Show } from "solid-js";
+import { createSignal, Show } from "solid-js";
 import { splitProps } from "../../lib/solid-props";
 import { cn } from "../../lib/cn";
 import { type ButtonProps, buttonVariants } from "./button";
+import { closeOnEscape } from "./escape";
 
 export type DialogProps = {
 	open?: boolean;
@@ -45,8 +46,15 @@ export function Dialog(props: DialogProps) {
 		"class",
 		"hideClose",
 	]);
+	// Kept here as well as in the parent, so Escape (handled below, see
+	// escape.ts) can close an uncontrolled dialog too; follows `open`.
+	const [open, setOpen] = createSignal(() => local.open ?? false);
+	const change = (next: boolean) => {
+		setOpen(next);
+		local.onOpenChange?.(next);
+	};
 	return (
-		<KDialog open={local.open} onOpenChange={local.onOpenChange}>
+		<KDialog open={open()} onOpenChange={change}>
 			<Show when={local.trigger}>
 				{(t) => (
 					<KDialog.Trigger
@@ -63,6 +71,7 @@ export function Dialog(props: DialogProps) {
 				<KDialog.Overlay class="fixed inset-0 z-50 bg-ink/40 animate-fade-in" />
 				<div class="fixed inset-0 z-50 flex items-center justify-center p-4">
 					<KDialog.Content
+						onKeyDown={closeOnEscape(() => change(false))}
 						class={cn(
 							"w-full max-w-lg rounded-4 border border-line bg-surface p-6 shadow-3 animate-scale-in",
 							local.class,

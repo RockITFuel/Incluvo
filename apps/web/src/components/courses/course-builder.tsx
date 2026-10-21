@@ -1,4 +1,3 @@
-import { useQueryClient } from "@tanstack/solid-query";
 import {
 	Check,
 	ChevronDown,
@@ -20,7 +19,7 @@ import {
 import { createSignal, For, Show } from "solid-js";
 import type { Component } from "solid-js";
 import { Dynamic } from "@solidjs/web";
-import { client, orpc } from "../../lib/orpc";
+import { client } from "../../lib/orpc";
 import { Button } from "../ui/button";
 import { Dialog } from "../ui/dialog";
 import { Select } from "../ui/select";
@@ -79,12 +78,11 @@ export function CourseBuilder(props: {
 	progressBarHidden: boolean;
 	sections: Section[];
 	availableLabels: string[];
-	refetch: () => void;
+	/** Reloads the course (the route loader); resolves once it is back. */
+	refetch: () => Promise<void> | void;
 }) {
-	const queryClient = useQueryClient();
 	const invalidate = async () => {
-		await queryClient.invalidateQueries({ queryKey: orpc.courses.tree.key() });
-		props.refetch();
+		await props.refetch();
 	};
 
 	const [newSection, setNewSection] = createSignal("");
@@ -285,7 +283,7 @@ export function CourseBuilder(props: {
 									<button
 										type="button"
 										onClick={() => toggleSection(section.id)}
-										aria-expanded={isOpen(section.id)}
+										aria-expanded={isOpen(section.id) ? "true" : "false"}
 										style={{
 											border: "0",
 											background: "transparent",
@@ -837,7 +835,7 @@ function AddBlockDialog(props: {
 									<button
 										type="button"
 										onClick={() => toggleLabel(l)}
-										aria-pressed={labels().includes(l)}
+										aria-pressed={labels().includes(l) ? "true" : "false"}
 										class="rounded-pill border border-line px-2.5 py-1 text-micro aria-pressed:border-primary aria-pressed:bg-primary-100 aria-pressed:text-primary-700"
 									>
 										{l}

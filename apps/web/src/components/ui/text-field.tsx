@@ -85,7 +85,7 @@ export function Input(props: InputProps) {
 			<KTextField.Input
 				type={el.type ?? "text"}
 				placeholder={el.placeholder}
-				maxLength={el.maxLength}
+				maxlength={el.maxLength}
 				onInput={el.onInput}
 				class={cn(controlClass, input.inputClass)}
 			/>
@@ -129,7 +129,7 @@ export function Textarea(props: TextareaProps) {
 			<KTextField.TextArea
 				placeholder={el.placeholder}
 				rows={el.rows ?? 4}
-				maxLength={el.maxLength}
+				maxlength={el.maxLength}
 				onInput={el.onInput}
 				class={cn(controlClass, "min-h-24 resize-y")}
 			/>

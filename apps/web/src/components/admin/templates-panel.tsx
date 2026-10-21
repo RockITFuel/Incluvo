@@ -1,8 +1,9 @@
-import { useQuery } from "@tanstack/solid-query";
 import { createMemo, For, Show } from "solid-js";
 import { Badge } from "../ui/badge";
 import { Card } from "../ui/card";
-import { orpc } from "../../lib/orpc";
+import { ErrorState } from "../ui/error-state";
+import { createLoad } from "../../lib/load";
+import { client } from "../../lib/orpc";
 import { formatDate } from "./format";
 
 const FORM_SCOPE_LABEL: Record<string, string> = {
@@ -22,12 +23,14 @@ const COURSE_KIND_LABEL: Record<string, string> = {
  * Ondivera platform templates + their own school's items.
  */
 export function FormsPanel(props: { organizationId?: string }) {
-	const formsQuery = useQuery(() =>
-		orpc.admin.templates.forms.queryOptions(),
+	// A panel on the school page and the admin overview: component-local data.
+	const formsQuery = createLoad(
+		() => true,
+		(_, signal) => client.admin.templates.forms(undefined, { signal }),
 	);
 	// On a school page: only that school's own templates.
 	const forms = createMemo(() =>
-		(formsQuery.data ?? []).filter(
+		(formsQuery.data() ?? []).filter(
 			(f) => !props.organizationId || f.organizationId === props.organizationId,
 		),
 	);
@@ -41,13 +44,13 @@ export function FormsPanel(props: { organizationId?: string }) {
 				</p>
 			</div>
 
-			<Show when={formsQuery.isLoading}>
+			<Show when={formsQuery.loading() && !formsQuery.data()}>
 				<p class="text-muted">Laden…</p>
 			</Show>
-			<Show when={formsQuery.error}>
-				<p class="text-danger">Kon formulieren niet laden.</p>
+			<Show when={formsQuery.error()}>
+				<ErrorState error={formsQuery.error()} what="de formulieren" onRetry={() => formsQuery.reload()} />
 			</Show>
-			<Show when={!formsQuery.isLoading && forms().length === 0}>
+			<Show when={formsQuery.data() && forms().length === 0}>
 				<p class="text-muted">Nog geen formulier-templates.</p>
 			</Show>
 
@@ -85,11 +88,13 @@ export function FormsPanel(props: { organizationId?: string }) {
 }
 
 export function CoursesPanel(props: { organizationId?: string }) {
-	const coursesQuery = useQuery(() =>
-		orpc.admin.templates.courses.queryOptions(),
+	// A panel on the school page and the admin overview: component-local data.
+	const coursesQuery = createLoad(
+		() => true,
+		(_, signal) => client.admin.templates.courses(undefined, { signal }),
 	);
 	const courses = createMemo(() =>
-		(coursesQuery.data ?? []).filter(
+		(coursesQuery.data() ?? []).filter(
 			(c) => !props.organizationId || c.organizationId === props.organizationId,
 		),
 	);
@@ -105,13 +110,13 @@ export function CoursesPanel(props: { organizationId?: string }) {
 				</p>
 			</div>
 
-			<Show when={coursesQuery.isLoading}>
+			<Show when={coursesQuery.loading() && !coursesQuery.data()}>
 				<p class="text-muted">Laden…</p>
 			</Show>
-			<Show when={coursesQuery.error}>
-				<p class="text-danger">Kon cursussen niet laden.</p>
+			<Show when={coursesQuery.error()}>
+				<ErrorState error={coursesQuery.error()} what="de cursussen" onRetry={() => coursesQuery.reload()} />
 			</Show>
-			<Show when={!coursesQuery.isLoading && courses().length === 0}>
+			<Show when={coursesQuery.data() && courses().length === 0}>
 				<p class="text-muted">Nog geen cursussen.</p>
 			</Show>
 

@@ -1,7 +1,6 @@
-import { createFileRoute } from "@tanstack/solid-router";
+import { createFileRoute, useRouter } from "@tanstack/solid-router";
 import { PlanStatusBadge } from "../../../components/dashboard/plan-status";
 import { downloadPlanPdf } from "../../../lib/coachplan/pdf";
-import { useQuery, useQueryClient } from "@tanstack/solid-query";
 import {
 	ArrowLeft,
 	ArrowRight,
@@ -11,8 +10,7 @@ import {
 	Send,
 	Sparkles,
 } from "../../../lib/icons";
-import { createEffect, createMemo, createSignal, For, Match, Show, Switch } from "solid-js";
-import { createStore } from "solid-js";
+import { createMemo, createSignal, createStore, flush, For, Match, Show, Switch, untrack } from "solid-js";
 import { AssistantPanel } from "../../../components/ai/assistant-panel";
 import { TranscriptionPanel } from "../../../components/ai/transcription-panel";
 import {
@@ -21,13 +19,14 @@ import {
 	renderAnswerText,
 } from "../../../components/coachplan/question-input";
 import { PlanView } from "../../../components/coachplan/plan-view";
+import { RouteDataView } from "../../../components/ui/route-data-view";
 import { toast } from "../../../components/ui/toast";
 import { useServerEvent } from "../../../lib/sse/use-events";
-import { requireRole } from "../../../lib/auth/require-role";
-import { RequireRole } from "../../../lib/auth/role-guard";
-import { useMe } from "../../../lib/auth/use-me";
-import { client, orpc } from "../../../lib/orpc";
+import { requireRole } from "../../../lib/auth/role-guard";
+import { client } from "../../../lib/orpc";
 import { friendlyError } from "../../../lib/errors";
+import { refresh as refreshRoutes } from "../../../lib/refresh";
+import { granted, loadRouteData } from "../../../lib/route-data";
 
 /**
  * Coach review of a submitted coachplan (#15–#21), presented as a step-by-step
@@ -44,13 +43,36 @@ import { friendlyError } from "../../../lib/errors";
  * coach+.
  */
 export const Route = createFileRoute("/_protected/plan/$submissionId")({
-	beforeLoad: () => requireRole("coach", undefined, { coaching: true }),
-	component: () => (
-		<RequireRole min="coach" coaching>
-			<CoachReview />
-		</RequireRole>
-	),
+	beforeLoad: ({ context }) => requireRole(context.me, { min: "coach", coaching: true }),
+	loader: async ({ params, abortController }) => {
+		const signal = abortController.signal;
+		const id = params.submissionId;
+		const [submission, mappings, labels, inbox] = await Promise.all([
+			loadRouteData(signal, (s) => client.coachplan.getSubmission({ id }, { signal: s })),
+			loadRouteData(signal, (s) => client.coachplan.listMappings({ id }, { signal: s })),
+			loadRouteData(signal, (s) => client.coachplan.defaultLabels(undefined, { signal: s })),
+			// The coach's inbox carries the leerling's display name + template name
+			// for this submission (getSubmission doesn't return the name).
+			loadRouteData(signal, (s) => client.coachplan.inbox(undefined, { signal: s })),
+		]);
+		return { submission, mappings, labels, inbox };
+	},
+	component: CoachReviewPage,
 });
+
+function CoachReviewPage() {
+	const router = useRouter();
+	const data = Route.useLoaderData();
+	return (
+		<RouteDataView
+			data={data().submission}
+			what="dit coachplan"
+			onRetry={() => void refreshRoutes(router, "coachplan")}
+		>
+			{() => <CoachReview />}
+		</RouteDataView>
+	);
+}
 
 /** A wizard step: either a real coach question, or the leervoorkeuren picker. */
 type Step =
@@ -83,59 +105,49 @@ function relativeDay(input: Date | string | null | undefined): string {
 }
 
 function CoachReview() {
+	const router = useRouter();
 	const params = Route.useParams();
-	const me = useMe();
+	const data = Route.useLoaderData();
 	const id = () => params().submissionId;
 
-	const submissionQuery = useQuery(() =>
-		orpc.coachplan.getSubmission.queryOptions({ input: { id: id() } }),
-	);
-	const mappingsQuery = useQuery(() =>
-		orpc.coachplan.listMappings.queryOptions({ input: { id: id() } }),
-	);
-	const labelsQuery = useQuery(() => orpc.coachplan.defaultLabels.queryOptions());
-	// The coach's inbox carries the leerling's display name + template name for
-	// this submission (getSubmission doesn't return the name).
-	const inboxQuery = useQuery(() => orpc.coachplan.inbox.queryOptions());
+	// Rendered inside RouteDataView, so the submission is there.
+	const sub = () => granted(data().submission)!;
+	const mappings = () => granted(data().mappings) ?? [];
+	const labels = () => granted(data().labels) ?? [];
+	const inbox = () => granted(data().inbox) ?? [];
 
-	const isCoach = () => me.hasAtLeast("coach");
-
-	const questions = () =>
-		(submissionQuery.data?.questions ?? []) as unknown as QuestionDTO[];
+	const questions = () => (sub().questions ?? []) as unknown as QuestionDTO[];
 	const coachQ = createMemo(() => questions().filter((q) => q.section === "coach"));
 
 	const answerFor = (questionId: string) =>
-		submissionQuery.data?.answers.find((a) => a.questionId === questionId);
+		sub().answers.find((a) => a.questionId === questionId);
 	const mappingFor = (coachQuestionId: string) =>
-		mappingsQuery.data?.find((m) => m.coachQuestionId === coachQuestionId);
+		mappings().find((m) => m.coachQuestionId === coachQuestionId);
 
-	const inboxRow = () => inboxQuery.data?.find((r) => r.submission.id === id());
+	const inboxRow = () => inbox().find((r) => r.submission.id === id());
 	const leerlingName = () => inboxRow()?.leerlingName ?? "Leerling";
 	const templateName = () =>
-		submissionQuery.data?.template?.name ?? inboxRow()?.templateName ?? "Coachplan";
+		sub().template?.name ?? inboxRow()?.templateName ?? "Coachplan";
 
-	// Local coach-answer buffer, seeded once from the saved answers (a mapped
-	// leerling answer is already copied into the coach answer on submit, #18).
-	const [coachAnswers, setCoachAnswers] = createStore<Record<string, string>>({});
-	const [prefs, setPrefs] = createSignal<string[]>([]);
-	const [seeded, setSeeded] = createSignal(false);
-
-	const seed = () => {
-		const data = submissionQuery.data;
-		if (!data || seeded()) return;
-		// A re-seed (the leerling changed a pre-filled answer) starts clean.
-		for (const q of coachQ()) setCoachAnswers(q.id, "");
-		for (const a of data.answers) {
-			if (a.value != null) setCoachAnswers(a.questionId, a.value);
+	// Local coach-answer buffer, seeded from the saved answers when the page
+	// opens (a mapped leerling answer is already copied into the coach answer
+	// on submit, #18), and re-seeded only when the leerling changed theirs.
+	const savedAnswers = () => {
+		const map: Record<string, string> = {};
+		for (const q of coachQ()) map[q.id] = "";
+		for (const a of sub().answers) {
+			if (a.value != null) map[a.questionId] = a.value;
 		}
-		setPrefs(data.learningPreferences);
-		setSeeded(true);
+		return map;
+	};
+	const [coachAnswers, setCoachAnswers] = createStore<Record<string, string>>(untrack(savedAnswers));
+	const [prefs, setPrefs] = createSignal<string[]>(untrack(() => sub().learningPreferences));
+	const reseed = () => {
+		setCoachAnswers(() => savedAnswers());
+		setPrefs(sub().learningPreferences);
 	};
 
-	createEffect(seed);
-
-	const queryClient = useQueryClient();
-	const refresh = () => submissionQuery.refetch();
+	const refresh = () => refreshRoutes(router, "coachplan");
 
 	// INC-14: until the coach's first input the leerling may still change their
 	// answers. That first keystroke, paste or choice locks them (server-side);
@@ -151,11 +163,15 @@ function CoachReview() {
 	};
 	// The leerling saved a change: show it (AC4). Pre-filled coach answers
 	// follow it while the coach hasn't started.
-	useServerEvent("coachplan.answers", (payload) => {
+	useServerEvent("coachplan.answers", async (payload) => {
 		if ((payload as { id?: string } | null)?.id !== id()) return;
-		if (!started() && status() === "submitted") setSeeded(false);
-		void refresh();
-		void mappingsQuery.refetch();
+		const follow = !started() && status() === "submitted";
+		await refresh();
+		if (follow) {
+			// The reloaded loader data must be visible before it is copied.
+			flush();
+			reseed();
+		}
 	});
 
 	// ── Wizard steps: real coach questions + one leervoorkeuren step (#19) ──────
@@ -173,6 +189,11 @@ function CoachReview() {
 	const total = () => steps().length;
 	const [step, setStep] = createSignal(0);
 	const cur = () => steps()[Math.min(step(), Math.max(0, total() - 1))];
+
+	const currentQuestion = createMemo(() => {
+		const c = cur();
+		return c?.kind === "question" ? c : undefined;
+	});
 
 	const themeLabel = () => {
 		const s = cur();
@@ -194,7 +215,7 @@ function CoachReview() {
 		if (!s || s.kind !== "question") return null;
 		const m = mappingFor(s.q.id);
 		if (!m?.sourceAnswerId) return null;
-		const a = submissionQuery.data?.answers.find((x) => x.id === m.sourceAnswerId);
+		const a = sub().answers.find((x) => x.id === m.sourceAnswerId);
 		const sq = a ? questions().find((q) => q.id === a.questionId) : undefined;
 		if (!a || !sq) return null;
 		return renderAnswerText(sq, {
@@ -224,7 +245,7 @@ function CoachReview() {
 
 	// The coach works on a handed-in version; a draft is still the leerling's,
 	// a shared one is read-only (fix plan 2.1, lifecycle.ts).
-	const status = () => submissionQuery.data?.submission.status;
+	const status = () => sub().submission.status;
 	const editable = () => status() === "submitted" || status() === "coach_review";
 	const isShared = () => status() === "shared_with_leerling" || status() === "completed";
 	const readOnly = () => {
@@ -251,7 +272,7 @@ function CoachReview() {
 				submissionId: id(),
 				labels: next,
 			});
-			if (status() === "submitted") refresh();
+			if (status() === "submitted") void refresh();
 		} catch {
 			toast({ title: "Opslaan lukte niet", tone: "danger" });
 		}
@@ -275,7 +296,7 @@ function CoachReview() {
 				});
 			}
 			toast({ title: "Tussentijds opgeslagen", tone: "success" });
-			refresh();
+			void refresh();
 		} catch {
 			toast({ title: "Opslaan lukte niet", tone: "danger" });
 		}
@@ -286,7 +307,11 @@ function CoachReview() {
 		if (readOnly()) return;
 		const first = status() === "submitted";
 		setStarted(true);
-		if (next.value !== undefined) setCoachAnswers(questionId, next.value ?? "");
+		if (next.value !== undefined) {
+			setCoachAnswers((draft) => {
+				draft[questionId] = next.value ?? "";
+			});
+		}
 		client.coachplan
 			.saveCoachAnswer({
 				submissionId: id(),
@@ -295,7 +320,7 @@ function CoachReview() {
 				valueJson: next.valueJson ?? undefined,
 			})
 			.then(() => {
-				if (first) refresh();
+				if (first) void refresh();
 			})
 			.catch(() => toast({ title: "Opslaan lukte niet", tone: "danger" }));
 	};
@@ -306,7 +331,7 @@ function CoachReview() {
 				submissionId: id(),
 				approved: on,
 			});
-			refresh();
+			void refresh();
 		} catch {
 			toast({ title: "Opslaan lukte niet", tone: "danger" });
 		}
@@ -317,9 +342,9 @@ function CoachReview() {
 		try {
 			await client.coachplan.shareWithLeerling({ submissionId: id() });
 			toast({ title: "Aangeboden aan leerling", tone: "success" });
-			refresh();
-			// The nav badge and inbox count plans still waiting for the coach.
-			void queryClient.invalidateQueries({ queryKey: orpc.coachplan.inbox.key() });
+			// Also reloads the nav badge and inbox, which count plans still
+			// waiting for the coach.
+			void refresh();
 		} catch (err) {
 			toast({
 				title: "Aanbieden lukte niet",
@@ -344,23 +369,6 @@ function CoachReview() {
 
 	return (
 		<>
-			<Show when={!isCoach()}>
-				<div class="card" style={{ "border-color": "rgb(var(--danger))" }}>
-					<h1 class="font-head text-h2 text-ink">Geen toegang</h1>
-					<p class="mt-2 text-muted">Alleen een coach kan een coachplan beoordelen.</p>
-				</div>
-			</Show>
-
-			<Show when={isCoach() && submissionQuery.isLoading}>
-				<p class="text-muted">Laden…</p>
-			</Show>
-			<Show when={isCoach() && submissionQuery.error}>
-				<div class="card" style={{ "border-color": "rgb(var(--danger))" }}>
-					<p style={{ color: "rgb(var(--danger))" }}>Kon dit coachplan niet laden.</p>
-				</div>
-			</Show>
-
-			<Show when={isCoach() && submissionQuery.data}>
 
 				{/* Header row */}
 				<div class="ds-row" style={{ "margin-bottom": "14px" }}>
@@ -376,9 +384,9 @@ function CoachReview() {
 								Coachplan · {leerlingName()}
 							</div>
 							<div style={{ "font-size": "0.75rem", color: "rgb(var(--muted))" }}>
-								{templateName()} · versie {submissionQuery.data?.submission.version} ·
+								{templateName()} · versie {sub().submission.version} ·
 								Bron: leerlingvragenlijst van{" "}
-								{relativeDay(submissionQuery.data?.submission.submittedAt)}
+								{relativeDay(sub().submission.submittedAt)}
 							</div>
 						</div>
 						<Show when={status()}>
@@ -461,10 +469,8 @@ function CoachReview() {
 						<div class="card">
 							<Switch>
 								{/* Real coach question */}
-								<Match when={cur()?.kind === "question"}>
-									{(() => {
-										const s = cur() as Extract<Step, { kind: "question" }>;
-										return (
+								<Match when={currentQuestion()}>
+									{(s) => (
 											<>
 												<h2
 													style={{
@@ -473,14 +479,14 @@ function CoachReview() {
 														"text-wrap": "balance",
 													}}
 												>
-													{s.q.label}
+													{s().q.label}
 												</h2>
-												<Show when={s.q.helpText}>
+												<Show when={s().q.helpText}>
 													<p
 														class="card-sub"
 														style={{ "margin-bottom": "12px" }}
 													>
-														{s.q.helpText}
+														{s().q.helpText}
 													</p>
 												</Show>
 
@@ -542,38 +548,40 @@ function CoachReview() {
 												<Switch>
 													<Match
 														when={
-															s.q.type === "long_text" || s.q.type === "short_text"
+															s().q.type === "long_text" || s().q.type === "short_text"
 														}
 													>
 														<textarea
 															class="textarea"
 															style={{ "min-height": "140px", "font-size": "0.875rem" }}
-															aria-label={s.q.label}
+															aria-label={s().q.label}
 															placeholder="Schrijf hier je observatie. Antwoorden worden tussentijds opgeslagen."
-															value={coachAnswers[s.q.id] ?? ""}
+															value={coachAnswers[s().q.id] ?? ""}
 															onInput={(e) => {
 																startReview();
-																setCoachAnswers(s.q.id, e.currentTarget.value);
+																const value = e.currentTarget.value;
+																setCoachAnswers((draft) => {
+																	draft[s().q.id] = value;
+																});
 															}}
 														/>
 													</Match>
 													<Match when={true}>
 														<QuestionInput
-															question={s.q}
+															question={s().q}
 															value={{
-																value: coachAnswers[s.q.id] ?? null,
+																value: coachAnswers[s().q.id] ?? null,
 																valueJson:
-																	(answerFor(s.q.id)?.valueJson as
+																	(answerFor(s().q.id)?.valueJson as
 																		| string[]
 																		| null) ?? null,
 															}}
-															onChange={(next) => saveChoice(s.q.id, next)}
+															onChange={(next) => saveChoice(s().q.id, next)}
 														/>
 													</Match>
 												</Switch>
 											</>
-										);
-									})()}
+									)}
 								</Match>
 
 								{/* Synthetic leervoorkeuren step (#19) */}
@@ -643,7 +651,7 @@ function CoachReview() {
 										aria-label="Leervoorkeuren"
 										style={{ "flex-wrap": "wrap", gap: "8px" }}
 									>
-										<For each={labelsQuery.data}>
+										<For each={labels()}>
 											{(opt) => {
 												// Store the human label (not the value): the stored string is
 											// what the banner, profielchips and bouwer-labels render and
@@ -652,13 +660,13 @@ function CoachReview() {
 												return (
 													<button
 														type="button"
-														class={`chip ${on() ? "primary" : "outline"}`}
+														class={["chip", on() ? "primary" : "outline"]}
 														style={{
 															padding: "8px 14px",
 															"font-size": "0.8125rem",
 															cursor: "pointer",
 														}}
-														aria-pressed={on()}
+														aria-pressed={on() ? "true" : "false"}
 														onClick={() => togglePref(opt.label)}
 													>
 														<Show when={on()}>
@@ -683,7 +691,7 @@ function CoachReview() {
 									<input
 										type="checkbox"
 										checked={
-											submissionQuery.data?.submission.approvedWithParents ?? false
+											sub().submission.approvedWithParents ?? false
 										}
 										onChange={(e) => toggleParents(e.currentTarget.checked)}
 										aria-label="Afgestemd met ouders"
@@ -726,7 +734,6 @@ function CoachReview() {
 						</div>
 					</div>
 				</div>
-			</Show>
 		</>
 	);
 }

@@ -1,6 +1,5 @@
 import { Dialog as KDialog } from "@kobalte/core/dialog";
 import { Link } from "@tanstack/solid-router";
-import { useQuery } from "@tanstack/solid-query";
 import {
 	ArrowRight,
 	ListChecks,
@@ -12,7 +11,8 @@ import {
 import type { JSX } from "@solidjs/web";
 import { createSignal, For, Show } from "solid-js";
 import { cn } from "../../lib/cn";
-import { orpc } from "../../lib/orpc";
+import { createLoad } from "../../lib/load";
+import { client } from "../../lib/orpc";
 import { PlanStatusBadge } from "./plan-status";
 import { ErrorState } from "../../components/ui/error-state";
 import { TaskCreateDialog } from "../tasks/task-create-dialog";
@@ -37,12 +37,11 @@ export function Quickpanel(props: {
 	const isOpen = () => props.leerlingId !== null;
 
 	const [taskOpen, setTaskOpen] = createSignal(false);
-	const query = useQuery(() => ({
-		...orpc.dashboard.quickpanel.queryOptions({
-			input: { leerlingId: props.leerlingId ?? "" },
-		}),
-		enabled: isOpen(),
-	}));
+	// Loads when the panel opens for a leerling; a new leerling aborts the old request.
+	const panel = createLoad(
+		() => props.leerlingId,
+		(leerlingId, signal) => client.dashboard.quickpanel({ leerlingId }, { signal }),
+	);
 
 	const initials = (name: string): string =>
 		name
@@ -64,6 +63,10 @@ export function Quickpanel(props: {
 				<KDialog.Overlay class="fixed inset-0 z-50 bg-ink/40 animate-fade-in" />
 				<div class="fixed inset-y-0 right-0 z-50 flex max-w-[100vw]">
 					<KDialog.Content
+						// Kobalte 2 alpha misses Escape (docs/solid-2-architecture.md).
+						onKeyDown={(e: KeyboardEvent) => {
+							if (e.key === "Escape") props.onClose();
+						}}
 						class={cn(
 							"flex h-full w-[26rem] max-w-[100vw] flex-col overflow-y-auto border-line border-l bg-surface shadow-3",
 							"motion-safe:animate-slide-in-right",
@@ -84,7 +87,7 @@ export function Quickpanel(props: {
 								style={{ width: "48px", height: "48px", "font-size": "1rem" }}
 								aria-hidden="true"
 							>
-								{initials(query.data?.leerling.name ?? "…")}
+								{initials(panel.data()?.leerling.name ?? "…")}
 							</div>
 							<div class="ds-grow" style={{ "min-width": "0" }}>
 								<KDialog.Title
@@ -97,7 +100,7 @@ export function Quickpanel(props: {
 										"white-space": "nowrap",
 									}}
 								>
-									{query.data?.leerling.name ?? "Leerling"}
+									{panel.data()?.leerling.name ?? "Leerling"}
 								</KDialog.Title>
 								<KDialog.Description
 									style={{
@@ -108,7 +111,7 @@ export function Quickpanel(props: {
 										"white-space": "nowrap",
 									}}
 								>
-									{query.data?.leerling.email ?? ""}
+									{panel.data()?.leerling.email ?? ""}
 								</KDialog.Description>
 							</div>
 							<KDialog.CloseButton class="icon-btn" aria-label="Sluiten">
@@ -126,17 +129,17 @@ export function Quickpanel(props: {
 								flex: "1",
 							}}
 						>
-							<Show when={query.error}>
+							<Show when={panel.error()}>
 								<ErrorState
-									error={query.error}
+									error={panel.error()}
 									what="deze leerling"
-									onRetry={() => query.refetch()}
+									onRetry={panel.reload}
 								/>
 							</Show>
 							<Show
-								when={!query.isLoading && !query.error}
+								when={panel.data() && !panel.error()}
 								fallback={
-									<Show when={query.isLoading}>
+									<Show when={panel.loading()}>
 										<p style={{ color: "rgb(var(--muted))" }}>Laden…</p>
 									</Show>
 								}
@@ -146,11 +149,11 @@ export function Quickpanel(props: {
 									<SectionLabel>Coachplan</SectionLabel>
 									<div class="ds-row" style={{ gap: "8px" }}>
 										<PlanStatusBadge
-											status={query.data?.plan.status ?? "niet_ingevuld"}
+											status={panel.data()?.plan.status ?? "niet_ingevuld"}
 										/>
-										<Show when={(query.data?.plan.discussCount ?? 0) > 0}>
+										<Show when={(panel.data()?.plan.discussCount ?? 0) > 0}>
 											<span class="chip accent">
-												{query.data?.plan.discussCount} bespreken
+												{panel.data()?.plan.discussCount} bespreken
 											</span>
 										</Show>
 									</div>
@@ -160,7 +163,7 @@ export function Quickpanel(props: {
 								<section>
 									<SectionLabel>Leervoorkeuren</SectionLabel>
 									<Show
-										when={(query.data?.leervoorkeuren.length ?? 0) > 0}
+										when={(panel.data()?.leervoorkeuren.length ?? 0) > 0}
 										fallback={
 											<p
 												style={{
@@ -176,7 +179,7 @@ export function Quickpanel(props: {
 											class="ds-row"
 											style={{ "flex-wrap": "wrap", gap: "6px" }}
 										>
-											<For each={query.data?.leervoorkeuren}>
+											<For each={panel.data()?.leervoorkeuren}>
 												{(v) => <span class="chip primary">{v}</span>}
 											</For>
 										</div>
@@ -196,11 +199,11 @@ export function Quickpanel(props: {
 												color: "rgb(var(--muted))",
 											}}
 										>
-											{query.data?.tasksToday.length ?? 0} vandaag
+											{panel.data()?.tasksToday.length ?? 0} vandaag
 										</span>
 									</div>
 									<Show
-										when={(query.data?.tasksToday.length ?? 0) > 0}
+										when={(panel.data()?.tasksToday.length ?? 0) > 0}
 										fallback={
 											<p
 												style={{
@@ -213,7 +216,7 @@ export function Quickpanel(props: {
 										}
 									>
 										<div class="ds-col" style={{ gap: "6px" }}>
-											<For each={query.data?.tasksToday}>
+											<For each={panel.data()?.tasksToday}>
 												{(t) => (
 													<div
 														class="ds-row ds-between"
@@ -261,7 +264,7 @@ export function Quickpanel(props: {
 								<section>
 									<SectionLabel>Actieve cursussen</SectionLabel>
 									<Show
-										when={(query.data?.courses.length ?? 0) > 0}
+										when={(panel.data()?.courses.length ?? 0) > 0}
 										fallback={
 											<p
 												style={{
@@ -274,7 +277,7 @@ export function Quickpanel(props: {
 										}
 									>
 										<div class="ds-col" style={{ gap: "6px" }}>
-											<For each={query.data?.courses}>
+											<For each={panel.data()?.courses}>
 												{(c) => (
 													<div
 														class="ds-row ds-between"
@@ -416,7 +419,7 @@ export function Quickpanel(props: {
 			</KDialog.Portal>
 			<TaskCreateDialog
 				leerlingId={props.leerlingId}
-				leerlingName={query.data?.leerling.name}
+				leerlingName={panel.data()?.leerling.name}
 				open={taskOpen()}
 				onOpenChange={setTaskOpen}
 			/>

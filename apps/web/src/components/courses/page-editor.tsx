@@ -1,61 +1,65 @@
+import { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import { Bold, Heading2, Italic, List, ListOrdered } from "../../lib/icons";
-import { createEditor } from "solid-tiptap";
-import { createSignal, For, onCleanup, Show } from "solid-js";
-import { cn } from "../../lib/cn";
+import { createSignal, For, onSettled, Show, untrack } from "solid-js";
 
 /**
- * WYSIWYG page editor for the pagina CbS (#29). Built on solid-tiptap + Tiptap
- * v3 StarterKit; persists **ProseMirror JSON** (serialised to a string) via
- * `onChange`. A small accessible toolbar covers headings, bold/italic and lists.
+ * WYSIWYG page editor for the pagina CbS (#29). Built on Tiptap v3 StarterKit
+ * directly (solid-tiptap targets Solid 1); persists **ProseMirror JSON**
+ * (serialised to a string) via `onChange`. A small accessible toolbar covers
+ * headings, bold/italic and lists.
  */
 export function PageEditor(props: {
 	/** Initial ProseMirror JSON as a string (or empty for a blank doc). */
 	value?: string;
 	onChange: (json: string) => void;
 }) {
-	let ref!: HTMLDivElement;
-	const [ready, setReady] = createSignal(false);
+	let element: HTMLDivElement | undefined;
+	// Tiptap calls back from its own code (sometimes while Solid owns the
+	// scope), so these signals allow owned writes.
+	const [editor, setEditor] = createSignal<Editor | undefined>(undefined, { ownedWrite: true });
+	const [ready, setReady] = createSignal(false, { ownedWrite: true });
 	// Bumped on every selection/transaction so the toolbar's `active()` getters
 	// re-run and `aria-pressed` stays in sync as the caret moves (Tiptap mutates
 	// state imperatively, outside Solid's reactivity).
-	const [tick, setTick] = createSignal(0);
+	const [tick, setTick] = createSignal(0, { ownedWrite: true });
+	const bump = () => setTick((t) => t + 1);
 
-	const initialContent = (() => {
+	// The initial content only: the editor owns the document after that.
+	const initialContent = untrack(() => {
 		if (!props.value) return "";
 		try {
 			return JSON.parse(props.value);
 		} catch {
 			return props.value;
 		}
-	})();
+	});
 
-	const editor = createEditor(() => ({
-		element: ref,
-		extensions: [StarterKit],
-		content: initialContent,
-		editorProps: {
-			attributes: {
-				class:
-					"prose-incluvo min-h-40 rounded-2 border border-line bg-surface px-4 py-3 text-body text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+	onSettled(() => {
+		if (!element) return;
+		const instance = new Editor({
+			element,
+			extensions: [StarterKit],
+			content: initialContent,
+			editorProps: {
+				attributes: {
+					class:
+						"prose-incluvo min-h-40 rounded-2 border border-line bg-surface px-4 py-3 text-body text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+				},
 			},
-		},
-		onCreate() {
-			setReady(true);
-		},
-		onUpdate({ editor: ed }) {
-			props.onChange(JSON.stringify(ed.getJSON()));
-			setTick((t) => t + 1);
-		},
-		onSelectionUpdate() {
-			setTick((t) => t + 1);
-		},
-		onTransaction() {
-			setTick((t) => t + 1);
-		},
-	}));
-
-	onCleanup(() => editor()?.destroy());
+			onCreate() {
+				setReady(true);
+			},
+			onUpdate({ editor: ed }) {
+				props.onChange(JSON.stringify(ed.getJSON()));
+				bump();
+			},
+			onSelectionUpdate: bump,
+			onTransaction: bump,
+		});
+		setEditor(() => instance);
+		return () => instance.destroy();
+	});
 
 	type Tool = {
 		label: string;
@@ -118,12 +122,12 @@ export function PageEditor(props: {
 							<button
 								type="button"
 								aria-label={t.label}
-								aria-pressed={t.active()}
+								aria-pressed={t.active() ? "true" : "false"}
 								onClick={t.run}
-								class={cn(
+								class={[
 									"grid size-9 place-items-center rounded-2 border border-line text-ink-2 hover:bg-line-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
-									t.active() && "bg-primary-100 text-primary-700",
-								)}
+									{ "bg-primary-100 text-primary-700": t.active() },
+								]}
 							>
 								{t.icon() as never}
 							</button>
@@ -131,7 +135,7 @@ export function PageEditor(props: {
 					</For>
 				</div>
 			</Show>
-			<div ref={ref} />
+			<div ref={(el) => (element = el)} />
 		</div>
 	);
 }
