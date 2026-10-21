@@ -45,6 +45,12 @@ function createServerEnv() {
 				.enum(["true", "false"])
 				.default("false")
 				.transform((v) => v === "true"),
+			// --- Cloudflare Email Sending REST API. When both are set, mail goes
+			// over HTTPS instead of SMTP: Bun 1.2's TLS sockets drop the SMTP
+			// greeting on port 465 about half the time ("Greeting never received").
+			// SMTP stays the dev path (Mailpit). ---
+			CLOUDFLARE_EMAIL_ACCOUNT_ID: z.string().optional(),
+			CLOUDFLARE_EMAIL_API_TOKEN: z.string().optional(),
 			// Header holding the real client IP for auth rate limiting. Must be one
 			// the reverse proxy *overwrites* (e.g. `x-real-ip` behind Traefik);
 			// better-auth's default `x-forwarded-for` takes the first entry, which
