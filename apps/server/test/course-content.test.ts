@@ -5,7 +5,7 @@
  */
 import { db } from "@incluvo/drizzle";
 import { task } from "@incluvo/drizzle/schema";
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { and, eq } from "drizzle-orm";
 import { richTextToPlain } from "../src/courses/rich-text";
 import { asUser } from "./harness";
@@ -25,13 +25,28 @@ async function codeOf(fn: () => Promise<unknown>) {
 	return undefined;
 }
 
+// Blocks go in a section of their own, removed afterwards: other tests read
+// the demo courses' blocks (e.g. the seeded opdracht with three attempts).
+const cleanup: (() => Promise<unknown>)[] = [];
+afterAll(async () => {
+	for (const undo of cleanup) await undo();
+});
+
+async function tempSection(
+	who: Awaited<ReturnType<typeof asUser>>,
+	courseId: string,
+): Promise<string> {
+	const section = await who.client.courses.addSection({ courseId, title: "Test (INC-25/26/27)" });
+	cleanup.push(() => who.client.courses.deleteSection({ id: section.id }));
+	return section.id;
+}
+
 /** The demo leerling's own course copy, as the coach who may adapt it. */
 async function leerlingCourse() {
 	const leerling = await asUser("leerling");
 	const coach = await asUser("coach");
 	const [own] = await leerling.client.courses.list({ kind: "student_execution" });
-	const tree = await coach.client.courses.tree({ id: own!.id });
-	return { leerling, coach, courseId: own!.id, sectionId: tree.sections[0]!.id };
+	return { leerling, coach, courseId: own!.id, sectionId: await tempSection(coach, own!.id) };
 }
 
 describe("formatted texts (INC-25)", () => {
@@ -178,12 +193,8 @@ describe("editing a block (INC-26)", () => {
 describe("showing files (INC-27)", () => {
 	test("getFile says what the file is, inline or as a download", async () => {
 		const builder = await asUser("ontwikkelaar");
-		// A template with a section (other tests make empty ones).
-		let sectionId: string | undefined;
-		for (const t of await builder.client.courses.list({ kind: "school_template" })) {
-			sectionId = (await builder.client.courses.tree({ id: t.id })).sections[0]?.id;
-			if (sectionId) break;
-		}
+		const [template] = await builder.client.courses.list({ kind: "school_template" });
+		const sectionId = await tempSection(builder, template!.id);
 		const { storageKey } = await builder.client.courses.uploadLocal({
 			filename: "uitleg.png",
 			contentType: "image/png",
@@ -191,7 +202,7 @@ describe("showing files (INC-27)", () => {
 			data: PNG,
 		});
 		await builder.client.courses.addBlock({
-			sectionId: sectionId!,
+			sectionId,
 			type: "bestand",
 			title: "Uitleg",
 			fileStorageKey: storageKey,
