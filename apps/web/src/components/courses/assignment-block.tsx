@@ -11,6 +11,7 @@ import { toast } from "../ui/toast";
 import { FileLink } from "./file-link";
 import { uploadFile } from "./upload";
 import { ErrorState } from "../ui/error-state";
+import { RichTextView } from "./rich-text-view";
 
 type AssignmentDTO = {
 	id: string;
@@ -86,7 +87,7 @@ export function AssignmentBlock(props: {
 				</Show>
 			</div>
 			<Show when={props.assignment.description}>
-				<p class="text-body text-ink-2">{props.assignment.description}</p>
+				{(d) => <RichTextView value={d()} />}
 			</Show>
 
 			{/* Submission form */}

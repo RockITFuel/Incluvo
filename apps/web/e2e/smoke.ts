@@ -108,6 +108,21 @@ try {
 				await expectPage(page, "coach leerling detail", errors);
 			}
 		}
+		if (who === "ontwikkelaar") {
+			// The full-screen block editor (INC-26): open a block, save, back on Bouwen.
+			await page.goto(`${BASE}/cursussen`);
+			await page.getByRole("link", { name: /Schooltemplate/ }).first().click();
+			await page.waitForURL((url) => /^\/cursussen\/[^/]+$/.test(url.pathname), { timeout: 15_000 });
+			await page.getByRole("button", { name: "Bouwen", exact: true }).click();
+			await page.getByRole("link", { name: / bewerken$/ }).first().click();
+			await page.waitForURL((url) => url.pathname.includes("/blok/"), { timeout: 15_000 });
+			await expectPage(page, "ontwikkelaar block editor", errors);
+			await page.getByRole("button", { name: "Opslaan" }).first().click();
+			await page.waitForURL((url) => url.searchParams.get("tab") === "bouwen", { timeout: 15_000 }).then(
+				() => console.log("ok   ontwikkelaar write: block saved from the editor"),
+				() => failures.push("ontwikkelaar write: saving a block did not return to the course"),
+			);
+		}
 		await page.context().close();
 	}
 } catch (error) {

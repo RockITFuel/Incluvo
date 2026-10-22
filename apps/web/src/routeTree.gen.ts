@@ -8,498 +8,519 @@
 // You should NOT make any changes in this file as it will be overwritten.
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
-import { Route as rootRouteImport } from './routes/__root'
-import { Route as WachtwoordInstellenRouteImport } from './routes/wachtwoord-instellen'
-import { Route as LoginRouteImport } from './routes/login'
-import { Route as ProtectedRouteImport } from './routes/_protected'
-import { Route as IndexRouteImport } from './routes/index'
-import { Route as ProtectedWelkomIndexRouteImport } from './routes/_protected/welkom/index'
-import { Route as ProtectedTakenIndexRouteImport } from './routes/_protected/taken/index'
-import { Route as ProtectedProfielIndexRouteImport } from './routes/_protected/profiel/index'
-import { Route as ProtectedPlanIndexRouteImport } from './routes/_protected/plan/index'
-import { Route as ProtectedNotificatiesIndexRouteImport } from './routes/_protected/notificaties/index'
-import { Route as ProtectedLeerlingenIndexRouteImport } from './routes/_protected/leerlingen/index'
-import { Route as ProtectedDashboardIndexRouteImport } from './routes/_protected/dashboard/index'
-import { Route as ProtectedCursussenIndexRouteImport } from './routes/_protected/cursussen/index'
-import { Route as ProtectedCoachesIndexRouteImport } from './routes/_protected/coaches/index'
-import { Route as ProtectedChatIndexRouteImport } from './routes/_protected/chat/index'
-import { Route as ProtectedBeheerIndexRouteImport } from './routes/_protected/beheer/index'
-import { Route as ProtectedAssistentIndexRouteImport } from './routes/_protected/assistent/index'
-import { Route as ProtectedTakenLeerlingIdRouteImport } from './routes/_protected/taken/$leerlingId'
-import { Route as ProtectedPlanSubmissionIdRouteImport } from './routes/_protected/plan/$submissionId'
-import { Route as ProtectedDashboardLeerlingIdRouteImport } from './routes/_protected/dashboard/$leerlingId'
-import { Route as ProtectedCursussenCourseIdRouteImport } from './routes/_protected/cursussen/$courseId'
-import { Route as ProtectedPlanBeheerIndexRouteImport } from './routes/_protected/plan/beheer/index'
-import { Route as ProtectedBeheerCursussenIndexRouteImport } from './routes/_protected/beheer/cursussen/index'
-import { Route as ProtectedBeheerScholenOrganizationIdRouteImport } from './routes/_protected/beheer/scholen/$organizationId'
+import { Route as rootRouteImport } from "./routes/__root";
+import { Route as IndexRouteImport } from "./routes/index";
+import { Route as ProtectedRouteImport } from "./routes/_protected";
+import { Route as LoginRouteImport } from "./routes/login";
+import { Route as WachtwoordInstellenRouteImport } from "./routes/wachtwoord-instellen";
+import { Route as ProtectedAssistentIndexRouteImport } from "./routes/_protected/assistent/index";
+import { Route as ProtectedBeheerIndexRouteImport } from "./routes/_protected/beheer/index";
+import { Route as ProtectedChatIndexRouteImport } from "./routes/_protected/chat/index";
+import { Route as ProtectedCoachesIndexRouteImport } from "./routes/_protected/coaches/index";
+import { Route as ProtectedCursussenIndexRouteImport } from "./routes/_protected/cursussen/index";
+import { Route as ProtectedCursussenCourseIdRouteImport } from "./routes/_protected/cursussen/$courseId";
+import { Route as ProtectedDashboardIndexRouteImport } from "./routes/_protected/dashboard/index";
+import { Route as ProtectedDashboardLeerlingIdRouteImport } from "./routes/_protected/dashboard/$leerlingId";
+import { Route as ProtectedLeerlingenIndexRouteImport } from "./routes/_protected/leerlingen/index";
+import { Route as ProtectedNotificatiesIndexRouteImport } from "./routes/_protected/notificaties/index";
+import { Route as ProtectedPlanIndexRouteImport } from "./routes/_protected/plan/index";
+import { Route as ProtectedPlanSubmissionIdRouteImport } from "./routes/_protected/plan/$submissionId";
+import { Route as ProtectedProfielIndexRouteImport } from "./routes/_protected/profiel/index";
+import { Route as ProtectedTakenIndexRouteImport } from "./routes/_protected/taken/index";
+import { Route as ProtectedTakenLeerlingIdRouteImport } from "./routes/_protected/taken/$leerlingId";
+import { Route as ProtectedWelkomIndexRouteImport } from "./routes/_protected/welkom/index";
+import { Route as ProtectedBeheerCursussenIndexRouteImport } from "./routes/_protected/beheer/cursussen/index";
+import { Route as ProtectedBeheerScholenOrganizationIdRouteImport } from "./routes/_protected/beheer/scholen/$organizationId";
+import { Route as ProtectedPlanBeheerIndexRouteImport } from "./routes/_protected/plan/beheer/index";
+import { Route as ProtectedCursussenCourseIdBlokBlockIdRouteImport } from "./routes/_protected/cursussen/$courseId_.blok.$blockId";
 
-const WachtwoordInstellenRoute = WachtwoordInstellenRouteImport.update({
-  id: '/wachtwoord-instellen',
-  path: '/wachtwoord-instellen',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const LoginRoute = LoginRouteImport.update({
-  id: '/login',
-  path: '/login',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ProtectedRoute = ProtectedRouteImport.update({
-  id: '/_protected',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+  id: "/",
+  path: "/",
   getParentRoute: () => rootRouteImport,
-} as any)
-const ProtectedWelkomIndexRoute = ProtectedWelkomIndexRouteImport.update({
-  id: '/welkom/',
-  path: '/welkom/',
-  getParentRoute: () => ProtectedRoute,
-} as any)
-const ProtectedTakenIndexRoute = ProtectedTakenIndexRouteImport.update({
-  id: '/taken/',
-  path: '/taken/',
-  getParentRoute: () => ProtectedRoute,
-} as any)
-const ProtectedProfielIndexRoute = ProtectedProfielIndexRouteImport.update({
-  id: '/profiel/',
-  path: '/profiel/',
-  getParentRoute: () => ProtectedRoute,
-} as any)
-const ProtectedPlanIndexRoute = ProtectedPlanIndexRouteImport.update({
-  id: '/plan/',
-  path: '/plan/',
-  getParentRoute: () => ProtectedRoute,
-} as any)
-const ProtectedNotificatiesIndexRoute =
-  ProtectedNotificatiesIndexRouteImport.update({
-    id: '/notificaties/',
-    path: '/notificaties/',
-    getParentRoute: () => ProtectedRoute,
-  } as any)
-const ProtectedLeerlingenIndexRoute =
-  ProtectedLeerlingenIndexRouteImport.update({
-    id: '/leerlingen/',
-    path: '/leerlingen/',
-    getParentRoute: () => ProtectedRoute,
-  } as any)
-const ProtectedDashboardIndexRoute = ProtectedDashboardIndexRouteImport.update({
-  id: '/dashboard/',
-  path: '/dashboard/',
-  getParentRoute: () => ProtectedRoute,
-} as any)
-const ProtectedCursussenIndexRoute = ProtectedCursussenIndexRouteImport.update({
-  id: '/cursussen/',
-  path: '/cursussen/',
-  getParentRoute: () => ProtectedRoute,
-} as any)
-const ProtectedCoachesIndexRoute = ProtectedCoachesIndexRouteImport.update({
-  id: '/coaches/',
-  path: '/coaches/',
-  getParentRoute: () => ProtectedRoute,
-} as any)
-const ProtectedChatIndexRoute = ProtectedChatIndexRouteImport.update({
-  id: '/chat/',
-  path: '/chat/',
-  getParentRoute: () => ProtectedRoute,
-} as any)
-const ProtectedBeheerIndexRoute = ProtectedBeheerIndexRouteImport.update({
-  id: '/beheer/',
-  path: '/beheer/',
-  getParentRoute: () => ProtectedRoute,
-} as any)
+} as any);
+const ProtectedRoute = ProtectedRouteImport.update({
+  id: "/_protected",
+  getParentRoute: () => rootRouteImport,
+} as any);
+const LoginRoute = LoginRouteImport.update({
+  id: "/login",
+  path: "/login",
+  getParentRoute: () => rootRouteImport,
+} as any);
+const WachtwoordInstellenRoute = WachtwoordInstellenRouteImport.update({
+  id: "/wachtwoord-instellen",
+  path: "/wachtwoord-instellen",
+  getParentRoute: () => rootRouteImport,
+} as any);
 const ProtectedAssistentIndexRoute = ProtectedAssistentIndexRouteImport.update({
-  id: '/assistent/',
-  path: '/assistent/',
+  id: "/assistent/",
+  path: "/assistent/",
   getParentRoute: () => ProtectedRoute,
-} as any)
-const ProtectedTakenLeerlingIdRoute =
-  ProtectedTakenLeerlingIdRouteImport.update({
-    id: '/taken/$leerlingId',
-    path: '/taken/$leerlingId',
-    getParentRoute: () => ProtectedRoute,
-  } as any)
-const ProtectedPlanSubmissionIdRoute =
-  ProtectedPlanSubmissionIdRouteImport.update({
-    id: '/plan/$submissionId',
-    path: '/plan/$submissionId',
-    getParentRoute: () => ProtectedRoute,
-  } as any)
-const ProtectedDashboardLeerlingIdRoute =
-  ProtectedDashboardLeerlingIdRouteImport.update({
-    id: '/dashboard/$leerlingId',
-    path: '/dashboard/$leerlingId',
-    getParentRoute: () => ProtectedRoute,
-  } as any)
+} as any);
+const ProtectedBeheerIndexRoute = ProtectedBeheerIndexRouteImport.update({
+  id: "/beheer/",
+  path: "/beheer/",
+  getParentRoute: () => ProtectedRoute,
+} as any);
+const ProtectedChatIndexRoute = ProtectedChatIndexRouteImport.update({
+  id: "/chat/",
+  path: "/chat/",
+  getParentRoute: () => ProtectedRoute,
+} as any);
+const ProtectedCoachesIndexRoute = ProtectedCoachesIndexRouteImport.update({
+  id: "/coaches/",
+  path: "/coaches/",
+  getParentRoute: () => ProtectedRoute,
+} as any);
+const ProtectedCursussenIndexRoute = ProtectedCursussenIndexRouteImport.update({
+  id: "/cursussen/",
+  path: "/cursussen/",
+  getParentRoute: () => ProtectedRoute,
+} as any);
 const ProtectedCursussenCourseIdRoute =
   ProtectedCursussenCourseIdRouteImport.update({
-    id: '/cursussen/$courseId',
-    path: '/cursussen/$courseId',
+    id: "/cursussen/$courseId",
+    path: "/cursussen/$courseId",
     getParentRoute: () => ProtectedRoute,
-  } as any)
-const ProtectedPlanBeheerIndexRoute =
-  ProtectedPlanBeheerIndexRouteImport.update({
-    id: '/plan/beheer/',
-    path: '/plan/beheer/',
+  } as any);
+const ProtectedDashboardIndexRoute = ProtectedDashboardIndexRouteImport.update({
+  id: "/dashboard/",
+  path: "/dashboard/",
+  getParentRoute: () => ProtectedRoute,
+} as any);
+const ProtectedDashboardLeerlingIdRoute =
+  ProtectedDashboardLeerlingIdRouteImport.update({
+    id: "/dashboard/$leerlingId",
+    path: "/dashboard/$leerlingId",
     getParentRoute: () => ProtectedRoute,
-  } as any)
+  } as any);
+const ProtectedLeerlingenIndexRoute =
+  ProtectedLeerlingenIndexRouteImport.update({
+    id: "/leerlingen/",
+    path: "/leerlingen/",
+    getParentRoute: () => ProtectedRoute,
+  } as any);
+const ProtectedNotificatiesIndexRoute =
+  ProtectedNotificatiesIndexRouteImport.update({
+    id: "/notificaties/",
+    path: "/notificaties/",
+    getParentRoute: () => ProtectedRoute,
+  } as any);
+const ProtectedPlanIndexRoute = ProtectedPlanIndexRouteImport.update({
+  id: "/plan/",
+  path: "/plan/",
+  getParentRoute: () => ProtectedRoute,
+} as any);
+const ProtectedPlanSubmissionIdRoute =
+  ProtectedPlanSubmissionIdRouteImport.update({
+    id: "/plan/$submissionId",
+    path: "/plan/$submissionId",
+    getParentRoute: () => ProtectedRoute,
+  } as any);
+const ProtectedProfielIndexRoute = ProtectedProfielIndexRouteImport.update({
+  id: "/profiel/",
+  path: "/profiel/",
+  getParentRoute: () => ProtectedRoute,
+} as any);
+const ProtectedTakenIndexRoute = ProtectedTakenIndexRouteImport.update({
+  id: "/taken/",
+  path: "/taken/",
+  getParentRoute: () => ProtectedRoute,
+} as any);
+const ProtectedTakenLeerlingIdRoute =
+  ProtectedTakenLeerlingIdRouteImport.update({
+    id: "/taken/$leerlingId",
+    path: "/taken/$leerlingId",
+    getParentRoute: () => ProtectedRoute,
+  } as any);
+const ProtectedWelkomIndexRoute = ProtectedWelkomIndexRouteImport.update({
+  id: "/welkom/",
+  path: "/welkom/",
+  getParentRoute: () => ProtectedRoute,
+} as any);
 const ProtectedBeheerCursussenIndexRoute =
   ProtectedBeheerCursussenIndexRouteImport.update({
-    id: '/beheer/cursussen/',
-    path: '/beheer/cursussen/',
+    id: "/beheer/cursussen/",
+    path: "/beheer/cursussen/",
     getParentRoute: () => ProtectedRoute,
-  } as any)
+  } as any);
 const ProtectedBeheerScholenOrganizationIdRoute =
   ProtectedBeheerScholenOrganizationIdRouteImport.update({
-    id: '/beheer/scholen/$organizationId',
-    path: '/beheer/scholen/$organizationId',
+    id: "/beheer/scholen/$organizationId",
+    path: "/beheer/scholen/$organizationId",
     getParentRoute: () => ProtectedRoute,
-  } as any)
+  } as any);
+const ProtectedPlanBeheerIndexRoute =
+  ProtectedPlanBeheerIndexRouteImport.update({
+    id: "/plan/beheer/",
+    path: "/plan/beheer/",
+    getParentRoute: () => ProtectedRoute,
+  } as any);
+const ProtectedCursussenCourseIdBlokBlockIdRoute =
+  ProtectedCursussenCourseIdBlokBlockIdRouteImport.update({
+    id: "/cursussen/$courseId_/blok/$blockId",
+    path: "/cursussen/$courseId/blok/$blockId",
+    getParentRoute: () => ProtectedRoute,
+  } as any);
 
 export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute
-  '/login': typeof LoginRoute
-  '/wachtwoord-instellen': typeof WachtwoordInstellenRoute
-  '/cursussen/$courseId': typeof ProtectedCursussenCourseIdRoute
-  '/dashboard/$leerlingId': typeof ProtectedDashboardLeerlingIdRoute
-  '/plan/$submissionId': typeof ProtectedPlanSubmissionIdRoute
-  '/taken/$leerlingId': typeof ProtectedTakenLeerlingIdRoute
-  '/assistent/': typeof ProtectedAssistentIndexRoute
-  '/beheer/': typeof ProtectedBeheerIndexRoute
-  '/chat/': typeof ProtectedChatIndexRoute
-  '/coaches/': typeof ProtectedCoachesIndexRoute
-  '/cursussen/': typeof ProtectedCursussenIndexRoute
-  '/dashboard/': typeof ProtectedDashboardIndexRoute
-  '/leerlingen/': typeof ProtectedLeerlingenIndexRoute
-  '/notificaties/': typeof ProtectedNotificatiesIndexRoute
-  '/plan/': typeof ProtectedPlanIndexRoute
-  '/profiel/': typeof ProtectedProfielIndexRoute
-  '/taken/': typeof ProtectedTakenIndexRoute
-  '/welkom/': typeof ProtectedWelkomIndexRoute
-  '/beheer/scholen/$organizationId': typeof ProtectedBeheerScholenOrganizationIdRoute
-  '/beheer/cursussen/': typeof ProtectedBeheerCursussenIndexRoute
-  '/plan/beheer/': typeof ProtectedPlanBeheerIndexRoute
+  "/": typeof IndexRoute;
+  "/login": typeof LoginRoute;
+  "/wachtwoord-instellen": typeof WachtwoordInstellenRoute;
+  "/cursussen/$courseId": typeof ProtectedCursussenCourseIdRoute;
+  "/dashboard/$leerlingId": typeof ProtectedDashboardLeerlingIdRoute;
+  "/plan/$submissionId": typeof ProtectedPlanSubmissionIdRoute;
+  "/taken/$leerlingId": typeof ProtectedTakenLeerlingIdRoute;
+  "/assistent/": typeof ProtectedAssistentIndexRoute;
+  "/beheer/": typeof ProtectedBeheerIndexRoute;
+  "/chat/": typeof ProtectedChatIndexRoute;
+  "/coaches/": typeof ProtectedCoachesIndexRoute;
+  "/cursussen/": typeof ProtectedCursussenIndexRoute;
+  "/dashboard/": typeof ProtectedDashboardIndexRoute;
+  "/leerlingen/": typeof ProtectedLeerlingenIndexRoute;
+  "/notificaties/": typeof ProtectedNotificatiesIndexRoute;
+  "/plan/": typeof ProtectedPlanIndexRoute;
+  "/profiel/": typeof ProtectedProfielIndexRoute;
+  "/taken/": typeof ProtectedTakenIndexRoute;
+  "/welkom/": typeof ProtectedWelkomIndexRoute;
+  "/beheer/scholen/$organizationId": typeof ProtectedBeheerScholenOrganizationIdRoute;
+  "/beheer/cursussen/": typeof ProtectedBeheerCursussenIndexRoute;
+  "/plan/beheer/": typeof ProtectedPlanBeheerIndexRoute;
+  "/cursussen/$courseId/blok/$blockId": typeof ProtectedCursussenCourseIdBlokBlockIdRoute;
 }
 export interface FileRoutesByTo {
-  '/': typeof IndexRoute
-  '/login': typeof LoginRoute
-  '/wachtwoord-instellen': typeof WachtwoordInstellenRoute
-  '/cursussen/$courseId': typeof ProtectedCursussenCourseIdRoute
-  '/dashboard/$leerlingId': typeof ProtectedDashboardLeerlingIdRoute
-  '/plan/$submissionId': typeof ProtectedPlanSubmissionIdRoute
-  '/taken/$leerlingId': typeof ProtectedTakenLeerlingIdRoute
-  '/assistent': typeof ProtectedAssistentIndexRoute
-  '/beheer': typeof ProtectedBeheerIndexRoute
-  '/chat': typeof ProtectedChatIndexRoute
-  '/coaches': typeof ProtectedCoachesIndexRoute
-  '/cursussen': typeof ProtectedCursussenIndexRoute
-  '/dashboard': typeof ProtectedDashboardIndexRoute
-  '/leerlingen': typeof ProtectedLeerlingenIndexRoute
-  '/notificaties': typeof ProtectedNotificatiesIndexRoute
-  '/plan': typeof ProtectedPlanIndexRoute
-  '/profiel': typeof ProtectedProfielIndexRoute
-  '/taken': typeof ProtectedTakenIndexRoute
-  '/welkom': typeof ProtectedWelkomIndexRoute
-  '/beheer/scholen/$organizationId': typeof ProtectedBeheerScholenOrganizationIdRoute
-  '/beheer/cursussen': typeof ProtectedBeheerCursussenIndexRoute
-  '/plan/beheer': typeof ProtectedPlanBeheerIndexRoute
+  "/": typeof IndexRoute;
+  "/login": typeof LoginRoute;
+  "/wachtwoord-instellen": typeof WachtwoordInstellenRoute;
+  "/cursussen/$courseId": typeof ProtectedCursussenCourseIdRoute;
+  "/dashboard/$leerlingId": typeof ProtectedDashboardLeerlingIdRoute;
+  "/plan/$submissionId": typeof ProtectedPlanSubmissionIdRoute;
+  "/taken/$leerlingId": typeof ProtectedTakenLeerlingIdRoute;
+  "/assistent": typeof ProtectedAssistentIndexRoute;
+  "/beheer": typeof ProtectedBeheerIndexRoute;
+  "/chat": typeof ProtectedChatIndexRoute;
+  "/coaches": typeof ProtectedCoachesIndexRoute;
+  "/cursussen": typeof ProtectedCursussenIndexRoute;
+  "/dashboard": typeof ProtectedDashboardIndexRoute;
+  "/leerlingen": typeof ProtectedLeerlingenIndexRoute;
+  "/notificaties": typeof ProtectedNotificatiesIndexRoute;
+  "/plan": typeof ProtectedPlanIndexRoute;
+  "/profiel": typeof ProtectedProfielIndexRoute;
+  "/taken": typeof ProtectedTakenIndexRoute;
+  "/welkom": typeof ProtectedWelkomIndexRoute;
+  "/beheer/scholen/$organizationId": typeof ProtectedBeheerScholenOrganizationIdRoute;
+  "/beheer/cursussen": typeof ProtectedBeheerCursussenIndexRoute;
+  "/plan/beheer": typeof ProtectedPlanBeheerIndexRoute;
+  "/cursussen/$courseId/blok/$blockId": typeof ProtectedCursussenCourseIdBlokBlockIdRoute;
 }
 export interface FileRoutesById {
-  __root__: typeof rootRouteImport
-  '/': typeof IndexRoute
-  '/_protected': typeof ProtectedRouteWithChildren
-  '/login': typeof LoginRoute
-  '/wachtwoord-instellen': typeof WachtwoordInstellenRoute
-  '/_protected/cursussen/$courseId': typeof ProtectedCursussenCourseIdRoute
-  '/_protected/dashboard/$leerlingId': typeof ProtectedDashboardLeerlingIdRoute
-  '/_protected/plan/$submissionId': typeof ProtectedPlanSubmissionIdRoute
-  '/_protected/taken/$leerlingId': typeof ProtectedTakenLeerlingIdRoute
-  '/_protected/assistent/': typeof ProtectedAssistentIndexRoute
-  '/_protected/beheer/': typeof ProtectedBeheerIndexRoute
-  '/_protected/chat/': typeof ProtectedChatIndexRoute
-  '/_protected/coaches/': typeof ProtectedCoachesIndexRoute
-  '/_protected/cursussen/': typeof ProtectedCursussenIndexRoute
-  '/_protected/dashboard/': typeof ProtectedDashboardIndexRoute
-  '/_protected/leerlingen/': typeof ProtectedLeerlingenIndexRoute
-  '/_protected/notificaties/': typeof ProtectedNotificatiesIndexRoute
-  '/_protected/plan/': typeof ProtectedPlanIndexRoute
-  '/_protected/profiel/': typeof ProtectedProfielIndexRoute
-  '/_protected/taken/': typeof ProtectedTakenIndexRoute
-  '/_protected/welkom/': typeof ProtectedWelkomIndexRoute
-  '/_protected/beheer/scholen/$organizationId': typeof ProtectedBeheerScholenOrganizationIdRoute
-  '/_protected/beheer/cursussen/': typeof ProtectedBeheerCursussenIndexRoute
-  '/_protected/plan/beheer/': typeof ProtectedPlanBeheerIndexRoute
+  __root__: typeof rootRouteImport;
+  "/": typeof IndexRoute;
+  "/_protected": typeof ProtectedRouteWithChildren;
+  "/login": typeof LoginRoute;
+  "/wachtwoord-instellen": typeof WachtwoordInstellenRoute;
+  "/_protected/cursussen/$courseId": typeof ProtectedCursussenCourseIdRoute;
+  "/_protected/dashboard/$leerlingId": typeof ProtectedDashboardLeerlingIdRoute;
+  "/_protected/plan/$submissionId": typeof ProtectedPlanSubmissionIdRoute;
+  "/_protected/taken/$leerlingId": typeof ProtectedTakenLeerlingIdRoute;
+  "/_protected/assistent/": typeof ProtectedAssistentIndexRoute;
+  "/_protected/beheer/": typeof ProtectedBeheerIndexRoute;
+  "/_protected/chat/": typeof ProtectedChatIndexRoute;
+  "/_protected/coaches/": typeof ProtectedCoachesIndexRoute;
+  "/_protected/cursussen/": typeof ProtectedCursussenIndexRoute;
+  "/_protected/dashboard/": typeof ProtectedDashboardIndexRoute;
+  "/_protected/leerlingen/": typeof ProtectedLeerlingenIndexRoute;
+  "/_protected/notificaties/": typeof ProtectedNotificatiesIndexRoute;
+  "/_protected/plan/": typeof ProtectedPlanIndexRoute;
+  "/_protected/profiel/": typeof ProtectedProfielIndexRoute;
+  "/_protected/taken/": typeof ProtectedTakenIndexRoute;
+  "/_protected/welkom/": typeof ProtectedWelkomIndexRoute;
+  "/_protected/beheer/scholen/$organizationId": typeof ProtectedBeheerScholenOrganizationIdRoute;
+  "/_protected/beheer/cursussen/": typeof ProtectedBeheerCursussenIndexRoute;
+  "/_protected/plan/beheer/": typeof ProtectedPlanBeheerIndexRoute;
+  "/_protected/cursussen/$courseId_/blok/$blockId": typeof ProtectedCursussenCourseIdBlokBlockIdRoute;
 }
 export interface FileRouteTypes {
-  fileRoutesByFullPath: FileRoutesByFullPath
+  fileRoutesByFullPath: FileRoutesByFullPath;
   fullPaths:
-    | '/'
-    | '/login'
-    | '/wachtwoord-instellen'
-    | '/cursussen/$courseId'
-    | '/dashboard/$leerlingId'
-    | '/plan/$submissionId'
-    | '/taken/$leerlingId'
-    | '/assistent/'
-    | '/beheer/'
-    | '/chat/'
-    | '/coaches/'
-    | '/cursussen/'
-    | '/dashboard/'
-    | '/leerlingen/'
-    | '/notificaties/'
-    | '/plan/'
-    | '/profiel/'
-    | '/taken/'
-    | '/welkom/'
-    | '/beheer/scholen/$organizationId'
-    | '/beheer/cursussen/'
-    | '/plan/beheer/'
-  fileRoutesByTo: FileRoutesByTo
+    | "/"
+    | "/login"
+    | "/wachtwoord-instellen"
+    | "/cursussen/$courseId"
+    | "/dashboard/$leerlingId"
+    | "/plan/$submissionId"
+    | "/taken/$leerlingId"
+    | "/assistent/"
+    | "/beheer/"
+    | "/chat/"
+    | "/coaches/"
+    | "/cursussen/"
+    | "/dashboard/"
+    | "/leerlingen/"
+    | "/notificaties/"
+    | "/plan/"
+    | "/profiel/"
+    | "/taken/"
+    | "/welkom/"
+    | "/beheer/scholen/$organizationId"
+    | "/beheer/cursussen/"
+    | "/plan/beheer/"
+    | "/cursussen/$courseId/blok/$blockId";
+  fileRoutesByTo: FileRoutesByTo;
   to:
-    | '/'
-    | '/login'
-    | '/wachtwoord-instellen'
-    | '/cursussen/$courseId'
-    | '/dashboard/$leerlingId'
-    | '/plan/$submissionId'
-    | '/taken/$leerlingId'
-    | '/assistent'
-    | '/beheer'
-    | '/chat'
-    | '/coaches'
-    | '/cursussen'
-    | '/dashboard'
-    | '/leerlingen'
-    | '/notificaties'
-    | '/plan'
-    | '/profiel'
-    | '/taken'
-    | '/welkom'
-    | '/beheer/scholen/$organizationId'
-    | '/beheer/cursussen'
-    | '/plan/beheer'
+    | "/"
+    | "/login"
+    | "/wachtwoord-instellen"
+    | "/cursussen/$courseId"
+    | "/dashboard/$leerlingId"
+    | "/plan/$submissionId"
+    | "/taken/$leerlingId"
+    | "/assistent"
+    | "/beheer"
+    | "/chat"
+    | "/coaches"
+    | "/cursussen"
+    | "/dashboard"
+    | "/leerlingen"
+    | "/notificaties"
+    | "/plan"
+    | "/profiel"
+    | "/taken"
+    | "/welkom"
+    | "/beheer/scholen/$organizationId"
+    | "/beheer/cursussen"
+    | "/plan/beheer"
+    | "/cursussen/$courseId/blok/$blockId";
   id:
-    | '__root__'
-    | '/'
-    | '/_protected'
-    | '/login'
-    | '/wachtwoord-instellen'
-    | '/_protected/cursussen/$courseId'
-    | '/_protected/dashboard/$leerlingId'
-    | '/_protected/plan/$submissionId'
-    | '/_protected/taken/$leerlingId'
-    | '/_protected/assistent/'
-    | '/_protected/beheer/'
-    | '/_protected/chat/'
-    | '/_protected/coaches/'
-    | '/_protected/cursussen/'
-    | '/_protected/dashboard/'
-    | '/_protected/leerlingen/'
-    | '/_protected/notificaties/'
-    | '/_protected/plan/'
-    | '/_protected/profiel/'
-    | '/_protected/taken/'
-    | '/_protected/welkom/'
-    | '/_protected/beheer/scholen/$organizationId'
-    | '/_protected/beheer/cursussen/'
-    | '/_protected/plan/beheer/'
-  fileRoutesById: FileRoutesById
+    | "__root__"
+    | "/"
+    | "/_protected"
+    | "/login"
+    | "/wachtwoord-instellen"
+    | "/_protected/cursussen/$courseId"
+    | "/_protected/dashboard/$leerlingId"
+    | "/_protected/plan/$submissionId"
+    | "/_protected/taken/$leerlingId"
+    | "/_protected/assistent/"
+    | "/_protected/beheer/"
+    | "/_protected/chat/"
+    | "/_protected/coaches/"
+    | "/_protected/cursussen/"
+    | "/_protected/dashboard/"
+    | "/_protected/leerlingen/"
+    | "/_protected/notificaties/"
+    | "/_protected/plan/"
+    | "/_protected/profiel/"
+    | "/_protected/taken/"
+    | "/_protected/welkom/"
+    | "/_protected/beheer/scholen/$organizationId"
+    | "/_protected/beheer/cursussen/"
+    | "/_protected/plan/beheer/"
+    | "/_protected/cursussen/$courseId_/blok/$blockId";
+  fileRoutesById: FileRoutesById;
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
-  ProtectedRoute: typeof ProtectedRouteWithChildren
-  LoginRoute: typeof LoginRoute
-  WachtwoordInstellenRoute: typeof WachtwoordInstellenRoute
+  IndexRoute: typeof IndexRoute;
+  ProtectedRoute: typeof ProtectedRouteWithChildren;
+  LoginRoute: typeof LoginRoute;
+  WachtwoordInstellenRoute: typeof WachtwoordInstellenRoute;
 }
 
-declare module '@tanstack/solid-router' {
+declare module "@tanstack/solid-router" {
   interface FileRoutesByPath {
-    '/wachtwoord-instellen': {
-      id: '/wachtwoord-instellen'
-      path: '/wachtwoord-instellen'
-      fullPath: '/wachtwoord-instellen'
-      preLoaderRoute: typeof WachtwoordInstellenRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/_protected': {
-      id: '/_protected'
-      path: ''
-      fullPath: '/'
-      preLoaderRoute: typeof ProtectedRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/_protected/welkom/': {
-      id: '/_protected/welkom/'
-      path: '/welkom'
-      fullPath: '/welkom/'
-      preLoaderRoute: typeof ProtectedWelkomIndexRouteImport
-      parentRoute: typeof ProtectedRoute
-    }
-    '/_protected/taken/': {
-      id: '/_protected/taken/'
-      path: '/taken'
-      fullPath: '/taken/'
-      preLoaderRoute: typeof ProtectedTakenIndexRouteImport
-      parentRoute: typeof ProtectedRoute
-    }
-    '/_protected/profiel/': {
-      id: '/_protected/profiel/'
-      path: '/profiel'
-      fullPath: '/profiel/'
-      preLoaderRoute: typeof ProtectedProfielIndexRouteImport
-      parentRoute: typeof ProtectedRoute
-    }
-    '/_protected/plan/': {
-      id: '/_protected/plan/'
-      path: '/plan'
-      fullPath: '/plan/'
-      preLoaderRoute: typeof ProtectedPlanIndexRouteImport
-      parentRoute: typeof ProtectedRoute
-    }
-    '/_protected/notificaties/': {
-      id: '/_protected/notificaties/'
-      path: '/notificaties'
-      fullPath: '/notificaties/'
-      preLoaderRoute: typeof ProtectedNotificatiesIndexRouteImport
-      parentRoute: typeof ProtectedRoute
-    }
-    '/_protected/leerlingen/': {
-      id: '/_protected/leerlingen/'
-      path: '/leerlingen'
-      fullPath: '/leerlingen/'
-      preLoaderRoute: typeof ProtectedLeerlingenIndexRouteImport
-      parentRoute: typeof ProtectedRoute
-    }
-    '/_protected/dashboard/': {
-      id: '/_protected/dashboard/'
-      path: '/dashboard'
-      fullPath: '/dashboard/'
-      preLoaderRoute: typeof ProtectedDashboardIndexRouteImport
-      parentRoute: typeof ProtectedRoute
-    }
-    '/_protected/cursussen/': {
-      id: '/_protected/cursussen/'
-      path: '/cursussen'
-      fullPath: '/cursussen/'
-      preLoaderRoute: typeof ProtectedCursussenIndexRouteImport
-      parentRoute: typeof ProtectedRoute
-    }
-    '/_protected/coaches/': {
-      id: '/_protected/coaches/'
-      path: '/coaches'
-      fullPath: '/coaches/'
-      preLoaderRoute: typeof ProtectedCoachesIndexRouteImport
-      parentRoute: typeof ProtectedRoute
-    }
-    '/_protected/chat/': {
-      id: '/_protected/chat/'
-      path: '/chat'
-      fullPath: '/chat/'
-      preLoaderRoute: typeof ProtectedChatIndexRouteImport
-      parentRoute: typeof ProtectedRoute
-    }
-    '/_protected/beheer/': {
-      id: '/_protected/beheer/'
-      path: '/beheer'
-      fullPath: '/beheer/'
-      preLoaderRoute: typeof ProtectedBeheerIndexRouteImport
-      parentRoute: typeof ProtectedRoute
-    }
-    '/_protected/assistent/': {
-      id: '/_protected/assistent/'
-      path: '/assistent'
-      fullPath: '/assistent/'
-      preLoaderRoute: typeof ProtectedAssistentIndexRouteImport
-      parentRoute: typeof ProtectedRoute
-    }
-    '/_protected/taken/$leerlingId': {
-      id: '/_protected/taken/$leerlingId'
-      path: '/taken/$leerlingId'
-      fullPath: '/taken/$leerlingId'
-      preLoaderRoute: typeof ProtectedTakenLeerlingIdRouteImport
-      parentRoute: typeof ProtectedRoute
-    }
-    '/_protected/plan/$submissionId': {
-      id: '/_protected/plan/$submissionId'
-      path: '/plan/$submissionId'
-      fullPath: '/plan/$submissionId'
-      preLoaderRoute: typeof ProtectedPlanSubmissionIdRouteImport
-      parentRoute: typeof ProtectedRoute
-    }
-    '/_protected/dashboard/$leerlingId': {
-      id: '/_protected/dashboard/$leerlingId'
-      path: '/dashboard/$leerlingId'
-      fullPath: '/dashboard/$leerlingId'
-      preLoaderRoute: typeof ProtectedDashboardLeerlingIdRouteImport
-      parentRoute: typeof ProtectedRoute
-    }
-    '/_protected/cursussen/$courseId': {
-      id: '/_protected/cursussen/$courseId'
-      path: '/cursussen/$courseId'
-      fullPath: '/cursussen/$courseId'
-      preLoaderRoute: typeof ProtectedCursussenCourseIdRouteImport
-      parentRoute: typeof ProtectedRoute
-    }
-    '/_protected/plan/beheer/': {
-      id: '/_protected/plan/beheer/'
-      path: '/plan/beheer'
-      fullPath: '/plan/beheer/'
-      preLoaderRoute: typeof ProtectedPlanBeheerIndexRouteImport
-      parentRoute: typeof ProtectedRoute
-    }
-    '/_protected/beheer/cursussen/': {
-      id: '/_protected/beheer/cursussen/'
-      path: '/beheer/cursussen'
-      fullPath: '/beheer/cursussen/'
-      preLoaderRoute: typeof ProtectedBeheerCursussenIndexRouteImport
-      parentRoute: typeof ProtectedRoute
-    }
-    '/_protected/beheer/scholen/$organizationId': {
-      id: '/_protected/beheer/scholen/$organizationId'
-      path: '/beheer/scholen/$organizationId'
-      fullPath: '/beheer/scholen/$organizationId'
-      preLoaderRoute: typeof ProtectedBeheerScholenOrganizationIdRouteImport
-      parentRoute: typeof ProtectedRoute
-    }
+    "/": {
+      id: "/";
+      path: "/";
+      fullPath: "/";
+      preLoaderRoute: typeof IndexRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/_protected": {
+      id: "/_protected";
+      path: "";
+      fullPath: "/";
+      preLoaderRoute: typeof ProtectedRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/login": {
+      id: "/login";
+      path: "/login";
+      fullPath: "/login";
+      preLoaderRoute: typeof LoginRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/wachtwoord-instellen": {
+      id: "/wachtwoord-instellen";
+      path: "/wachtwoord-instellen";
+      fullPath: "/wachtwoord-instellen";
+      preLoaderRoute: typeof WachtwoordInstellenRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/_protected/assistent/": {
+      id: "/_protected/assistent/";
+      path: "/assistent";
+      fullPath: "/assistent/";
+      preLoaderRoute: typeof ProtectedAssistentIndexRouteImport;
+      parentRoute: typeof ProtectedRoute;
+    };
+    "/_protected/beheer/": {
+      id: "/_protected/beheer/";
+      path: "/beheer";
+      fullPath: "/beheer/";
+      preLoaderRoute: typeof ProtectedBeheerIndexRouteImport;
+      parentRoute: typeof ProtectedRoute;
+    };
+    "/_protected/chat/": {
+      id: "/_protected/chat/";
+      path: "/chat";
+      fullPath: "/chat/";
+      preLoaderRoute: typeof ProtectedChatIndexRouteImport;
+      parentRoute: typeof ProtectedRoute;
+    };
+    "/_protected/coaches/": {
+      id: "/_protected/coaches/";
+      path: "/coaches";
+      fullPath: "/coaches/";
+      preLoaderRoute: typeof ProtectedCoachesIndexRouteImport;
+      parentRoute: typeof ProtectedRoute;
+    };
+    "/_protected/cursussen/": {
+      id: "/_protected/cursussen/";
+      path: "/cursussen";
+      fullPath: "/cursussen/";
+      preLoaderRoute: typeof ProtectedCursussenIndexRouteImport;
+      parentRoute: typeof ProtectedRoute;
+    };
+    "/_protected/cursussen/$courseId": {
+      id: "/_protected/cursussen/$courseId";
+      path: "/cursussen/$courseId";
+      fullPath: "/cursussen/$courseId";
+      preLoaderRoute: typeof ProtectedCursussenCourseIdRouteImport;
+      parentRoute: typeof ProtectedRoute;
+    };
+    "/_protected/dashboard/": {
+      id: "/_protected/dashboard/";
+      path: "/dashboard";
+      fullPath: "/dashboard/";
+      preLoaderRoute: typeof ProtectedDashboardIndexRouteImport;
+      parentRoute: typeof ProtectedRoute;
+    };
+    "/_protected/dashboard/$leerlingId": {
+      id: "/_protected/dashboard/$leerlingId";
+      path: "/dashboard/$leerlingId";
+      fullPath: "/dashboard/$leerlingId";
+      preLoaderRoute: typeof ProtectedDashboardLeerlingIdRouteImport;
+      parentRoute: typeof ProtectedRoute;
+    };
+    "/_protected/leerlingen/": {
+      id: "/_protected/leerlingen/";
+      path: "/leerlingen";
+      fullPath: "/leerlingen/";
+      preLoaderRoute: typeof ProtectedLeerlingenIndexRouteImport;
+      parentRoute: typeof ProtectedRoute;
+    };
+    "/_protected/notificaties/": {
+      id: "/_protected/notificaties/";
+      path: "/notificaties";
+      fullPath: "/notificaties/";
+      preLoaderRoute: typeof ProtectedNotificatiesIndexRouteImport;
+      parentRoute: typeof ProtectedRoute;
+    };
+    "/_protected/plan/": {
+      id: "/_protected/plan/";
+      path: "/plan";
+      fullPath: "/plan/";
+      preLoaderRoute: typeof ProtectedPlanIndexRouteImport;
+      parentRoute: typeof ProtectedRoute;
+    };
+    "/_protected/plan/$submissionId": {
+      id: "/_protected/plan/$submissionId";
+      path: "/plan/$submissionId";
+      fullPath: "/plan/$submissionId";
+      preLoaderRoute: typeof ProtectedPlanSubmissionIdRouteImport;
+      parentRoute: typeof ProtectedRoute;
+    };
+    "/_protected/profiel/": {
+      id: "/_protected/profiel/";
+      path: "/profiel";
+      fullPath: "/profiel/";
+      preLoaderRoute: typeof ProtectedProfielIndexRouteImport;
+      parentRoute: typeof ProtectedRoute;
+    };
+    "/_protected/taken/": {
+      id: "/_protected/taken/";
+      path: "/taken";
+      fullPath: "/taken/";
+      preLoaderRoute: typeof ProtectedTakenIndexRouteImport;
+      parentRoute: typeof ProtectedRoute;
+    };
+    "/_protected/taken/$leerlingId": {
+      id: "/_protected/taken/$leerlingId";
+      path: "/taken/$leerlingId";
+      fullPath: "/taken/$leerlingId";
+      preLoaderRoute: typeof ProtectedTakenLeerlingIdRouteImport;
+      parentRoute: typeof ProtectedRoute;
+    };
+    "/_protected/welkom/": {
+      id: "/_protected/welkom/";
+      path: "/welkom";
+      fullPath: "/welkom/";
+      preLoaderRoute: typeof ProtectedWelkomIndexRouteImport;
+      parentRoute: typeof ProtectedRoute;
+    };
+    "/_protected/beheer/cursussen/": {
+      id: "/_protected/beheer/cursussen/";
+      path: "/beheer/cursussen";
+      fullPath: "/beheer/cursussen/";
+      preLoaderRoute: typeof ProtectedBeheerCursussenIndexRouteImport;
+      parentRoute: typeof ProtectedRoute;
+    };
+    "/_protected/beheer/scholen/$organizationId": {
+      id: "/_protected/beheer/scholen/$organizationId";
+      path: "/beheer/scholen/$organizationId";
+      fullPath: "/beheer/scholen/$organizationId";
+      preLoaderRoute: typeof ProtectedBeheerScholenOrganizationIdRouteImport;
+      parentRoute: typeof ProtectedRoute;
+    };
+    "/_protected/plan/beheer/": {
+      id: "/_protected/plan/beheer/";
+      path: "/plan/beheer";
+      fullPath: "/plan/beheer/";
+      preLoaderRoute: typeof ProtectedPlanBeheerIndexRouteImport;
+      parentRoute: typeof ProtectedRoute;
+    };
+    "/_protected/cursussen/$courseId_/blok/$blockId": {
+      id: "/_protected/cursussen/$courseId_/blok/$blockId";
+      path: "/cursussen/$courseId/blok/$blockId";
+      fullPath: "/cursussen/$courseId/blok/$blockId";
+      preLoaderRoute: typeof ProtectedCursussenCourseIdBlokBlockIdRouteImport;
+      parentRoute: typeof ProtectedRoute;
+    };
   }
 }
 
 interface ProtectedRouteChildren {
-  ProtectedCursussenCourseIdRoute: typeof ProtectedCursussenCourseIdRoute
-  ProtectedDashboardLeerlingIdRoute: typeof ProtectedDashboardLeerlingIdRoute
-  ProtectedPlanSubmissionIdRoute: typeof ProtectedPlanSubmissionIdRoute
-  ProtectedTakenLeerlingIdRoute: typeof ProtectedTakenLeerlingIdRoute
-  ProtectedAssistentIndexRoute: typeof ProtectedAssistentIndexRoute
-  ProtectedBeheerIndexRoute: typeof ProtectedBeheerIndexRoute
-  ProtectedChatIndexRoute: typeof ProtectedChatIndexRoute
-  ProtectedCoachesIndexRoute: typeof ProtectedCoachesIndexRoute
-  ProtectedCursussenIndexRoute: typeof ProtectedCursussenIndexRoute
-  ProtectedDashboardIndexRoute: typeof ProtectedDashboardIndexRoute
-  ProtectedLeerlingenIndexRoute: typeof ProtectedLeerlingenIndexRoute
-  ProtectedNotificatiesIndexRoute: typeof ProtectedNotificatiesIndexRoute
-  ProtectedPlanIndexRoute: typeof ProtectedPlanIndexRoute
-  ProtectedProfielIndexRoute: typeof ProtectedProfielIndexRoute
-  ProtectedTakenIndexRoute: typeof ProtectedTakenIndexRoute
-  ProtectedWelkomIndexRoute: typeof ProtectedWelkomIndexRoute
-  ProtectedBeheerScholenOrganizationIdRoute: typeof ProtectedBeheerScholenOrganizationIdRoute
-  ProtectedBeheerCursussenIndexRoute: typeof ProtectedBeheerCursussenIndexRoute
-  ProtectedPlanBeheerIndexRoute: typeof ProtectedPlanBeheerIndexRoute
+  ProtectedCursussenCourseIdRoute: typeof ProtectedCursussenCourseIdRoute;
+  ProtectedDashboardLeerlingIdRoute: typeof ProtectedDashboardLeerlingIdRoute;
+  ProtectedPlanSubmissionIdRoute: typeof ProtectedPlanSubmissionIdRoute;
+  ProtectedTakenLeerlingIdRoute: typeof ProtectedTakenLeerlingIdRoute;
+  ProtectedAssistentIndexRoute: typeof ProtectedAssistentIndexRoute;
+  ProtectedBeheerIndexRoute: typeof ProtectedBeheerIndexRoute;
+  ProtectedChatIndexRoute: typeof ProtectedChatIndexRoute;
+  ProtectedCoachesIndexRoute: typeof ProtectedCoachesIndexRoute;
+  ProtectedCursussenIndexRoute: typeof ProtectedCursussenIndexRoute;
+  ProtectedDashboardIndexRoute: typeof ProtectedDashboardIndexRoute;
+  ProtectedLeerlingenIndexRoute: typeof ProtectedLeerlingenIndexRoute;
+  ProtectedNotificatiesIndexRoute: typeof ProtectedNotificatiesIndexRoute;
+  ProtectedPlanIndexRoute: typeof ProtectedPlanIndexRoute;
+  ProtectedProfielIndexRoute: typeof ProtectedProfielIndexRoute;
+  ProtectedTakenIndexRoute: typeof ProtectedTakenIndexRoute;
+  ProtectedWelkomIndexRoute: typeof ProtectedWelkomIndexRoute;
+  ProtectedBeheerScholenOrganizationIdRoute: typeof ProtectedBeheerScholenOrganizationIdRoute;
+  ProtectedBeheerCursussenIndexRoute: typeof ProtectedBeheerCursussenIndexRoute;
+  ProtectedPlanBeheerIndexRoute: typeof ProtectedPlanBeheerIndexRoute;
+  ProtectedCursussenCourseIdBlokBlockIdRoute: typeof ProtectedCursussenCourseIdBlokBlockIdRoute;
 }
 
 const ProtectedRouteChildren: ProtectedRouteChildren = {
@@ -523,27 +544,20 @@ const ProtectedRouteChildren: ProtectedRouteChildren = {
     ProtectedBeheerScholenOrganizationIdRoute,
   ProtectedBeheerCursussenIndexRoute: ProtectedBeheerCursussenIndexRoute,
   ProtectedPlanBeheerIndexRoute: ProtectedPlanBeheerIndexRoute,
-}
+  ProtectedCursussenCourseIdBlokBlockIdRoute:
+    ProtectedCursussenCourseIdBlokBlockIdRoute,
+};
 
 const ProtectedRouteWithChildren = ProtectedRoute._addFileChildren(
   ProtectedRouteChildren,
-)
+);
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ProtectedRoute: ProtectedRouteWithChildren,
   LoginRoute: LoginRoute,
   WachtwoordInstellenRoute: WachtwoordInstellenRoute,
-}
+};
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
-  ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/solid-start'
-declare module '@tanstack/solid-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-  }
-}
+  ._addFileTypes<FileRouteTypes>();
