@@ -80,6 +80,14 @@ import {
 	Video as VideoNode,
 	X as XNode,
 	XCircle as XCircleNode,
+	ExternalLink as ExternalLinkNode,
+	Heading3 as Heading3Node,
+	Image as ImageNode,
+	Link as LinkNode,
+	Quote as QuoteNode,
+	Redo2 as Redo2Node,
+	Underline as UnderlineNode,
+	Undo2 as Undo2Node,
 	type IconNode,
 } from "lucide";
 
@@ -214,3 +222,11 @@ export const Youtube = createIcon("youtube", [
 	["path", { d: "M2.5 17a24.12 24.12 0 0 1 0-10 2 2 0 0 1 1.4-1.4 49.56 49.56 0 0 1 16.2 0A2 2 0 0 1 21.5 7a24.12 24.12 0 0 1 0 10 2 2 0 0 1-1.4 1.4 49.55 49.55 0 0 1-16.2 0A2 2 0 0 1 2.5 17" }],
 	["path", { d: "m10 15 5-3-5-3z" }],
 ]);
+export const ExternalLink = createIcon("external-link", ExternalLinkNode);
+export const Heading3 = createIcon("heading-3", Heading3Node);
+export const Image = createIcon("image", ImageNode);
+export const Link = createIcon("link", LinkNode);
+export const Quote = createIcon("quote", QuoteNode);
+export const Redo2 = createIcon("redo-2", Redo2Node);
+export const Underline = createIcon("underline", UnderlineNode);
+export const Undo2 = createIcon("undo-2", Undo2Node);

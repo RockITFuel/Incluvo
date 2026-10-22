@@ -41,6 +41,9 @@ export const ALLOWED_UPLOAD_TYPES: Record<string, string> = {
 	"video/mp4": "mp4",
 };
 
+/** Images that may be placed inside a page or opdracht text (INC-25). */
+export const INLINE_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
+
 /** 50 MB hard cap on a single upload. */
 export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 
@@ -60,7 +63,8 @@ export function hasS3(): boolean {
 const LOCAL_UPLOAD_DIR = resolve(process.cwd(), "uploads");
 
 /** Allowed key scopes (the leading path segment). */
-const KEY_SCOPES = ["bestand", "submission", "feedback", "chat"] as const;
+// `inhoud`: an image inside a page or opdracht text (INC-25).
+const KEY_SCOPES = ["bestand", "submission", "feedback", "chat", "inhoud"] as const;
 
 /**
  * A storage key must be exactly `<scope>/<uuid>-<safe-filename>` as produced by
@@ -329,7 +333,12 @@ export function publicUrl(storageKey: string): string {
  * AUTHORIZED `getFile` so pupil media is never served from a permanent public
  * URL. Falls back to `local:<key>` when S3 isn't configured. (C2)
  */
-export function presignedGetUrl(storageKey: string, expiresIn = 300): string {
+export function presignedGetUrl(
+	storageKey: string,
+	expiresIn = 300,
+	/** `attachment` makes the browser save the file instead of showing it (INC-27). */
+	disposition: "inline" | "attachment" = "inline",
+): string {
 	assertValidStorageKey(storageKey);
 	if (hasS3()) {
 		const BunS3 = (
@@ -348,7 +357,14 @@ export function presignedGetUrl(storageKey: string, expiresIn = 300): string {
 				accessKeyId: S3_ACCESS_KEY_ID,
 				secretAccessKey: S3_SECRET_ACCESS_KEY,
 			});
-			return client.presign(storageKey, { method: "GET", expiresIn });
+			return client.presign(storageKey, {
+				method: "GET",
+				expiresIn,
+				contentDisposition:
+					disposition === "attachment"
+						? `attachment; filename="${storageKeyFileName(storageKey)}"`
+						: "inline",
+			});
 		}
 	}
 	return `local:${storageKey}`;
@@ -361,8 +377,11 @@ export function presignedGetUrl(storageKey: string, expiresIn = 300): string {
  * Only allow-listed, non-scriptable types are served inline; anything else
  * as octet-stream, so a file can't render in our origin (H1).
  */
-export async function readableFileUrl(storageKey: string): Promise<string> {
-	if (hasS3()) return presignedGetUrl(storageKey, 300);
+export async function readableFileUrl(
+	storageKey: string,
+	disposition: "inline" | "attachment" = "inline",
+): Promise<string> {
+	if (hasS3()) return presignedGetUrl(storageKey, 300, disposition);
 	const bytes = await readLocalUpload(storageKey);
 	const guessed = guessContentType(storageKey);
 	const inline =
@@ -391,6 +410,9 @@ export function guessContentType(storageKey: string): string {
 		mp4: "video/mp4",
 		docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 		pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+		xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+		doc: "application/msword",
+		ppt: "application/vnd.ms-powerpoint",
 	};
 	return map[ext] ?? "application/octet-stream";
 }

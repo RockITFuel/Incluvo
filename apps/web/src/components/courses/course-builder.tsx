@@ -1,3 +1,4 @@
+import { Link, useNavigate } from "@tanstack/solid-router";
 import {
 	Check,
 	ChevronDown,
@@ -9,11 +10,10 @@ import {
 	File as FileIcon,
 	FileText,
 	GripVertical,
-	PlayCircle,
+	Pencil,
 	Plus,
 	Sparkles,
 	Trash2,
-	Upload,
 	Youtube,
 } from "../../lib/icons";
 import { createSignal, For, Show } from "solid-js";
@@ -21,14 +21,10 @@ import type { Component } from "solid-js";
 import { Dynamic } from "@solidjs/web";
 import { client } from "../../lib/orpc";
 import { Button } from "../ui/button";
-import { Dialog } from "../ui/dialog";
-import { Select } from "../ui/select";
 import { Switch } from "../ui/switch";
-import { Input, Textarea } from "../ui/text-field";
+import { Input } from "../ui/text-field";
 import { toast } from "../ui/toast";
 import type { BlockDTO } from "./block-view";
-import { PageEditor } from "./page-editor";
-import { uploadFile } from "./upload";
 
 type Section = {
 	id: string;
@@ -84,6 +80,7 @@ export function CourseBuilder(props: {
 	const invalidate = async () => {
 		await props.refetch();
 	};
+	const navigate = useNavigate();
 
 	const [newSection, setNewSection] = createSignal("");
 	const [addingSection, setAddingSection] = createSignal(false);
@@ -366,7 +363,9 @@ export function CourseBuilder(props: {
 										<For each={section.blocks}>
 											{(block, bi) => (
 												<div
-													class="ds-row"
+													id={`blok-${block.id}`}
+													tabindex="-1"
+													class="ds-row focus-visible:outline-2 focus-visible:outline-ring"
 													style={{
 														padding: "10px 12px",
 														border: "1px solid rgb(var(--line))",
@@ -422,6 +421,16 @@ export function CourseBuilder(props: {
 															</For>
 														</div>
 													</Show>
+													<Show when={block.type !== "lti"}>
+														<Link
+															to="/cursussen/$courseId/blok/$blockId"
+															params={{ courseId: props.courseId, blockId: block.id }}
+															class="btn ghost sm"
+															aria-label={`${block.title} bewerken`}
+														>
+															<Pencil style={{ width: "12px", height: "12px" }} /> Bewerken
+														</Link>
+													</Show>
 													<button
 														type="button"
 														class="icon-btn"
@@ -457,11 +466,14 @@ export function CourseBuilder(props: {
 											)}
 										</For>
 
-										<AddBlockDialog
-											sectionId={section.id}
-											availableLabels={props.availableLabels}
-											onDone={invalidate}
-										/>
+										<Link
+											to="/cursussen/$courseId/blok/$blockId"
+											params={{ courseId: props.courseId, blockId: "nieuw" }}
+											search={{ sectie: section.id }}
+											class="flex w-full items-center justify-center gap-2 rounded-2 border border-dashed border-line px-3 py-2.5 text-small font-medium text-muted hover:bg-line-2"
+										>
+											<Plus class="size-4" aria-hidden="true" /> Content toevoegen
+										</Link>
 									</div>
 								</Show>
 							</div>
@@ -528,18 +540,28 @@ export function CourseBuilder(props: {
 							style={{ "grid-template-columns": "1fr 1fr", gap: "6px" }}
 						>
 							<For each={palette}>
-								{([, label, Icon]) => (
+								{([type, label, Icon]) => (
 									<button
 										type="button"
 										class="btn ghost sm"
 										style={{ "justify-content": "flex-start", padding: "10px 12px" }}
-										onClick={() =>
-											toast({
-												title: "Kies een sectie",
-												description:
-													"Gebruik ‘+ Content toevoegen’ binnen een sectie om dit type toe te voegen.",
-											})
-										}
+										onClick={() => {
+											const first = props.sections[0];
+											if (!first || type === "lti") {
+												toast({
+													title: first ? "Nog niet beschikbaar" : "Maak eerst een sectie",
+													description: first
+														? "Externe tools (LTI) volgen later."
+														: "Content staat altijd in een sectie.",
+												});
+												return;
+											}
+											void navigate({
+												to: "/cursussen/$courseId/blok/$blockId",
+												params: { courseId: props.courseId, blockId: "nieuw" },
+												search: { sectie: first.id, type },
+											});
+										}}
 									>
 										<Dynamic component={Icon} style={{ width: "14px", height: "14px" }} />{" "}
 										{label}
@@ -606,246 +628,5 @@ export function CourseBuilder(props: {
 				</div>
 			</div>
 		</>
-	);
-}
-
-const blockTypeOptions = [
-	{ value: "pagina", label: "Pagina (tekst)" },
-	{ value: "youtube", label: "YouTube-video" },
-	{ value: "bestand", label: "Bestand" },
-	{ value: "opdracht", label: "Opdracht" },
-];
-
-function AddBlockDialog(props: {
-	sectionId: string;
-	availableLabels: string[];
-	onDone: () => Promise<void>;
-}) {
-	const [open, setOpen] = createSignal(false);
-	const [type, setType] = createSignal("pagina");
-	const [title, setTitle] = createSignal("");
-	const [body, setBody] = createSignal("");
-	const [youtube, setYoutube] = createSignal("");
-	const [fileKey, setFileKey] = createSignal<string | null>(null);
-	const [labels, setLabels] = createSignal<string[]>([]);
-	const [busy, setBusy] = createSignal(false);
-
-	// opdracht fields
-	const [asgName, setAsgName] = createSignal("");
-	const [asgDesc, setAsgDesc] = createSignal("");
-	const [responseType, setResponseType] = createSignal("text_and_files");
-	const [asgDue, setAsgDue] = createSignal("");
-
-	const reset = () => {
-		setType("pagina");
-		setTitle("");
-		setBody("");
-		setYoutube("");
-		setFileKey(null);
-		setLabels([]);
-		setAsgName("");
-		setAsgDesc("");
-		setResponseType("text_and_files");
-		setAsgDue("");
-	};
-
-	const toggleLabel = (l: string) =>
-		setLabels((prev) =>
-			prev.includes(l) ? prev.filter((x) => x !== l) : [...prev, l],
-		);
-
-	const handleUpload = async (file: File) => {
-		try {
-			const key = await uploadFile(file, "bestand");
-			setFileKey(key);
-			toast({ title: "Bestand geüpload", tone: "success" });
-		} catch (err) {
-			toast({
-				title: "Upload mislukt",
-				description: (err as Error).message,
-				tone: "danger",
-			});
-		}
-	};
-
-	const save = async () => {
-		setBusy(true);
-		try {
-			await client.courses.addBlock({
-				sectionId: props.sectionId,
-				type: type() as never,
-				title: title(),
-				body: type() === "pagina" ? body() : undefined,
-				youtube: type() === "youtube" ? youtube() : undefined,
-				fileStorageKey:
-					type() === "bestand" ? (fileKey() ?? undefined) : undefined,
-				labels: labels(),
-				assignment:
-					type() === "opdracht"
-						? {
-								name: asgName() || title(),
-								description: asgDesc() || undefined,
-								responseType: responseType() as never,
-								dueAt: asgDue()
-									? new Date(`${asgDue()}T00:00:00`)
-									: undefined,
-							}
-						: undefined,
-			});
-			toast({ title: "Blok toegevoegd", tone: "success" });
-			setOpen(false);
-			reset();
-			await props.onDone();
-		} catch (err) {
-			toast({
-				title: "Toevoegen mislukt",
-				description: (err as Error).message,
-				tone: "danger",
-			});
-		} finally {
-			setBusy(false);
-		}
-	};
-
-	const typeIcon = () => {
-		switch (type()) {
-			case "youtube":
-				return <PlayCircle class="size-4" />;
-			default:
-				return <FileText class="size-4" />;
-		}
-	};
-
-	return (
-		<Dialog
-			open={open()}
-			onOpenChange={setOpen}
-			title="Content toevoegen"
-			class="max-w-2xl"
-			trigger={{
-				class:
-					"w-full justify-center border border-dashed border-line bg-transparent px-3 py-2.5 text-small font-medium text-muted hover:bg-line-2",
-				children: (
-					<>
-						<Plus class="size-4" aria-hidden="true" /> Content toevoegen
-					</>
-				),
-			}}
-			footer={
-				<>
-					<Button variant="ghost" onClick={() => setOpen(false)}>
-						Annuleren
-					</Button>
-					<Button onClick={save} disabled={busy() || !title().trim()}>
-						{typeIcon()}
-						{busy() ? "Bezig…" : "Toevoegen"}
-					</Button>
-				</>
-			}
-		>
-			<div class="flex flex-col gap-3">
-				<Select
-					label="Type"
-					options={blockTypeOptions}
-					value={type()}
-					onChange={(v) => setType(v ?? "pagina")}
-				/>
-				<Input
-					label="Titel"
-					value={title()}
-					onInput={(e) => setTitle(e.currentTarget.value)}
-					required
-				/>
-
-				<Show when={type() === "pagina"}>
-					<div class="flex flex-col gap-1.5">
-						<span class="text-small font-medium text-ink-2">Inhoud</span>
-						<PageEditor value={body()} onChange={setBody} />
-					</div>
-				</Show>
-
-				<Show when={type() === "youtube"}>
-					<Input
-						label="YouTube-link of -id"
-						placeholder="https://www.youtube.com/watch?v=… of 11-cijferig id"
-						value={youtube()}
-						onInput={(e) => setYoutube(e.currentTarget.value)}
-					/>
-				</Show>
-
-				<Show when={type() === "bestand"}>
-					<label class="flex flex-col gap-1.5 text-small font-medium text-ink-2">
-						Bestand (PDF, Word, PowerPoint, afbeelding)
-						<input
-							type="file"
-							class="text-small file:mr-3 file:rounded-2 file:border-0 file:bg-primary-50 file:px-3 file:py-1.5 file:text-primary-700"
-							onChange={(e) => {
-								const f = e.currentTarget.files?.[0];
-								if (f) handleUpload(f);
-							}}
-						/>
-						<Show when={fileKey()}>
-							<span class="text-micro text-success">
-								<Upload class="inline size-3" /> Geüpload
-							</span>
-						</Show>
-					</label>
-				</Show>
-
-				<Show when={type() === "opdracht"}>
-					<div class="flex flex-col gap-2 rounded-2 border border-line p-3">
-						<Input
-							label="Naam opdracht"
-							value={asgName()}
-							onInput={(e) => setAsgName(e.currentTarget.value)}
-						/>
-						<Textarea
-							label="Omschrijving"
-							value={asgDesc()}
-							onInput={(e) => setAsgDesc(e.currentTarget.value)}
-						/>
-						<Select
-							label="Antwoordmogelijkheid"
-							options={[
-								{ value: "text", label: "Alleen tekst" },
-								{ value: "files", label: "Alleen bestanden" },
-								{ value: "text_and_files", label: "Tekst en bestanden" },
-							]}
-							value={responseType()}
-							onChange={(v) => setResponseType(v ?? "text_and_files")}
-						/>
-						<Input
-							type="date"
-							label="Inleverdeadline"
-							value={asgDue()}
-							onInput={(e) => setAsgDue(e.currentTarget.value)}
-						/>
-					</div>
-				</Show>
-
-				{/* Leervoorkeur labels (#36) */}
-				<Show when={props.availableLabels.length > 0}>
-					<div class="flex flex-col gap-1.5">
-						<span class="text-small font-medium text-ink-2">
-							Leervoorkeur-labels
-						</span>
-						<div class="flex flex-wrap gap-1.5">
-							<For each={props.availableLabels}>
-								{(l) => (
-									<button
-										type="button"
-										onClick={() => toggleLabel(l)}
-										aria-pressed={labels().includes(l) ? "true" : "false"}
-										class="rounded-pill border border-line px-2.5 py-1 text-micro aria-pressed:border-primary aria-pressed:bg-primary-100 aria-pressed:text-primary-700"
-									>
-										{l}
-									</button>
-								)}
-							</For>
-						</div>
-					</div>
-				</Show>
-			</div>
-		</Dialog>
 	);
 }

@@ -10,8 +10,8 @@ import {
 import { createSignal, For, Show } from "solid-js";
 import { Dynamic } from "@solidjs/web";
 import { AssignmentBlock } from "./assignment-block";
-import { FileLink } from "./file-link";
-import { PageView } from "./page-view";
+import { FileView } from "./file-view";
+import { RichTextView } from "./rich-text-view";
 
 export type BlockDTO = {
 	id: string;
@@ -247,7 +247,7 @@ export function BlockView(props: {
 					}}
 				>
 					<Show when={props.block.type === "pagina"}>
-						<PageView body={props.block.body} />
+						<RichTextView value={props.block.body} />
 					</Show>
 
 					<Show when={props.block.type === "youtube" && props.block.youtubeEmbedUrl}>
@@ -263,7 +263,7 @@ export function BlockView(props: {
 					</Show>
 
 					<Show when={props.block.type === "bestand" && props.block.fileStorageKey}>
-						{(_) => <FileLink storageKey={props.block.fileStorageKey as string} />}
+						{(key) => <FileView storageKey={key()} title={props.block.title} />}
 					</Show>
 
 					<Show when={props.block.type === "opdracht" && props.block.assignment} keyed>

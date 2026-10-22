@@ -8,7 +8,7 @@ import {
 	Lightbulb,
 	Sparkles,
 } from "../../../lib/icons";
-import { createSignal, For, Show } from "solid-js";
+import { createEffect, createSignal, For, Show } from "solid-js";
 import { type BlockDTO, BlockView } from "../../../components/courses/block-view";
 import { CourseBuilder } from "../../../components/courses/course-builder";
 import { GradingView } from "../../../components/courses/grading-view";
@@ -38,7 +38,21 @@ import { useServerEvent } from "../../../lib/sse/use-events";
  *  - ontwikkelaar/keyuser: a "Bouwen" tab with the section/block builder.
  *  - coach+: a "Beoordelen" tab (#28) and the voortgangsbalk-oogje (#24).
  */
+type CourseSearch = {
+	/** Which tab opens (back from the block editor: bouwen). */
+	tab?: "leren" | "bouwen" | "beoordelen";
+	/** The block to put the focus on (INC-26). */
+	blok?: string;
+};
+
 export const Route = createFileRoute("/_protected/cursussen/$courseId")({
+	validateSearch: (search: Record<string, unknown>): CourseSearch => ({
+		tab:
+			search.tab === "bouwen" || search.tab === "beoordelen" || search.tab === "leren"
+				? search.tab
+				: undefined,
+		blok: typeof search.blok === "string" ? search.blok : undefined,
+	}),
 	loader: async ({ context, params, abortController }) => {
 		const signal = abortController.signal;
 		const role = context.me.role as UserRole;
@@ -81,7 +95,22 @@ function CourseDetail() {
 
 	useServerEvent("course.changed", () => void refresh(router, "courses"));
 
-	const [view, setView] = createSignal<"leren" | "bouwen" | "beoordelen">("leren");
+	const search = Route.useSearch();
+	const [view, setView] = createSignal<"leren" | "bouwen" | "beoordelen">(
+		() => search().tab ?? "leren",
+	);
+	// Back from the block editor: the focus goes to the block that was edited.
+	createEffect(
+		() => (tree() ? search().blok : undefined),
+		(blok) => {
+			if (!blok) return;
+			requestAnimationFrame(() => {
+				const el = document.getElementById(`blok-${blok}`);
+				el?.scrollIntoView({ block: "center" });
+				el?.focus();
+			});
+		},
+	);
 	const [onlyRecommended, setOnlyRecommended] = createSignal(true);
 	// The prototype's personal hide/show "oogje" on the progress strip (client-only;
 	// the coach's server-side progressBarHidden #24 stays a separate control below).
