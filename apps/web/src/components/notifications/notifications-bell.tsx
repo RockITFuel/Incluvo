@@ -1,10 +1,11 @@
 import { DropdownMenu } from "@kobalte/core/dropdown-menu";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/solid-query";
-import { Link, useNavigate } from "@tanstack/solid-router";
-import { Bell, CheckCheck } from "lucide-solid";
+import { Link, useLoaderData, useNavigate, useRouter } from "@tanstack/solid-router";
+import { Bell, CheckCheck } from "../../lib/icons";
 import { type Component, For, Show } from "solid-js";
 import { useMe } from "../../lib/auth/use-me";
-import { orpc } from "../../lib/orpc";
+import { createAction } from "../../lib/action";
+import { client } from "../../lib/orpc";
+import { refresh } from "../../lib/refresh";
 import { useServerEvent } from "../../lib/sse/use-events";
 import { metaFor, relativeTime } from "./notification-meta";
 
@@ -23,47 +24,41 @@ import { metaFor, relativeTime } from "./notification-meta";
  */
 export const NotificationsBell: Component = () => {
 	const me = useMe();
-	const queryClient = useQueryClient();
+	const router = useRouter();
 	const navigate = useNavigate();
-
-	// Recent notifications (newest first) for the dropdown panel.
-	const recent = useQuery(() =>
-		orpc.notifications.list.queryOptions({
-			input: { limit: 8, offset: 0 },
-		}),
-	);
-
-	const invalidate = () => {
-		queryClient.invalidateQueries({
-			queryKey: orpc.notifications.key(),
-		});
+	// Recent notifications (newest first), loaded by the /_protected layout.
+	const shell = useLoaderData({ from: "/_protected" });
+	const recent = () => shell().notifications;
+	const data = () => {
+		const r = recent();
+		return r.access === "granted" ? r.value : undefined;
 	};
 
 	// Live-update when a notification arrives for me.
 	useServerEvent("notification.new", (payload) => {
 		const userId = (payload as { userId?: string } | null)?.userId;
-		// React to events that aren't user-scoped, that arrive before `me` has
-		// loaded (an undefined id would otherwise silently drop them), or that are
-		// addressed to the current user.
-		const myId = me.user()?.id;
-		if (!userId || !myId || userId === myId) {
-			invalidate();
-		}
+		// React to events that aren't user-scoped or that are addressed to the
+		// current user.
+		if (!userId || userId === me.user().id) void refresh(router, "notifications");
 	});
 
-	const markAllRead = useMutation(() =>
-		orpc.notifications.markAllRead.mutationOptions({
-			onSuccess: invalidate,
-		}),
+	const markAllRead = createAction(
+		async () => {
+			await client.notifications.markAllRead({});
+			await refresh(router, "notifications");
+		},
+		{ error: "Markeren lukte niet" },
 	);
 
-	const markRead = useMutation(() =>
-		orpc.notifications.markRead.mutationOptions({
-			onSuccess: invalidate,
-		}),
+	const markRead = createAction(
+		async (input: { id: string }) => {
+			await client.notifications.markRead(input);
+			await refresh(router, "notifications");
+		},
+		{ error: "Markeren lukte niet" },
 	);
 
-	const unread = () => recent.data?.unreadCount ?? 0;
+	const unread = () => data()?.unreadCount ?? 0;
 
 	return (
 		<DropdownMenu placement="bottom-end" gutter={8}>
@@ -94,8 +89,8 @@ export const NotificationsBell: Component = () => {
 							<button
 								type="button"
 								class="inline-flex items-center gap-1 rounded-1 px-2 py-1 text-micro text-primary-700 hover:bg-primary-50 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring disabled:opacity-50"
-								disabled={markAllRead.isPending}
-								onClick={() => markAllRead.mutate({})}
+								disabled={markAllRead.pending()}
+								onClick={() => void markAllRead.run()}
 							>
 								<CheckCheck class="size-4" aria-hidden="true" />
 								Alles gelezen
@@ -104,25 +99,20 @@ export const NotificationsBell: Component = () => {
 					</div>
 
 					<div class="max-h-[24rem] overflow-y-auto py-1">
-						<Show when={recent.isLoading}>
-							<p class="px-3 py-6 text-center text-small text-muted">
-								Laden…
-							</p>
-						</Show>
-						<Show when={recent.error}>
+						<Show when={recent().access !== "granted"}>
 							<p class="px-3 py-6 text-center text-small text-danger">
 								Kon notificaties niet laden.
 							</p>
 						</Show>
 						<Show
-							when={!recent.isLoading && (recent.data?.items.length ?? 0) === 0}
+							when={data()?.items.length === 0}
 						>
 							<p class="px-3 py-8 text-center text-small text-muted">
 								Je bent helemaal bij. Geen nieuwe notificaties.
 							</p>
 						</Show>
 
-						<For each={recent.data?.items}>
+						<For each={data()?.items}>
 							{(n) => {
 								const meta = metaFor(n.type);
 								const Icon = meta.icon;
@@ -134,7 +124,7 @@ export const NotificationsBell: Component = () => {
 										// mark-as-read-only click keeps it open.
 										closeOnSelect={isChatLink}
 										onSelect={() => {
-											if (!n.read) markRead.mutate({ id: n.id });
+											if (!n.read) void markRead.run({ id: n.id });
 											// Deep-link a chat notification to the conversation (#3/#5).
 											if (isChatLink && n.entityId) {
 												navigate({
@@ -154,8 +144,7 @@ export const NotificationsBell: Component = () => {
 										<span class="min-w-0 flex-1">
 											<span class="flex items-center gap-2">
 												<span
-													class="truncate text-small font-medium text-ink"
-													classList={{ "font-semibold": !n.read }}
+													class={["truncate text-small font-medium text-ink", { "font-semibold": !n.read }]}
 												>
 													{n.title}
 												</span>

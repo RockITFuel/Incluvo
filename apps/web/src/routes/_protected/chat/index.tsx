@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/solid-router";
 import { ChatPanel } from "../../../components/chat/chat-panel";
-import { RequireRole } from "../../../lib/auth/role-guard";
+import { requireRole } from "../../../lib/auth/role-guard";
 
 /**
  * Chat (#5 1:1 coach–leerling, #6 group/forum met coach-supervisie). The page
@@ -26,18 +26,18 @@ export const Route = createFileRoute("/_protected/chat/")({
     otherUserId:
       typeof search.otherUserId === "string" ? search.otherUserId : undefined,
   }),
+  // Chat is between a leerling and their coach (or a keyuser of the school).
+  beforeLoad: ({ context }) =>
+    requireRole(context.me, { min: "leerling", only: ["leerling", "coach"] }),
   component: ChatPage,
 });
 
-/** Chat is between a leerling and their coach (or a keyuser of the school). */
 function ChatPage() {
   const search = Route.useSearch();
   return (
-    <RequireRole min="leerling" only={["leerling", "coach"]}>
-      <ChatPanel
-        conversationId={search().conversationId}
-        otherUserId={search().otherUserId}
-      />
-    </RequireRole>
+    <ChatPanel
+      conversationId={search().conversationId}
+      otherUserId={search().otherUserId}
+    />
   );
 }

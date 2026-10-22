@@ -1,5 +1,7 @@
 import { Tabs as KTabs } from "@kobalte/core/tabs";
-import { For, type JSX, splitProps } from "solid-js";
+import type { JSX } from "@solidjs/web";
+import { For } from "solid-js";
+import { splitProps } from "../../lib/solid-props";
 import { cn } from "../../lib/cn";
 
 export type TabItem = {

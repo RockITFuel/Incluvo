@@ -1,9 +1,10 @@
-import { useMutation, useQueryClient } from "@tanstack/solid-query";
-import { createEffect, createSignal, For, on, Show } from "solid-js";
-import { createStore, reconcile } from "solid-js/store";
+import { useRouter } from "@tanstack/solid-router";
+import { createSignal, For, Show } from "solid-js";
+import { createAction } from "../../lib/action";
 import { useMe } from "../../lib/auth/use-me";
 import { friendlyError } from "../../lib/errors";
-import { orpc } from "../../lib/orpc";
+import { client } from "../../lib/orpc";
+import { refresh } from "../../lib/refresh";
 import { Button } from "../ui/button";
 import { Dialog } from "../ui/dialog";
 import { Select } from "../ui/select";
@@ -107,50 +108,44 @@ export function PersonFormDialog(props: {
 	onCreated?: (person: CreatedPerson) => void;
 }) {
 	const me = useMe();
-	const queryClient = useQueryClient();
-	const [values, setValues] = createStore<Record<string, string>>({});
-	const [errors, setErrors] = createSignal<Record<string, string>>({});
+	const router = useRouter();
+	// A fresh form each time the dialog opens; a failed save keeps the input.
+	const [values, setValues] = createSignal(
+		(): Record<string, string> => (props.open ? { startDate: today() } : {}),
+	);
+	const [errors, setErrors] = createSignal<Record<string, string>>(() => (props.open, {}));
+	const setValue = (key: string, value: string) => setValues((v) => ({ ...v, [key]: value }));
 	const noun = () => (props.kind === "leerling" ? "leerling" : "coach");
 
-	createEffect(
-		on(
-			() => props.open,
-			(open) => {
-				if (!open) return;
-				setValues(reconcile({ startDate: today() }));
-				setErrors({});
-			},
-		),
-	);
-
-	const create = useMutation(() =>
-		(props.kind === "leerling"
-			? orpc.people.leerlingen.create
-			: orpc.people.coaches.create
-		).mutationOptions({
-			onSuccess: (created) => {
-				void queryClient.invalidateQueries({ queryKey: orpc.people.key() });
-				void queryClient.invalidateQueries({ queryKey: orpc.admin.key() });
-				toast({
-					title: props.kind === "leerling" ? "Leerling toegevoegd" : "Coach toegevoegd",
-					description: created.mailSent
-						? `${created.name} krijgt een e-mail om een wachtwoord te kiezen.`
-						: `${created.name} is toegevoegd, maar de uitnodiging kon niet worden verstuurd. Verstuur hem later opnieuw via Beheer.`,
-					tone: created.mailSent ? "success" : "warning",
-				});
-				props.onOpenChange(false);
-				props.onCreated?.(created);
-			},
+	const create = createAction(
+		async (input: Record<string, string | undefined>) => {
+			const created =
+				props.kind === "leerling"
+					? await client.people.leerlingen.create(input as never)
+					: await client.people.coaches.create(input as never);
+			toast({
+				title: props.kind === "leerling" ? "Leerling toegevoegd" : "Coach toegevoegd",
+				description: created.mailSent
+					? `${created.name} krijgt een e-mail om een wachtwoord te kiezen.`
+					: `${created.name} is toegevoegd, maar de uitnodiging kon niet worden verstuurd. Verstuur hem later opnieuw via Beheer.`,
+				tone: created.mailSent ? "success" : "warning",
+			});
+			props.onOpenChange(false);
+			await refresh(router, "people", "admin");
+			props.onCreated?.(created);
+		},
+		{
 			onError: (error) => {
 				const field = (error as { data?: { field?: string } }).data?.field;
 				if (field) setErrors({ [field]: friendlyError(error) });
 				else toast({ title: "Opslaan lukte niet", description: friendlyError(error), tone: "danger" });
 			},
-		}),
+		},
 	);
 
 	const submit = () => {
-		const found = validate(props.kind, values);
+		const current = values();
+		const found = validate(props.kind, current);
 		setErrors(found);
 		if (Object.keys(found).length > 0) {
 			queueMicrotask(() =>
@@ -160,10 +155,10 @@ export function PersonFormDialog(props: {
 		}
 		const input: Record<string, string | undefined> = {};
 		for (const f of FIELDS[props.kind]) {
-			const v = values[f.key]?.trim();
+			const v = current[f.key]?.trim();
 			input[f.key] = v ? v : undefined;
 		}
-		create.mutate(input as never);
+		void create.run(input);
 	};
 
 	return (
@@ -178,8 +173,8 @@ export function PersonFormDialog(props: {
 					<Button variant="subtle" onClick={() => props.onOpenChange(false)}>
 						Annuleren
 					</Button>
-					<Button disabled={create.isPending} onClick={submit}>
-						{create.isPending ? "Opslaan…" : "Opslaan"}
+					<Button disabled={create.pending()} onClick={submit}>
+						{create.pending() ? "Opslaan…" : "Opslaan"}
 					</Button>
 				</>
 			}
@@ -187,7 +182,7 @@ export function PersonFormDialog(props: {
 			<form
 				data-person-form
 				class="grid max-h-[60vh] grid-cols-1 gap-4 overflow-y-auto pr-1 sm:grid-cols-2"
-				noValidate
+				novalidate
 				onSubmit={(e) => {
 					e.preventDefault();
 					submit();
@@ -214,11 +209,11 @@ export function PersonFormDialog(props: {
 									label={f.label}
 									required={f.required}
 									type={f.type === "date" ? "date" : f.type === "email" ? "email" : f.type === "url" ? "url" : "text"}
-									value={values[f.key] ?? ""}
+									value={values()[f.key] ?? ""}
 									description={f.hint}
 									error={errors()[f.key]}
 									onInput={(e) => {
-										setValues(f.key, e.currentTarget.value);
+										setValue(f.key, e.currentTarget.value);
 										if (errors()[f.key]) setErrors({ ...errors(), [f.key]: "" });
 									}}
 								/>
@@ -227,15 +222,15 @@ export function PersonFormDialog(props: {
 							<Select
 								label={f.label}
 								options={GENDERS}
-								value={values[f.key]}
+								value={values()[f.key]}
 								placeholder="Kies…"
-								onChange={(v) => setValues(f.key, v ?? "")}
+								onChange={(v) => setValue(f.key, v ?? "")}
 							/>
 						</Show>
 					)}
 				</For>
 				{/* Enter in a field saves; screen readers use the footer button. */}
-				<button type="submit" class="sr-only" tabIndex={-1} aria-hidden="true">
+				<button type="submit" class="sr-only" tabindex={-1} aria-hidden="true">
 					Opslaan
 				</button>
 			</form>

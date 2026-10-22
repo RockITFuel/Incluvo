@@ -52,7 +52,7 @@ jobs:
       - run: bun run test
 
   a11y:
-    name: Accessibility (axe)
+    name: Accessibility (axe) and smoke test
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -86,7 +86,7 @@ jobs:
         working-directory: apps/web
       # A production build: a cold dev server compiles on the first request,
       # which is slow and not what users get.
-      - run: bunx vite build
+      - run: bun run build
         working-directory: apps/web
       # Same migrations, audit trigger and demo seed as the server tests.
       - run: bun run setup-db
@@ -101,6 +101,10 @@ jobs:
           done
           echo "app did not start"; exit 1
       - run: bun run test:a11y
+        working-directory: apps/web
+        env:
+          BASE_URL: http://127.0.0.1:3200
+      - run: bun run test:smoke
         working-directory: apps/web
         env:
           BASE_URL: http://127.0.0.1:3200

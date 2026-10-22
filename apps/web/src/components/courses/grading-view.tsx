@@ -1,7 +1,9 @@
-import { useQuery, useQueryClient } from "@tanstack/solid-query";
-import { Mic, Star } from "lucide-solid";
+import { useRouter } from "@tanstack/solid-router";
+import { Mic, Star } from "../../lib/icons";
 import { createSignal, For, Show } from "solid-js";
-import { client, orpc } from "../../lib/orpc";
+import { createLoad } from "../../lib/load";
+import { client } from "../../lib/orpc";
+import { refresh } from "../../lib/refresh";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
@@ -43,10 +45,10 @@ export function GradingView(props: { sections: Section[] }) {
 function AssignmentGrading(props: {
 	assignment: NonNullable<BlockDTO["assignment"]>;
 }) {
-	const submissionsQuery = useQuery(() =>
-		orpc.courses.listSubmissions.queryOptions({
-			input: { assignmentId: props.assignment.id },
-		}),
+	// Loads with the Beoordelen tab, per opdracht.
+	const submissions = createLoad(
+		() => props.assignment.id,
+		(assignmentId, signal) => client.courses.listSubmissions({ assignmentId }, { signal }),
 	);
 
 	return (
@@ -54,26 +56,26 @@ function AssignmentGrading(props: {
 			<div class="flex items-center justify-between">
 				<h3 class="font-head text-h3 text-ink">{props.assignment.name}</h3>
 				<Badge variant="neutral">
-					{submissionsQuery.data?.length ?? 0} inzending(en)
+					{submissions.data()?.length ?? 0} inzending(en)
 				</Badge>
 			</div>
-			<Show when={submissionsQuery.error}>
+			<Show when={submissions.error()}>
 				<ErrorState
-					error={submissionsQuery.error}
+					error={submissions.error()}
 					what="de inzendingen"
-					onRetry={() => submissionsQuery.refetch()}
+					onRetry={() => submissions.reload()}
 				/>
 			</Show>
 			<Show
-				when={(submissionsQuery.data?.length ?? 0) > 0}
+				when={(submissions.data()?.length ?? 0) > 0}
 				fallback={
-					<Show when={submissionsQuery.data}>
+					<Show when={submissions.data()}>
 						<p class="text-small text-muted">Nog geen inzendingen.</p>
 					</Show>
 				}
 			>
-				<For each={submissionsQuery.data}>
-					{(s) => <SubmissionRow submission={s} />}
+				<For each={submissions.data()}>
+					{(s) => <SubmissionRow submission={s} onSaved={() => submissions.reload()} />}
 				</For>
 			</Show>
 		</Card>
@@ -96,11 +98,12 @@ type Submission = {
 	} | null;
 };
 
-function SubmissionRow(props: { submission: Submission }) {
-	const queryClient = useQueryClient();
-	const [grade, setGrade] = createSignal(props.submission.grade?.grade ?? "");
+function SubmissionRow(props: { submission: Submission; onSaved: () => void }) {
+	const router = useRouter();
+	// Start from the saved grade; a reloaded submission brings the new one.
+	const [grade, setGrade] = createSignal(() => props.submission.grade?.grade ?? "");
 	const [feedback, setFeedback] = createSignal(
-		props.submission.grade?.feedbackText ?? "",
+		() => props.submission.grade?.feedbackText ?? "",
 	);
 	const [mediaKey, setMediaKey] = createSignal<string | null>(null);
 	const [busy, setBusy] = createSignal(false);
@@ -129,9 +132,8 @@ function SubmissionRow(props: { submission: Submission }) {
 				feedbackMediaStorageKey: mediaKey() ?? undefined,
 			});
 			toast({ title: "Beoordeling opgeslagen", tone: "success" });
-			await queryClient.invalidateQueries({
-				queryKey: orpc.courses.listSubmissions.key(),
-			});
+			props.onSaved();
+			await refresh(router, "courses");
 		} catch (err) {
 			toast({
 				title: "Beoordelen mislukt",

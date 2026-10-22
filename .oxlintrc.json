@@ -1,12 +1,22 @@
 {
 	"$schema": "https://raw.githubusercontent.com/oxc-project/oxc/main/npm/oxlint/configuration_schema.json",
-	"plugins": ["typescript", "unicorn", "import"],
+	"plugins": [
+		"typescript",
+		"unicorn",
+		"import"
+	],
 	"categories": {
 		"correctness": "error",
 		"suspicious": "warn"
 	},
 	"rules": {
-		"eqeqeq": ["error", "always", { "null": "ignore" }],
+		"eqeqeq": [
+			"error",
+			"always",
+			{
+				"null": "ignore"
+			}
+		],
 		"no-console": "off",
 		"no-unassigned-vars": "off",
 		"typescript/no-explicit-any": "warn",
@@ -17,5 +27,32 @@
 		"**/.output/**",
 		"**/routeTree.gen.ts",
 		"**/node_modules/**"
+	],
+	"jsPlugins": [
+		{
+			"name": "solid-v2",
+			"specifier": "./tools/oxlint-solid-v2/index.js"
+		}
+	],
+	"overrides": [
+		{
+			"files": [
+				"apps/web/src/**/*.ts",
+				"apps/web/src/**/*.tsx"
+			],
+			"rules": {
+				"solid-v2/removed-api": "error",
+				"solid-v2/no-single-arg-create-effect": "error",
+				"solid-v2/no-untracked-reactive-read": "error",
+				"solid-v2/no-destructure": "error",
+				"solid-v2/create-route-property-order": "error",
+				"solid-v2/jsx-no-duplicate-props": "error",
+				"solid-v2/jsx-no-script-url": "error",
+				"solid-v2/no-unknown-namespaces": "error",
+				"solid-v2/no-react-specific-props": "warn",
+				"solid-v2/event-handlers": "warn",
+				"solid-v2/components-return-once": "warn"
+			}
+		}
 	]
 }

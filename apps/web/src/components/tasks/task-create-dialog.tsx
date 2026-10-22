@@ -1,8 +1,9 @@
-import { useMutation, useQueryClient } from "@tanstack/solid-query";
-import { CalendarDays } from "lucide-solid";
-import { createEffect, createSignal, on, Show } from "solid-js";
-import { friendlyError } from "../../lib/errors";
-import { orpc } from "../../lib/orpc";
+import { useRouter } from "@tanstack/solid-router";
+import { createSignal, Show } from "solid-js";
+import { createAction } from "../../lib/action";
+import { CalendarDays } from "../../lib/icons";
+import { client } from "../../lib/orpc";
+import { refresh } from "../../lib/refresh";
 import { Button } from "../ui/button";
 import { Dialog } from "../ui/dialog";
 import { Input, Textarea } from "../ui/text-field";
@@ -24,44 +25,40 @@ export function TaskCreateDialog(props: {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 }) {
-	const queryClient = useQueryClient();
-	const [title, setTitle] = createSignal("");
-	const [date, setDate] = createSignal("");
-	const [description, setDescription] = createSignal("");
-	const [dateError, setDateError] = createSignal<string | null>(null);
+	const router = useRouter();
+	// Writable memos: every time the dialog opens, the form starts empty.
+	const [title, setTitle] = createSignal(() => {
+		void props.open;
+		return "";
+	});
+	const [date, setDate] = createSignal(() => {
+		void props.open;
+		return "";
+	});
+	const [description, setDescription] = createSignal(() => {
+		void props.open;
+		return "";
+	});
+	const [dateError, setDateError] = createSignal<string | null>(() => {
+		void props.open;
+		return null;
+	});
 	let picker: HTMLInputElement | undefined;
 
-	createEffect(
-		on(
-			() => props.open,
-			(open) => {
-				if (open) {
-					setTitle("");
-					setDate("");
-					setDescription("");
-					setDateError(null);
-				}
-			},
-		),
-	);
-
-	const add = useMutation(() =>
-		orpc.tasks.add.mutationOptions({
-			onSuccess: () => {
-				void queryClient.invalidateQueries({ queryKey: orpc.tasks.key() });
-				void queryClient.invalidateQueries({ queryKey: orpc.dashboard.key() });
-				toast({
-					title: "Taak aangemaakt",
-					description: props.leerlingName
-						? `${props.leerlingName} ziet de taak onder Mijn taken.`
-						: undefined,
-					tone: "success",
-				});
-				props.onOpenChange(false);
-			},
-			onError: (error) =>
-				toast({ title: "Aanmaken mislukt", description: friendlyError(error), tone: "danger" }),
-		}),
+	const add = createAction(
+		async (input: { leerlingId: string; title: string; description?: string; dueAt: Date | undefined }) => {
+			await client.tasks.add(input);
+			toast({
+				title: "Taak aangemaakt",
+				description: props.leerlingName
+					? `${props.leerlingName} ziet de taak onder Mijn taken.`
+					: undefined,
+				tone: "success",
+			});
+			props.onOpenChange(false);
+			await refresh(router, "tasks");
+		},
+		{ error: "Aanmaken mislukt" },
 	);
 
 	const create = () => {
@@ -71,7 +68,7 @@ export function TaskCreateDialog(props: {
 			return;
 		}
 		if (!props.leerlingId || !title().trim()) return;
-		add.mutate({
+		void add.run({
 			leerlingId: props.leerlingId,
 			title: title().trim(),
 			description: description().trim() || undefined,
@@ -90,7 +87,7 @@ export function TaskCreateDialog(props: {
 					<Button variant="subtle" onClick={() => props.onOpenChange(false)}>
 						Annuleren
 					</Button>
-					<Button disabled={add.isPending || !title().trim()} onClick={create}>
+					<Button disabled={add.pending() || !title().trim()} onClick={create}>
 						Taak aanmaken
 					</Button>
 				</>
@@ -124,7 +121,7 @@ export function TaskCreateDialog(props: {
 						<input
 							id="task-date"
 							class="input flex-1"
-							inputMode="numeric"
+							inputmode="numeric"
 							placeholder="DD/MM/JJJJ"
 							aria-describedby="task-date-hint"
 							aria-invalid={dateError() ? "true" : undefined}
@@ -136,10 +133,10 @@ export function TaskCreateDialog(props: {
 						/>
 						{/* The browser's own calendar, filled back as DD/MM/JJJJ. */}
 						<input
-							ref={picker}
+							ref={(el) => (picker = el)}
 							type="date"
 							class="sr-only"
-							tabIndex={-1}
+							tabindex={-1}
 							aria-hidden="true"
 							value={(() => {
 								const d = parseDutchDate(date());
@@ -185,7 +182,7 @@ export function TaskCreateDialog(props: {
 						{description().length}/{DESCRIPTION_MAX}
 					</span>
 				</div>
-				<button type="submit" class="sr-only" tabIndex={-1}>
+				<button type="submit" class="sr-only" tabindex={-1}>
 					Taak aanmaken
 				</button>
 			</form>

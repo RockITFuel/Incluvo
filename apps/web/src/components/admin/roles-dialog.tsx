@@ -1,5 +1,5 @@
 import { rolesCombine, type UserRole } from "@incluvo/permissions";
-import { createEffect, createSignal, For, Show } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 import { roleLabel } from "../shell/nav";
 import { Button } from "../ui/button";
 import { Dialog } from "../ui/dialog";
@@ -20,10 +20,10 @@ export function RolesDialog(props: {
 	saving: boolean;
 	onSave: (roles: UserRole[]) => void;
 }) {
-	const [chosen, setChosen] = createSignal<UserRole[]>([]);
-	createEffect(() => {
-		if (props.open) setChosen([...props.roles]);
-	});
+	// Starts from the person's roles each time the dialog opens.
+	const [chosen, setChosen] = createSignal<UserRole[]>(() =>
+		props.open ? [...props.roles] : [],
+	);
 
 	const toggle = (role: UserRole, on: boolean) => {
 		if (!on) return setChosen(chosen().filter((r) => r !== role));

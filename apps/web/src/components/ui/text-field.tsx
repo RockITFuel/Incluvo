@@ -1,5 +1,7 @@
 import { TextField as KTextField } from "@kobalte/core/text-field";
-import { type JSX, Show, splitProps } from "solid-js";
+import type { JSX } from "@solidjs/web";
+import { Show } from "solid-js";
+import { splitProps } from "../../lib/solid-props";
 import { cn } from "../../lib/cn";
 
 const controlClass =
@@ -83,7 +85,7 @@ export function Input(props: InputProps) {
 			<KTextField.Input
 				type={el.type ?? "text"}
 				placeholder={el.placeholder}
-				maxLength={el.maxLength}
+				maxlength={el.maxLength}
 				onInput={el.onInput}
 				class={cn(controlClass, input.inputClass)}
 			/>
@@ -127,7 +129,7 @@ export function Textarea(props: TextareaProps) {
 			<KTextField.TextArea
 				placeholder={el.placeholder}
 				rows={el.rows ?? 4}
-				maxLength={el.maxLength}
+				maxlength={el.maxLength}
 				onInput={el.onInput}
 				class={cn(controlClass, "min-h-24 resize-y")}
 			/>

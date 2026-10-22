@@ -62,15 +62,17 @@ function OptionPill(props: {
 		<button
 			type="button"
 			disabled={props.disabled}
-			aria-pressed={props.selected}
+			aria-pressed={props.selected ? "true" : "false"}
 			onClick={props.onClick}
 			class="flex items-center gap-2.5 rounded-2 border-[1.5px] px-4 py-3 text-left text-body transition-colors duration-fast focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:opacity-50 data-[on=true]:border-primary data-[on=true]:bg-primary-50 data-[on=true]:font-medium data-[on=true]:text-primary-700 data-[on=false]:border-line data-[on=false]:bg-surface data-[on=false]:text-ink hover:border-primary/60"
-			data-on={props.selected}
+			data-on={String(props.selected)}
 		>
 			<span
-				class="grid size-5 shrink-0 place-items-center border-[1.5px] text-white data-[on=true]:border-primary data-[on=true]:bg-primary data-[on=false]:border-line"
-				classList={{ "rounded-md": props.multi, "rounded-full": !props.multi }}
-				data-on={props.selected}
+				class={[
+					"grid size-5 shrink-0 place-items-center border-[1.5px] text-white data-[on=true]:border-primary data-[on=true]:bg-primary data-[on=false]:border-line",
+					{ "rounded-md": !!props.multi, "rounded-full": !props.multi },
+				]}
+				data-on={String(props.selected)}
 			>
 				<Show when={props.selected}>
 					<span aria-hidden="true" class="text-micro">
@@ -204,9 +206,9 @@ export function QuestionInput(props: Props) {
 									type="button"
 									disabled={props.disabled}
 									aria-label={`${n}`}
-									aria-pressed={props.value.value === String(n)}
+									aria-pressed={props.value.value === String(n) ? "true" : "false"}
 									onClick={() => props.onChange({ value: String(n) })}
-									data-on={props.value.value === String(n)}
+									data-on={String(props.value.value === String(n))}
 									class="grid size-11 place-items-center rounded-2 border-[1.5px] text-body font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:opacity-50 data-[on=true]:border-primary data-[on=true]:bg-primary data-[on=true]:text-primary-fg data-[on=false]:border-line data-[on=false]:bg-surface data-[on=false]:text-ink"
 								>
 									{n}
@@ -229,9 +231,9 @@ export function QuestionInput(props: Props) {
 								type="button"
 								disabled={props.disabled}
 								aria-label={s.label}
-								aria-pressed={props.value.value === s.value}
+								aria-pressed={props.value.value === s.value ? "true" : "false"}
 								onClick={() => props.onChange({ value: s.value })}
-								data-on={props.value.value === s.value}
+								data-on={String(props.value.value === s.value)}
 								class="grid size-12 place-items-center rounded-2 border-[1.5px] text-2xl transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:opacity-50 data-[on=true]:border-primary data-[on=true]:bg-primary-50 data-[on=false]:border-line data-[on=false]:bg-surface"
 							>
 								{s.emoji}

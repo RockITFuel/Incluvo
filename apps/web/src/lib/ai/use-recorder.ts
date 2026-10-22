@@ -1,4 +1,4 @@
-import { createSignal, onCleanup } from "solid-js";
+import { createSignal, onSettled } from "solid-js";
 
 /**
  * Minimal audio recorder for the transcription demo (#18). Uses the browser
@@ -25,16 +25,26 @@ export function useRecorder() {
 	let recorder: MediaRecorder | undefined;
 	let chunks: BlobPart[] = [];
 	let stream: MediaStream | undefined;
+	// Solid 2 shows a write only after it flushes, so the re-entrance guard and
+	// the object URL to revoke are plain variables.
+	let active = false;
+	let url: string | null = null;
+	const setUrl = (next: string | null) => {
+		if (url) URL.revokeObjectURL(url);
+		url = next;
+		setAudioUrl(next);
+	};
 
 	async function start() {
 		setError(null);
 		// Re-entrance guard: a second start() would orphan the running recorder /
 		// stream and leave the mic live.
-		if (recording()) return;
+		if (active) return;
 		if (!supported()) {
 			setError("Opnemen wordt niet ondersteund in deze browser.");
 			return;
 		}
+		active = true;
 		try {
 			stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 			recorder = new MediaRecorder(stream);
@@ -44,10 +54,8 @@ export function useRecorder() {
 			};
 			recorder.onstop = async () => {
 				const blob = new Blob(chunks, { type: recorder?.mimeType || "audio/webm" });
-				// Revoke the previous object URL before replacing it (re-record leak).
-				const prev = audioUrl();
-				if (prev) URL.revokeObjectURL(prev);
-				setAudioUrl(URL.createObjectURL(blob));
+				// Revokes the previous object URL before replacing it (re-record leak).
+				setUrl(URL.createObjectURL(blob));
 				const buffer = await blob.arrayBuffer();
 				setAudioBase64(arrayBufferToBase64(buffer));
 				stream?.getTracks().forEach((t) => t.stop());
@@ -56,12 +64,14 @@ export function useRecorder() {
 			recorder.start();
 			setRecording(true);
 		} catch {
+			active = false;
 			setError("Geen toegang tot de microfoon.");
 		}
 	}
 
 	function stop() {
 		if (recorder && recorder.state !== "inactive") recorder.stop();
+		active = false;
 		setRecording(false);
 	}
 
@@ -75,17 +85,14 @@ export function useRecorder() {
 		stream?.getTracks().forEach((t) => t.stop());
 		stream = undefined;
 		recorder = undefined;
+		active = false;
 		setRecording(false);
-
-		const url = audioUrl();
-		if (url) URL.revokeObjectURL(url);
-		setAudioUrl(null);
+		setUrl(null);
 		setAudioBase64(null);
 	}
 
-	onCleanup(() => {
+	onSettled(() => () => {
 		stream?.getTracks().forEach((t) => t.stop());
-		const url = audioUrl();
 		if (url) URL.revokeObjectURL(url);
 	});
 

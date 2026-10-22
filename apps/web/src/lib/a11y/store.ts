@@ -1,6 +1,6 @@
 import { makePersisted } from "@solid-primitives/storage";
 import { createEffect, createRoot } from "solid-js";
-import { createStore } from "solid-js/store";
+import { createStore } from "solid-js";
 
 /**
  * Global accessibility preferences for Incluvo.
@@ -60,23 +60,29 @@ function createA11yStore() {
 	);
 
 	// Reflect settings onto <html data-*> so CSS variables react.
-	createEffect(() => {
-		if (typeof document === "undefined") return;
-		const el = document.documentElement;
-		el.dataset.contrast = settings.contrast;
-		el.dataset.size = settings.size;
-		el.dataset.density = settings.density;
-		el.dataset.font = settings.font;
-		el.dataset.reduceMotion = String(settings.reduceMotion);
-		// TODO(Epic 7 — AI-vertaling): reflect settings.language once the UI is actually translated.
-		el.lang = "nl";
-	});
+	createEffect(
+		() => ({
+			contrast: settings.contrast,
+			size: settings.size,
+			density: settings.density,
+			font: settings.font,
+			reduceMotion: String(settings.reduceMotion),
+		}),
+		(data) => {
+			const el = document.documentElement;
+			Object.assign(el.dataset, data);
+			// TODO(Epic 7 — AI-vertaling): reflect settings.language once the UI is actually translated.
+			el.lang = "nl";
+		},
+	);
 
 	return {
 		settings,
 		set: <K extends keyof A11ySettings>(key: K, value: A11ySettings[K]) =>
-			setSettings(key, value),
-		reset: () => setSettings({ ...DEFAULTS }),
+			setSettings((draft) => {
+				draft[key] = value;
+			}),
+		reset: () => setSettings(() => ({ ...DEFAULTS })),
 	};
 }
 

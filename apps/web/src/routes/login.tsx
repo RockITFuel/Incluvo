@@ -1,12 +1,12 @@
 import type { UserRole } from "@incluvo/permissions";
 import { roleHome } from "../lib/auth/role-home";
-import { createFileRoute, useRouter } from "@tanstack/solid-router";
-import { Show, createSignal, onMount } from "solid-js";
+import { createFileRoute, redirect, useRouter } from "@tanstack/solid-router";
+import { Show, createSignal } from "solid-js";
 import { A11yPanel } from "../components/a11y-panel";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/text-field";
 import { authClient } from "../lib/auth/auth-client";
-import { clearCachedSession, getCachedSession } from "../lib/auth/session";
+import { clearMe, loadMe } from "../lib/auth/me";
 import { friendlyError } from "../lib/errors";
 
 /**
@@ -16,6 +16,11 @@ import { friendlyError } from "../lib/errors";
  * hun rol-startpagina. De toegankelijkheidsknop blijft rechtsboven bereikbaar.
  */
 export const Route = createFileRoute("/login")({
+	// Already signed in? Skip the form and go to the role's start page.
+	beforeLoad: async () => {
+		const me = await loadMe().catch(() => null);
+		if (me) throw redirect({ to: roleHome(me.role as UserRole), replace: true });
+	},
 	component: Login,
 });
 
@@ -28,31 +33,11 @@ function Login() {
 	const [mode, setMode] = createSignal<"sign-in" | "forgot">("sign-in");
 	const [error, setError] = createSignal<string | null>(null);
 	const [notice, setNotice] = createSignal<string | null>(
-		typeof window !== "undefined" &&
-			new URLSearchParams(window.location.search).has("wachtwoord")
+		new URLSearchParams(window.location.search).has("wachtwoord")
 			? "Je wachtwoord is ingesteld. Je kunt nu inloggen."
 			: null,
 	);
 	const [busy, setBusy] = createSignal(false);
-	// Guards against a native GET form submit before the SPA hydrates (which
-	// would put the e-mail + password in the URL/history). The button stays
-	// disabled in the prerendered shell until `onMount` runs on the client.
-	const [ready, setReady] = createSignal(false);
-
-	onMount(async () => {
-		setReady(true);
-		// Already signed in? Skip the form and go to the role's home.
-		try {
-			const data = await getCachedSession();
-			if (data?.session) {
-				const role = ((data.user as { role?: string } | undefined)?.role ??
-					"leerling") as UserRole;
-				router.navigate({ to: roleHome(role), replace: true });
-			}
-		} catch {
-			// stay on the form
-		}
-	});
 
 	async function submit(e: Event) {
 		e.preventDefault();
@@ -92,10 +77,8 @@ function Login() {
 			);
 			return;
 		}
-		// Drop the 30s session cache: it may hold a pre-login `null`, which the
-		// post-login navigate's guard would read as "not signed in" and bounce
-		// straight back to /login.
-		clearCachedSession();
+		// Drop the cached identity: the next guard loads the signed-in one.
+		clearMe();
 		const role = ((data?.user as { role?: string } | undefined)?.role ??
 			"leerling") as UserRole;
 		router.navigate({ to: roleHome(role) });
@@ -285,7 +268,7 @@ function Login() {
 								{error()}
 							</p>
 						</Show>
-						<Button type="submit" size="lg" disabled={busy() || !ready()}>
+						<Button type="submit" size="lg" disabled={busy()}>
 							{busy()
 								? "Bezig…"
 								: mode() === "sign-in"

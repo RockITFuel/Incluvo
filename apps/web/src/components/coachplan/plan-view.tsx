@@ -1,6 +1,6 @@
-import { useQuery } from "@tanstack/solid-query";
 import { For, Show, createMemo } from "solid-js";
-import { orpc } from "../../lib/orpc";
+import { createLoad } from "../../lib/load";
+import { client } from "../../lib/orpc";
 import { Badge } from "../ui/badge";
 import { Card } from "../ui/card";
 import { type AnswerValue, type QuestionDTO, renderAnswerText } from "./question-input";
@@ -13,12 +13,14 @@ import { ErrorState } from "../../components/ui/error-state";
  * `leerlingOnly`, just the leerling's answers (the coach's review page, INC-12).
  */
 export function PlanView(props: { submissionId: string; leerlingOnly?: boolean }) {
-	const query = useQuery(() =>
-		orpc.coachplan.getSubmission.queryOptions({ input: { id: props.submissionId } }),
+	// A panel inside a page that can switch between versions: component-local data.
+	const query = createLoad(
+		() => props.submissionId,
+		(id, signal) => client.coachplan.getSubmission({ id }, { signal }),
 	);
 	const answers = createMemo(() => {
 		const map: Record<string, AnswerValue & { skipped: boolean; discuss: boolean }> = {};
-		for (const a of query.data?.answers ?? []) {
+		for (const a of query.data()?.answers ?? []) {
 			map[a.questionId] = {
 				value: a.value,
 				valueJson: (a.valueJson as string[] | null) ?? null,
@@ -28,7 +30,7 @@ export function PlanView(props: { submissionId: string; leerlingOnly?: boolean }
 		}
 		return map;
 	});
-	const questions = () => (query.data?.questions ?? []) as unknown as QuestionDTO[];
+	const questions = () => (query.data()?.questions ?? []) as unknown as QuestionDTO[];
 	const coachQuestions = () =>
 		props.leerlingOnly
 			? []
@@ -78,13 +80,13 @@ export function PlanView(props: { submissionId: string; leerlingOnly?: boolean }
 
 	return (
 		<Show
-			when={query.data}
+			when={query.data()}
 			fallback={
-				<Show when={query.error} fallback={<p class="text-muted">Laden…</p>}>
+				<Show when={query.error()} fallback={<p class="text-muted">Laden…</p>}>
 					<ErrorState
-						error={query.error}
+						error={query.error()}
 						what="het plan"
-						onRetry={() => query.refetch()}
+						onRetry={() => query.reload()}
 					/>
 				</Show>
 			}
@@ -96,10 +98,10 @@ export function PlanView(props: { submissionId: string; leerlingOnly?: boolean }
 						<div class="flex flex-col gap-3.5">
 							<For each={coachQuestions()}>{(q) => <Answer q={q} />}</For>
 						</div>
-						<Show when={(query.data?.learningPreferences.length ?? 0) > 0}>
+						<Show when={(query.data()?.learningPreferences.length ?? 0) > 0}>
 							<h3 class="mt-4 mb-2 font-medium text-ink-2">Zo leer je graag</h3>
 							<div class="flex flex-wrap gap-1.5">
-								<For each={query.data?.learningPreferences}>
+								<For each={query.data()?.learningPreferences}>
 									{(l) => <Badge variant="accent">{l.replaceAll("_", " ")}</Badge>}
 								</For>
 							</div>

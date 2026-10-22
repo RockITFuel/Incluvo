@@ -79,7 +79,7 @@ support, and a high-contrast mode.
   a11y) for public pages (home, login).
 - `src/components/shell/user-menu.tsx` — avatar dropdown with sign-out.
 
-`NavItem` icons are `lucide-solid` components.
+`NavItem` icons are components from `lib/icons.tsx` (vanilla `lucide` geometry).
 
 ## Components
 

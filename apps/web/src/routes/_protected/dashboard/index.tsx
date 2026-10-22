@@ -1,5 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/solid-router";
-import { useQuery } from "@tanstack/solid-query";
+import { createFileRoute, Link, useRouter } from "@tanstack/solid-router";
 import {
 	ClipboardCheck,
 	Flag,
@@ -8,15 +7,8 @@ import {
 	Search,
 	TrendingUp,
 	User,
-} from "lucide-solid";
-import {
-	createEffect,
-	createMemo,
-	createSignal,
-	For,
-	on,
-	Show,
-} from "solid-js";
+} from "../../../lib/icons";
+import { createMemo, createSignal, For, Show } from "solid-js";
 import {
 	PlanStatusBadge,
 	relativeTime,
@@ -26,12 +18,12 @@ import { KPI } from "../../../components/dashboard/kpi";
 import { Quickpanel } from "../../../components/dashboard/quickpanel";
 import { Pagination } from "../../../components/ui/pagination";
 import { Tooltip } from "../../../components/ui/tooltip";
-import { requireRole } from "../../../lib/auth/require-role";
-import { RequireRole } from "../../../lib/auth/role-guard";
-import { useMe } from "../../../lib/auth/use-me";
+import { requireRole } from "../../../lib/auth/role-guard";
 import { moodMeta } from "../../../lib/mood";
-import { orpc } from "../../../lib/orpc";
-import { ErrorState } from "../../../components/ui/error-state";
+import { client } from "../../../lib/orpc";
+import { refresh } from "../../../lib/refresh";
+import { granted, loadRouteData } from "../../../lib/route-data";
+import { RouteDataView } from "../../../components/ui/route-data-view";
 
 /**
  * Coach dashboard (#42) — a 1:1 port of the approved "Coach" prototype page.
@@ -46,30 +38,57 @@ import { ErrorState } from "../../../components/ui/error-state";
  * Fields the backend does not yet carry (per-leerling mood, class name) are
  * shown as clearly-static demo placeholders, never fabricated per leerling.
  *
- * Gated to coach+ in the UI (`requireRole("coach")`); the server re-enforces
- * coach+ and the coach↔leerling assignment on every procedure.
- */
-export const Route = createFileRoute("/_protected/dashboard/")({
-	beforeLoad: () => requireRole("coach", undefined, { only: ["coach", "superadmin"] }),
-	component: () => (
-		<RequireRole min="coach" only={["coach", "superadmin"]}>
-			<DashboardOrOverview />
-		</RequireRole>
-	),
-});
-
-/**
+ * Gated to the coach and the superadmin in `beforeLoad`; the server
+ * re-enforces coach+ and the coach↔leerling assignment on every procedure.
+ *
  * The superadmin (Ondivera) manages schools rather than coaching leerlingen:
  * they get the platform overview (docs/decisions/superadmin-beheer.md).
  */
+export const Route = createFileRoute("/_protected/dashboard/")({
+	beforeLoad: ({ context }) =>
+		requireRole(context.me, { min: "coach", only: ["coach", "superadmin"] }),
+	loader: async ({ context, abortController }) => {
+		if (context.me.role === "superadmin") return { view: "platform" as const };
+		const signal = abortController.signal;
+		const [overview, moods] = await Promise.all([
+			loadRouteData(signal, (s) => client.dashboard.overview(undefined, { signal: s })),
+			// Today's SHARED mood per assigned leerling (server only returns opt-in rows).
+			loadRouteData(signal, (s) => client.mood.todayForLeerlingen(undefined, { signal: s })),
+		]);
+		return { view: "coach" as const, overview, moods };
+	},
+	component: DashboardOrOverview,
+});
+
 function DashboardOrOverview() {
-	const me = useMe();
+	const data = Route.useLoaderData();
+	const router = useRouter();
+	const coach = () => {
+		const d = data();
+		return d.view === "coach" ? d : undefined;
+	};
 	return (
-		<Show when={me.is("superadmin")} fallback={<DashboardPage />}>
-			<PlatformOverview />
+		<Show when={coach()} fallback={<PlatformOverview />}>
+			{(coach) => (
+				<RouteDataView
+					data={coach().overview}
+					what="je leerlingen"
+					onRetry={() => void refresh(router, "people", "tasks", "coachplan")}
+				>
+					{(rows) => (
+						<DashboardPage
+							rows={rows()}
+							moods={granted(coach().moods) ?? []}
+						/>
+					)}
+				</RouteDataView>
+			)}
 		</Show>
 	);
 }
+
+type OverviewRow = Awaited<ReturnType<typeof client.dashboard.overview>>[number];
+type MoodRow = Awaited<ReturnType<typeof client.mood.todayForLeerlingen>>[number];
 
 type Filter = "all" | "attention" | "plan";
 
@@ -108,13 +127,10 @@ const todayLabel = (): string =>
 		month: "long",
 	});
 
-function DashboardPage() {
-	const overview = useQuery(() => orpc.dashboard.overview.queryOptions());
-	// Today's SHARED mood per assigned leerling (server only returns opt-in rows).
-	const moods = useQuery(() => orpc.mood.todayForLeerlingen.queryOptions());
+function DashboardPage(props: { rows: OverviewRow[]; moods: MoodRow[] }) {
 	const moodByLeerling = createMemo(() => {
 		const m = new Map<string, number>();
-		for (const r of moods.data ?? []) m.set(r.leerlingId, r.mood);
+		for (const r of props.moods) m.set(r.leerlingId, r.mood);
 		return m;
 	});
 	const [filter, setFilter] = createSignal<Filter>("all");
@@ -123,8 +139,8 @@ function DashboardPage() {
 	const [openPlan, setOpenPlan] = createSignal<string | null>(null);
 	const [openConvo, setOpenConvo] = createSignal<string | null>(null);
 
-	const rows = createMemo(() => overview.data ?? []);
-	type Row = NonNullable<typeof overview.data>[number];
+	const rows = () => props.rows;
+	type Row = OverviewRow;
 
 	/** Per-leerling task-completion voortgang (real). */
 	const voortgang = (row: Row) => {
@@ -147,8 +163,12 @@ function DashboardPage() {
 	});
 
 	// --- Paginering (client-side; the overview returns all assigned leerlingen).
-	const [page, setPage] = createSignal(1);
-	createEffect(on([filter, search], () => setPage(1), { defer: true }));
+	// Back to page 1 whenever the filter or the search changes.
+	const [page, setPage] = createSignal(() => {
+		void filter();
+		void search();
+		return 1;
+	});
 	const pageCount = createMemo(() =>
 		Math.max(1, Math.ceil(filtered().length / PAGE_SIZE)),
 	);
@@ -222,24 +242,12 @@ function DashboardPage() {
 						<span style={{ "text-transform": "capitalize" }}>
 							{todayLabel()}
 						</span>
-						<Show when={overview.data}> · {rows().length} leerlingen</Show>
+						 · {rows().length} leerlingen
 					</div>
 				</div>
 			</div>
 
-			<Show when={overview.isLoading}>
-				<div class="card text-muted">Laden…</div>
-			</Show>
-
-			<Show when={overview.error}>
-				<ErrorState
-					error={overview.error}
-					what="je leerlingen"
-					onRetry={() => overview.refetch()}
-				/>
-			</Show>
-
-			<Show when={!overview.isLoading && !overview.error && rows().length === 0}>
+			<Show when={rows().length === 0}>
 				<div class="card" style={{ color: "rgb(var(--muted))" }}>
 					Er zijn nog geen leerlingen aan jou gekoppeld.
 				</div>
@@ -299,7 +307,7 @@ function DashboardPage() {
 						<button
 							type="button"
 							class={filter() === "all" ? "on" : ""}
-							aria-pressed={filter() === "all"}
+							aria-pressed={filter() === "all" ? "true" : "false"}
 							onClick={() => setFilter("all")}
 						>
 							Alle leerlingen
@@ -307,7 +315,7 @@ function DashboardPage() {
 						<button
 							type="button"
 							class={filter() === "attention" ? "on" : ""}
-							aria-pressed={filter() === "attention"}
+							aria-pressed={filter() === "attention" ? "true" : "false"}
 							onClick={() => setFilter("attention")}
 						>
 							Aandacht ({attentionCount()})
@@ -315,7 +323,7 @@ function DashboardPage() {
 						<button
 							type="button"
 							class={filter() === "plan" ? "on" : ""}
-							aria-pressed={filter() === "plan"}
+							aria-pressed={filter() === "plan" ? "true" : "false"}
 							onClick={() => setFilter("plan")}
 						>
 							Plan in behandeling
@@ -430,7 +438,7 @@ function DashboardPage() {
 													type="button"
 													class="text-left"
 													aria-label={`Snelpanel van ${row.leerling.name}`}
-													aria-expanded={openLeerling() === row.leerling.id}
+													aria-expanded={openLeerling() === row.leerling.id ? "true" : "false"}
 													onClick={(e) => {
 														e.stopPropagation();
 														openQuickpanel(

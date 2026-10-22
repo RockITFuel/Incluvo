@@ -1,6 +1,7 @@
-import { Button as KButton } from "@kobalte/core/button";
+import { Button as KButton, type ButtonRootProps } from "@kobalte/core/button";
 import { type VariantProps, cva } from "class-variance-authority";
-import { type JSX, splitProps } from "solid-js";
+import type { JSX } from "@solidjs/web";
+import { splitProps } from "../../lib/solid-props";
 import { cn } from "../../lib/cn";
 
 export const buttonVariants = cva(
@@ -37,7 +38,8 @@ export function Button(props: ButtonProps) {
 				buttonVariants({ variant: local.variant, size: local.size }),
 				local.class,
 			)}
-			{...rest}
+			// Native button attributes pass straight through to the rendered <button>.
+			{...(rest as ButtonRootProps)}
 		/>
 	);
 }

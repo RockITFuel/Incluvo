@@ -1,4 +1,4 @@
-import { createSignal, onCleanup } from "solid-js";
+import { createSignal, onSettled } from "solid-js";
 import { client } from "../orpc";
 import { friendlyError } from "../errors";
 
@@ -41,16 +41,31 @@ export function useAssistant(options: UseAssistantOptions) {
 	// Aborts the in-flight stream so navigating away or reset() stops consuming
 	// the (paid) LLM stream and writing into a cleared conversation.
 	let controller: AbortController | undefined;
+	// Plain mirrors of the signals: Solid 2 shows a write only after it flushes,
+	// and the stream appends faster than that.
+	let current: AssistantMessage[] = [];
+	let busy = false;
+	const commit = (next: AssistantMessage[]) => {
+		current = next;
+		setMessages(() => next);
+	};
+	/** Replaces the last turn when it is the assistant's. */
+	const updateLast = (fn: (last: Extract<AssistantMessage, { role: "assistant" }>) => AssistantMessage | null) => {
+		const last = current[current.length - 1];
+		if (!last || last.role !== "assistant") return;
+		const next = fn(last);
+		commit(next ? [...current.slice(0, -1), next] : current.slice(0, -1));
+	};
 
 	async function send(text: string) {
 		const content = text.trim();
-		if (!content || streaming()) return;
+		if (!content || busy) return;
 
+		busy = true;
 		setError(null);
-		const history = messages();
-		const next: AssistantMessage[] = [...history, { role: "user", content }];
+		const next: AssistantMessage[] = [...current, { role: "user", content }];
 		// Push the user turn and an empty assistant turn we fill as tokens arrive.
-		setMessages([...next, { role: "assistant", content: "" }]);
+		commit([...next, { role: "assistant", content: "" }]);
 		setStreaming(true);
 
 		// Cancel any previous stream and open a fresh abort scope for this turn.
@@ -82,27 +97,12 @@ export function useAssistant(options: UseAssistantOptions) {
 					continue;
 				}
 				if ("delta" in frame) {
-					setMessages((prev) => {
-						const copy = [...prev];
-						const last = copy[copy.length - 1];
-						if (last && last.role === "assistant") {
-							copy[copy.length - 1] = {
-								role: "assistant",
-								content: last.content + frame.delta,
-							};
-						}
-						return copy;
-					});
+					const delta = frame.delta;
+					updateLast((last) => ({ role: "assistant", content: last.content + delta }));
 				}
 				if ("done" in frame) {
-					setMessages((prev) => {
-						const copy = [...prev];
-						const last = copy[copy.length - 1];
-						if (last && last.role === "assistant") {
-							copy[copy.length - 1] = { ...last, signature: frame.signature };
-						}
-						return copy;
-					});
+					const signature = frame.signature;
+					updateLast((last) => ({ ...last, signature }));
 				}
 			}
 		} catch (err) {
@@ -113,26 +113,27 @@ export function useAssistant(options: UseAssistantOptions) {
 				friendlyError(err, "Er ging iets mis bij het ophalen van het advies."),
 			);
 			// Drop the empty assistant placeholder on failure.
-			setMessages((prev) => {
-				const copy = [...prev];
-				const last = copy[copy.length - 1];
-				if (last && last.role === "assistant" && last.content === "") copy.pop();
-				return copy;
-			});
+			updateLast((last) => (last.content === "" ? null : last));
 		} finally {
-			setStreaming(false);
+			// A reset() during the stream already freed the slot for a new one.
+			if (controller?.signal === signal) {
+				busy = false;
+				setStreaming(false);
+			}
 		}
 	}
 
 	function reset() {
 		controller?.abort();
 		controller = undefined;
-		setMessages([]);
+		busy = false;
+		commit([]);
+		setStreaming(false);
 		setError(null);
 	}
 
 	// Stop consuming the stream when the hosting component unmounts.
-	onCleanup(() => controller?.abort());
+	onSettled(() => () => controller?.abort());
 
 	return {
 		messages,

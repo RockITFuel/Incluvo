@@ -1,14 +1,15 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/solid-query";
-import { Search } from "lucide-solid";
-import { createEffect, createMemo, createSignal, For, on, Show } from "solid-js";
-import { friendlyError } from "../../lib/errors";
-import { orpc } from "../../lib/orpc";
+import { useRouter } from "@tanstack/solid-router";
+import { Search } from "../../lib/icons";
+import { createMemo, createSignal, For, Show } from "solid-js";
+import { createAction } from "../../lib/action";
+import { createLoad } from "../../lib/load";
+import { client } from "../../lib/orpc";
+import { refresh } from "../../lib/refresh";
 import { Card } from "../ui/card";
 import { ErrorState } from "../ui/error-state";
 import { Pagination } from "../ui/pagination";
 import { Select } from "../ui/select";
 import { Switch } from "../ui/switch";
-import { toast } from "../ui/toast";
 import { CoursesPanel } from "./templates-panel";
 
 const PAGE_SIZE = 20;
@@ -20,20 +21,28 @@ const ALL = "__all__";
  * The per-course view of the same setting is the catalogue (/beheer/cursussen).
  */
 export function SchoolCoursesPanel(props: { organizationId: string; readOnly?: boolean }) {
-	const queryClient = useQueryClient();
-	const courses = useQuery(() => orpc.courses.list.queryOptions({ input: {} }));
-	const categories = useQuery(() => orpc.courses.catalog.categories.list.queryOptions());
+	const router = useRouter();
+	// A panel inside the school page (another route), so it loads its own data.
+	const courses = createLoad(
+		() => true,
+		(_, signal) => client.courses.list({}, { signal }),
+	);
+	const categories = createLoad(
+		() => true,
+		(_, signal) => client.courses.catalog.categories.list(undefined, { signal }),
+	);
 	const [search, setSearch] = createSignal("");
 	const [category, setCategory] = createSignal(ALL);
 	const [onlyAvailable, setOnlyAvailable] = createSignal(ALL);
-	const [page, setPage] = createSignal(1);
+	// Back to page 1 whenever a filter changes.
+	const [page, setPage] = createSignal(() => (search(), category(), onlyAvailable(), 1));
 
 	const availableHere = (c: {
 		availability: { allSchools: boolean; organizationIds: string[] } | null;
 	}) => Boolean(c.availability?.allSchools || c.availability?.organizationIds.includes(props.organizationId));
 
 	const templates = createMemo(() =>
-		(courses.data ?? []).filter((c) => c.kind === "ondivera_template"),
+		(courses.data() ?? []).filter((c) => c.kind === "ondivera_template"),
 	);
 	const availableCount = createMemo(() => templates().filter(availableHere).length);
 
@@ -46,7 +55,6 @@ export function SchoolCoursesPanel(props: { organizationId: string; readOnly?: b
 		if (onlyAvailable() === "no") rows = rows.filter((c) => !availableHere(c));
 		return rows;
 	});
-	createEffect(on([search, category, onlyAvailable], () => setPage(1), { defer: true }));
 	const pageCount = createMemo(() => Math.max(1, Math.ceil(filtered().length / PAGE_SIZE)));
 	const currentPage = createMemo(() => Math.min(page(), pageCount()));
 	const paged = createMemo(() => {
@@ -54,12 +62,13 @@ export function SchoolCoursesPanel(props: { organizationId: string; readOnly?: b
 		return filtered().slice(start, start + PAGE_SIZE);
 	});
 
-	const toggle = useMutation(() =>
-		orpc.courses.catalog.availability.setForSchool.mutationOptions({
-			onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.courses.list.key() }),
-			onError: (error) =>
-				toast({ title: "Opslaan mislukt", description: friendlyError(error), tone: "danger" }),
-		}),
+	const toggle = createAction(
+		async (input: { courseId: string; organizationId: string; available: boolean }) => {
+			await client.courses.catalog.availability.setForSchool(input);
+			courses.reload();
+			await refresh(router, "courses");
+		},
+		{ error: "Opslaan mislukt" },
 	);
 
 	return (
@@ -89,7 +98,7 @@ export function SchoolCoursesPanel(props: { organizationId: string; readOnly?: b
 						aria-label="Filter op categorie"
 						options={[
 							{ value: ALL, label: "Alle categorieën" },
-							...(categories.data ?? []).map((c) => ({ value: c.id, label: c.name })),
+							...(categories.data() ?? []).map((c) => ({ value: c.id, label: c.name })),
 						]}
 						value={category()}
 						onChange={(v) => setCategory(v ?? ALL)}
@@ -108,10 +117,10 @@ export function SchoolCoursesPanel(props: { organizationId: string; readOnly?: b
 					/>
 				</div>
 
-				<Show when={courses.error}>
-					<ErrorState error={courses.error} what="de cursussen" onRetry={() => courses.refetch()} />
+				<Show when={courses.error()}>
+					<ErrorState error={courses.error()} what="de cursussen" onRetry={() => courses.reload()} />
 				</Show>
-				<Show when={courses.data && filtered().length === 0}>
+				<Show when={courses.data() && filtered().length === 0}>
 					<p class="text-muted">
 						{templates().length === 0 ? "Er zijn nog geen Ondivera-cursussen." : "Geen cursussen gevonden."}
 					</p>
@@ -135,9 +144,9 @@ export function SchoolCoursesPanel(props: { organizationId: string; readOnly?: b
 										<Switch
 											aria-label={`${c.title} beschikbaar voor deze school`}
 											checked={availableHere(c)}
-											disabled={toggle.isPending || props.readOnly}
+											disabled={toggle.pending() || props.readOnly}
 											onChange={(available) =>
-												toggle.mutate({
+												void toggle.run({
 													courseId: c.id,
 													organizationId: props.organizationId,
 													available,

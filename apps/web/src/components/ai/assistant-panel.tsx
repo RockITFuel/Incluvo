@@ -1,8 +1,8 @@
-import { useQuery } from "@tanstack/solid-query";
-import { Send, Sparkles } from "lucide-solid";
-import { createEffect, createSignal, For, on, Show } from "solid-js";
+import { createEffect, createSignal, For, Show } from "solid-js";
 import { useAssistant } from "../../lib/ai/use-assistant";
-import { orpc } from "../../lib/orpc";
+import { Send, Sparkles } from "../../lib/icons";
+import { createLoad } from "../../lib/load";
+import { client } from "../../lib/orpc";
 import { MockBanner } from "./mock-banner";
 
 /**
@@ -33,7 +33,10 @@ export function AssistantPanel(props: {
 	let scrollEl: HTMLDivElement | undefined;
 
 	// Provider mode for the static banner (the stream also reports it live).
-	const providerQuery = useQuery(() => orpc.ai.provider.queryOptions());
+	const provider = createLoad(
+		() => ({}),
+		(_, signal) => client.ai.provider(undefined, { signal }),
+	);
 	const effectiveId = () => props.submissionId;
 
 	const assistant = useAssistant({
@@ -43,17 +46,21 @@ export function AssistantPanel(props: {
 	// Switching plans must not carry the previous leerling's turns into the next
 	// conversation — the history is resent verbatim on every send.
 	createEffect(
-		on(effectiveId, () => assistant.reset(), { defer: true }),
+		effectiveId,
+		// reset() writes signals: run it outside the effect.
+		() => queueMicrotask(() => assistant.reset()),
+		{ defer: true },
 	);
 
-	const isMock = () => assistant.mock() ?? providerQuery.data?.mock ?? null;
+	const isMock = () => assistant.mock() ?? provider.data()?.mock ?? null;
 
 	createEffect(
-		on(assistant.messages, () => {
+		() => assistant.messages(),
+		() => {
 			queueMicrotask(() => {
 				if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
 			});
-		}),
+		},
 	);
 
 	const submit = () => {
@@ -81,7 +88,7 @@ export function AssistantPanel(props: {
 				Op basis van plan + leervoorkeuren — als concept.
 			</div>
 
-			<MockBanner mock={isMock()} model={providerQuery.data?.model} />
+			<MockBanner mock={isMock()} model={provider.data()?.model} />
 
 			{/* Conversation / suggestions */}
 			<div
@@ -127,7 +134,7 @@ export function AssistantPanel(props: {
 							{(m) => (
 								<li
 									style={{ "max-width": "92%" }}
-									classList={{
+									class={{
 										"self-end ml-auto": m.role === "user",
 										"self-start": m.role === "assistant",
 									}}

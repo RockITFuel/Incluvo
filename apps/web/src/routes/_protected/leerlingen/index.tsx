@@ -1,6 +1,5 @@
-import { createFileRoute } from "@tanstack/solid-router";
-import { useQuery } from "@tanstack/solid-query";
-import { Search, UserPlus } from "lucide-solid";
+import { createFileRoute, useRouter } from "@tanstack/solid-router";
+import { Search, UserPlus } from "../../../lib/icons";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { dutchDate, personId } from "../../../components/people/format";
 import { KoppelDialog } from "../../../components/people/koppel-dialog";
@@ -8,44 +7,46 @@ import { PersonFormDialog } from "../../../components/people/person-form-dialog"
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
 import { Card } from "../../../components/ui/card";
-import { ErrorState } from "../../../components/ui/error-state";
 import { Pagination } from "../../../components/ui/pagination";
-import { requireRole } from "../../../lib/auth/require-role";
-import { RequireRole } from "../../../lib/auth/role-guard";
+import { RouteDataView } from "../../../components/ui/route-data-view";
+import { requireRole } from "../../../lib/auth/role-guard";
 import { useMe } from "../../../lib/auth/use-me";
-import { orpc } from "../../../lib/orpc";
+import { client, type Output } from "../../../lib/orpc";
+import { refresh } from "../../../lib/refresh";
+import { granted, loadRouteData } from "../../../lib/route-data";
 
 /**
  * Leerlingen (INC-16): the keyuser's overview of the leerlingen of their
  * school, with "Leerling toevoegen" (INC-15) and who coaches them (INC-18).
  */
 export const Route = createFileRoute("/_protected/leerlingen/")({
-	beforeLoad: () => requireRole("keyuser", undefined, { only: ["keyuser"] }),
-	component: () => (
-		<RequireRole min="keyuser" only={["keyuser"]}>
-			<LeerlingenPage />
-		</RequireRole>
-	),
+	beforeLoad: ({ context }) => requireRole(context.me, { min: "keyuser", only: ["keyuser"] }),
+	loader: async ({ abortController }) => ({
+		leerlingen: await loadRouteData(abortController.signal, (s) =>
+			client.people.leerlingen.list(undefined, { signal: s }),
+		),
+	}),
+	component: LeerlingenPage,
 });
 
 const PAGE_SIZE = 20;
 
-type Row = NonNullable<ReturnType<typeof useLeerlingen>["data"]>[number];
-function useLeerlingen() {
-	return useQuery(() => orpc.people.leerlingen.list.queryOptions());
-}
+type Row = Output<typeof client.people.leerlingen.list>[number];
 
 function LeerlingenPage() {
 	const me = useMe();
-	const query = useLeerlingen();
+	const router = useRouter();
+	const data = Route.useLoaderData();
+	const all = () => granted(data().leerlingen) ?? [];
 	const [adding, setAdding] = createSignal(false);
 	const [koppel, setKoppel] = createSignal<Row | null>(null);
 	const [search, setSearch] = createSignal("");
-	const [page, setPage] = createSignal(1);
+	// Back to the first page whenever the search changes.
+	const [page, setPage] = createSignal(() => (search(), 1));
 
 	const filtered = createMemo(() => {
 		const q = search().trim().toLowerCase();
-		const rows = query.data ?? [];
+		const rows = all();
 		if (!q) return rows;
 		return rows.filter((r) =>
 			[r.name, r.email, personId("leerling", r.number), r.vasteCoach?.name, r.vervanger?.name]
@@ -58,9 +59,9 @@ function LeerlingenPage() {
 	const paged = () => filtered().slice((current() - 1) * PAGE_SIZE, current() * PAGE_SIZE);
 
 	// After adding, the keyuser can link a coach straight away (INC-15 AC4).
-	const afterCreate = async (created: { id: string }) => {
-		const { data } = await query.refetch();
-		const row = data?.find((r) => r.id === created.id);
+	// The dialog awaited the refresh, so the new leerling is in the list.
+	const afterCreate = (created: { id: string }) => {
+		const row = all().find((r) => r.id === created.id);
 		if (row) setKoppel(row);
 	};
 
@@ -80,15 +81,14 @@ function LeerlingenPage() {
 				</Button>
 			</div>
 
-			<Show when={query.error}>
-				<ErrorState error={query.error} what="de leerlingen" onRetry={() => query.refetch()} />
-			</Show>
-			<Show when={query.isLoading}>
-				<p class="text-muted">Laden…</p>
+			<Show when={data().leerlingen.access !== "granted"}>
+				<RouteDataView data={data().leerlingen} what="de leerlingen" onRetry={() => void refresh(router, "people")}>
+					{() => null}
+				</RouteDataView>
 			</Show>
 
 			{/* AC7: an empty school explains what to do. */}
-			<Show when={query.data && query.data.length === 0}>
+			<Show when={data().leerlingen.access === "granted" && all().length === 0}>
 				<Card class="flex flex-col items-start gap-3">
 					<h2 class="font-head text-h3 text-ink">Nog geen leerlingen</h2>
 					<p class="text-body text-ink-2">
@@ -99,15 +99,12 @@ function LeerlingenPage() {
 				</Card>
 			</Show>
 
-			<Show when={(query.data?.length ?? 0) > 0}>
+			<Show when={all().length > 0}>
 				<label class="flex max-w-96 items-center gap-2 rounded-2 border border-line bg-surface px-3 py-2">
 					<Search class="size-3.5 text-muted" aria-hidden="true" />
 					<input
 						value={search()}
-						onInput={(e) => {
-							setSearch(e.currentTarget.value);
-							setPage(1);
-						}}
+						onInput={(e) => setSearch(e.currentTarget.value)}
 						class="w-full bg-transparent text-small text-ink outline-none"
 						placeholder="Zoek op naam, e-mail, ID of coach…"
 						aria-label="Zoek leerling"
@@ -184,7 +181,7 @@ function LeerlingenPage() {
 				kind="leerling"
 				open={adding()}
 				onOpenChange={setAdding}
-				onCreated={(c) => void afterCreate(c)}
+				onCreated={afterCreate}
 			/>
 			<KoppelDialog leerling={koppel()} onOpenChange={(open) => !open && setKoppel(null)} />
 		</section>

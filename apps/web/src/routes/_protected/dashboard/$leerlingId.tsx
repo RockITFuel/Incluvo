@@ -1,5 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/solid-router";
-import { useQuery } from "@tanstack/solid-query";
+import { createFileRoute, Link, useRouter } from "@tanstack/solid-router";
 import {
 	ArrowLeft,
 	Check,
@@ -11,18 +10,22 @@ import {
 	NotebookPen,
 	Sparkles,
 	type LucideProps,
-} from "lucide-solid";
-import { createMemo, For, type JSX, Show } from "solid-js";
+} from "../../../lib/icons";
+import type { JSX } from "@solidjs/web";
+import { createMemo, For, Show } from "solid-js";
 import {
 	PlanStatusBadge,
 	relativeTime,
 } from "../../../components/dashboard/plan-status";
+import { RouteDataView } from "../../../components/ui/route-data-view";
 import { toast } from "../../../components/ui/toast";
-import { requireRole } from "../../../lib/auth/require-role";
-import { RequireRole } from "../../../lib/auth/role-guard";
+import { createAction } from "../../../lib/action";
+import { requireRole } from "../../../lib/auth/role-guard";
 import { moodMeta } from "../../../lib/mood";
 import { downloadPlanPdf } from "../../../lib/coachplan/pdf";
-import { client, orpc } from "../../../lib/orpc";
+import { client } from "../../../lib/orpc";
+import { refresh } from "../../../lib/refresh";
+import { granted, loadRouteData } from "../../../lib/route-data";
 
 /**
  * Full leerling profile (#44) — a 1:1 port of the approved "StudentProfile"
@@ -38,12 +41,25 @@ import { client, orpc } from "../../../lib/orpc";
  * assignment within the tenant.
  */
 export const Route = createFileRoute("/_protected/dashboard/$leerlingId")({
-	beforeLoad: () => requireRole("coach", undefined, { coaching: true }),
-	component: () => (
-		<RequireRole min="coach" coaching>
-			<ProfilePage />
-		</RequireRole>
-	),
+	beforeLoad: ({ context }) => requireRole(context.me, { min: "coach", coaching: true }),
+	loader: async ({ params, abortController }) => {
+		const signal = abortController.signal;
+		const leerlingId = params.leerlingId;
+		const [profile, week] = await Promise.all([
+			loadRouteData(signal, (s) => client.dashboard.profile({ leerlingId }, { signal: s })),
+			// Shared moods of the last 7 days (server only returns opt-in rows).
+			loadRouteData(signal, (s) => client.mood.weekFor({ leerlingId }, { signal: s })),
+		]);
+		// The real "afgestemd met ouders" flag lives on the coachplan submission.
+		const submissionId = granted(profile)?.plan.submissionId ?? null;
+		const submission = submissionId
+			? await loadRouteData(signal, (s) =>
+					client.coachplan.getSubmission({ id: submissionId }, { signal: s }),
+				)
+			: null;
+		return { profile, week, submission };
+	},
+	component: ProfilePage,
 });
 
 const STATUS_LABEL: Record<string, string> = {
@@ -87,45 +103,29 @@ function weekDates(): string[] {
 }
 
 function ProfilePage() {
-	const params = Route.useParams();
-	const profile = useQuery(() =>
-		orpc.dashboard.profile.queryOptions({
-			input: { leerlingId: params().leerlingId },
-		}),
-	);
-	// The real "afgestemd met ouders" flag lives on the coachplan submission.
-	const submissionId = () => profile.data?.plan.submissionId ?? null;
-	const submissionQuery = useQuery(() => ({
-		...orpc.coachplan.getSubmission.queryOptions({
-			input: { id: submissionId() ?? "" },
-		}),
-		enabled: submissionId() != null,
-	}));
-	// Shared moods of the last 7 days (server only returns opt-in rows).
-	const week = useQuery(() => ({
-		...orpc.mood.weekFor.queryOptions({
-			input: { leerlingId: params().leerlingId },
-		}),
-		enabled: profile.data != null,
-	}));
+	const router = useRouter();
+	const loaded = Route.useLoaderData();
+	const submissionId = () => granted(loaded().profile)?.plan.submissionId ?? null;
+	const submission = () => {
+		const data = loaded().submission;
+		return data ? granted(data) : undefined;
+	};
+	const weekMoods = () => granted(loaded().week) ?? [];
 	const moodByDate = createMemo(() => {
 		const m = new Map<string, number>();
-		for (const r of week.data ?? []) m.set(r.date, r.mood);
+		for (const r of weekMoods()) m.set(r.date, r.mood);
 		return m;
 	});
-	const setApprovedWithParents = async (approved: boolean) => {
-		const id = submissionId();
-		if (!id) return;
-		try {
-			await client.coachplan.setApprovedWithParents({
-				submissionId: id,
-				approved,
-			});
-			submissionQuery.refetch();
-		} catch {
-			toast({ title: "Opslaan lukte niet", tone: "danger" });
-		}
-	};
+	const approve = createAction(
+		async (approved: boolean) => {
+			const id = submissionId();
+			if (!id) return;
+			await client.coachplan.setApprovedWithParents({ submissionId: id, approved });
+			await refresh(router, "coachplan");
+		},
+		{ error: "Opslaan lukte niet" },
+	);
+	const setApprovedWithParents = (approved: boolean) => void approve.run(approved);
 
 	return (
 		<>
@@ -135,25 +135,11 @@ function ProfilePage() {
 				</Link>
 			</div>
 
-			<Show when={profile.isLoading}>
-				<div class="card" style={{ color: "rgb(var(--muted))" }}>
-					Laden…
-				</div>
-			</Show>
-
-			<Show when={profile.isError}>
-				<div
-					class="card"
-					style={{
-						"border-color": "rgb(var(--warning))",
-						color: "rgb(var(--ink-2))",
-					}}
-				>
-					Geen toegang tot dit profiel of leerling niet gevonden.
-				</div>
-			</Show>
-
-			<Show when={profile.data}>
+			<RouteDataView
+				data={loaded().profile}
+				what="dit profiel"
+				onRetry={() => void refresh(router, "people", "coachplan", "tasks")}
+			>
 				{(data) => (
 					<>
 						{/* Hero */}
@@ -335,8 +321,7 @@ function ProfilePage() {
 													<input
 														type="checkbox"
 														checked={
-															submissionQuery.data?.submission
-																.approvedWithParents ?? false
+															submission()?.submission.approvedWithParents ?? false
 														}
 														onChange={(e) =>
 															setApprovedWithParents(e.currentTarget.checked)
@@ -590,7 +575,7 @@ function ProfilePage() {
 										<h2>Mood deze week</h2>
 									</div>
 									<Show
-										when={(week.data?.length ?? 0) > 0}
+										when={weekMoods().length > 0}
 										fallback={
 											<p
 												style={{
@@ -797,7 +782,7 @@ function ProfilePage() {
 						</div>
 					</>
 				)}
-			</Show>
+			</RouteDataView>
 		</>
 	);
 }

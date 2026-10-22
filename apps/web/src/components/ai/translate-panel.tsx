@@ -1,7 +1,8 @@
-import { useMutation, useQuery } from "@tanstack/solid-query";
-import { Languages } from "lucide-solid";
 import { createSignal, Show } from "solid-js";
-import { orpc } from "../../lib/orpc";
+import { createAction } from "../../lib/action";
+import { Languages } from "../../lib/icons";
+import { createLoad } from "../../lib/load";
+import { client } from "../../lib/orpc";
 import { Button } from "../ui/button";
 import { Select } from "../ui/select";
 import { MockBanner } from "./mock-banner";
@@ -26,28 +27,33 @@ const LANGUAGES = [
 type Lang = (typeof LANGUAGES)[number]["value"];
 
 export function TranslatePanel() {
-	const providerQuery = useQuery(() => orpc.ai.provider.queryOptions());
+	const provider = createLoad(
+		() => ({}),
+		(_, signal) => client.ai.provider(undefined, { signal }),
+	);
 	const [source, setSource] = createSignal("");
 	const [target, setTarget] = createSignal<Lang>("en");
 	const [result, setResult] = createSignal<string | null>(null);
 
-	const translate = useMutation(() =>
-		orpc.ai.translate.mutationOptions({
-			onSuccess: (res) => setResult(res.translated),
-		}),
+	// The error shows inline below the button, not as a toast.
+	const translate = createAction(
+		async (input: Parameters<typeof client.ai.translate>[0]) => {
+			setResult((await client.ai.translate(input)).translated);
+		},
+		{ onError: () => {} },
 	);
 
 	const run = () => {
 		const text = source().trim();
 		if (!text) return;
-		translate.mutate({ text, targetLanguage: target() });
+		void translate.run({ text, targetLanguage: target() });
 	};
 
 	const isArabicTarget = () => target() === "ar";
 
 	return (
 		<div class="flex flex-col gap-4">
-			<MockBanner mock={providerQuery.data?.mock} model={providerQuery.data?.model} />
+			<MockBanner mock={provider.data()?.mock} model={provider.data()?.model} />
 
 			<div class="rounded-3 border border-line bg-surface p-5">
 				<div class="mb-4 flex items-center gap-3">
@@ -88,12 +94,12 @@ export function TranslatePanel() {
 							value={target()}
 							onChange={(v) => v && setTarget(v as Lang)}
 						/>
-						<Button onClick={run} disabled={translate.isPending || !source().trim()}>
-							{translate.isPending ? "Vertalen…" : "Vertaal"}
+						<Button onClick={run} disabled={translate.pending() || !source().trim()}>
+							{translate.pending() ? "Vertalen…" : "Vertaal"}
 						</Button>
 					</div>
 
-					<Show when={translate.isError}>
+					<Show when={translate.error()}>
 						<p role="alert" class="text-danger text-small">
 							Vertalen mislukt. Probeer het opnieuw.
 						</p>

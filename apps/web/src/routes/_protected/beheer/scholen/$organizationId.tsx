@@ -1,9 +1,4 @@
-import {
-	useMutation,
-	useQuery,
-	useQueryClient,
-} from "@tanstack/solid-query";
-import { createFileRoute, Link } from "@tanstack/solid-router";
+import { createFileRoute, Link, useRouter } from "@tanstack/solid-router";
 import {
 	Archive,
 	ArchiveRestore,
@@ -14,8 +9,8 @@ import {
 	NotebookPen,
 	Pencil,
 	Users,
-} from "lucide-solid";
-import { createSignal, Show } from "solid-js";
+} from "../../../../lib/icons";
+import { createMemo, createSignal, Show } from "solid-js";
 import { AssignmentsPanel } from "../../../../components/admin/assignments-panel";
 import { formatDate, kindLabel } from "../../../../components/admin/format";
 import { SchoolCoursesPanel } from "../../../../components/admin/school-courses-panel";
@@ -29,10 +24,12 @@ import { Dialog } from "../../../../components/ui/dialog";
 import { Tabs } from "../../../../components/ui/tabs";
 import { Input } from "../../../../components/ui/text-field";
 import { toast } from "../../../../components/ui/toast";
-import { requireRole } from "../../../../lib/auth/require-role";
-import { RequireRole } from "../../../../lib/auth/role-guard";
-import { orpc } from "../../../../lib/orpc";
-import { friendlyError } from "../../../../lib/errors";
+import { RouteDataView } from "../../../../components/ui/route-data-view";
+import { createAction } from "../../../../lib/action";
+import { requireRole } from "../../../../lib/auth/role-guard";
+import { client } from "../../../../lib/orpc";
+import { refresh } from "../../../../lib/refresh";
+import { loadRouteData } from "../../../../lib/route-data";
 
 /**
  * School page (superadmin, docs/decisions/superadmin-beheer.md, voorstel 4):
@@ -40,66 +37,109 @@ import { friendlyError } from "../../../../lib/errors";
  * templates and courses, and rename / archive / restore.
  *
  * The server gates every call on `manageTenant`; this guard is UX only.
+ *
+ * The loader fetches the school and its users; the koppelingen, forms and
+ * courses panels page on their own.
  */
 export const Route = createFileRoute("/_protected/beheer/scholen/$organizationId")({
-	beforeLoad: () => requireRole("superadmin"),
-	component: () => (
-		<RequireRole min="superadmin">
-			<SchoolPage />
-		</RequireRole>
-	),
+	beforeLoad: ({ context }) => requireRole(context.me, { min: "superadmin" }),
+	loader: async ({ params, abortController }) => {
+		const signal = abortController.signal;
+		const id = params.organizationId;
+		const [school, users] = await Promise.all([
+			loadRouteData(signal, (s) => client.admin.organizations.detail({ id }, { signal: s })),
+			loadRouteData(signal, (s) =>
+				client.admin.users.overview({ organizationId: id }, { signal: s }),
+			),
+		]);
+		return { school, users };
+	},
+	component: SchoolPage,
 });
 
 function SchoolPage() {
+	const router = useRouter();
 	const params = Route.useParams();
-	const queryClient = useQueryClient();
+	const data = Route.useLoaderData();
 	const [renameOpen, setRenameOpen] = createSignal(false);
 	const [newName, setNewName] = createSignal("");
 	const [archiveOpen, setArchiveOpen] = createSignal(false);
+	const retry = () => void refresh(router, "admin");
 
-	const school = useQuery(() =>
-		orpc.admin.organizations.detail.queryOptions({
-			input: { id: params().organizationId },
-		}),
+	const school = () => {
+		const result = data().school;
+		return result.access === "granted" ? result.value : undefined;
+	};
+
+	const rename = createAction(
+		async (input: { id: string; name: string }) => {
+			await client.admin.organizations.update(input);
+			setRenameOpen(false);
+			toast({ title: "Naam gewijzigd", tone: "success" });
+			await refresh(router, "admin");
+		},
+		{ error: "Opslaan mislukt" },
 	);
 
-	const invalidate = () =>
-		queryClient.invalidateQueries({ queryKey: orpc.admin.organizations.key() });
+	const setArchived = createAction(
+		async (input: { id: string; archived: boolean }) => {
+			const org = await client.admin.organizations.setArchived(input);
+			setArchiveOpen(false);
+			toast(
+				org.archivedAt
+					? {
+							title: "School gearchiveerd",
+							description: "Gebruikers van deze school zijn uitgelogd.",
+							tone: "success",
+						}
+					: { title: "School hersteld", tone: "success" },
+			);
+			await refresh(router, "admin");
+		},
+		{ error: "Mislukt" },
+	);
 
-	const rename = useMutation(() =>
-		orpc.admin.organizations.update.mutationOptions({
-			onSuccess: () => {
-				invalidate();
-				setRenameOpen(false);
-				toast({ title: "Naam gewijzigd", tone: "success" });
+	const isArchived = () => Boolean(school()?.archivedAt);
+	const isSchool = () => school()?.kind === "school";
+
+	// Built once per school: the panels read the loader data through getters,
+	// so a refresh updates them in place instead of rebuilding them.
+	const tabs = createMemo(() => {
+		const id = params().organizationId;
+		return [
+			{
+				value: "users",
+				label: "Gebruikers",
+				content: (
+					<RouteDataView data={data().users} what="de gebruikers" onRetry={retry}>
+						{(users) => (
+							<UsersPanel
+								users={users()}
+								organizationId={id}
+								readOnly={isArchived()}
+								defaultInviteRole={school()?.stats.keyuserCount === 0 ? "keyuser" : "leerling"}
+							/>
+						)}
+					</RouteDataView>
+				),
 			},
-			onError: (error) =>
-				toast({ title: "Opslaan mislukt", description: friendlyError(error), tone: "danger" }),
-		}),
-	);
-
-	const setArchived = useMutation(() =>
-		orpc.admin.organizations.setArchived.mutationOptions({
-			onSuccess: (org) => {
-				invalidate();
-				setArchiveOpen(false);
-				toast(
-					org.archivedAt
-						? {
-								title: "School gearchiveerd",
-								description: "Gebruikers van deze school zijn uitgelogd.",
-								tone: "success",
-							}
-						: { title: "School hersteld", tone: "success" },
-				);
+			{
+				value: "assignments",
+				label: "Koppelingen",
+				content: <AssignmentsPanel organizationId={id} readOnly={isArchived()} />,
 			},
-			onError: (error) =>
-				toast({ title: "Mislukt", description: friendlyError(error), tone: "danger" }),
-		}),
-	);
-
-	const isArchived = () => Boolean(school.data?.archivedAt);
-	const isSchool = () => school.data?.kind === "school";
+			{
+				value: "forms",
+				label: "Formulieren",
+				content: <FormsPanel organizationId={id} />,
+			},
+			{
+				value: "courses",
+				label: "Cursussen",
+				content: <SchoolCoursesPanel organizationId={id} readOnly={isArchived()} />,
+			},
+		];
+	});
 
 	return (
 		<>
@@ -117,14 +157,7 @@ function SchoolPage() {
 				<ArrowLeft class="size-3.5" aria-hidden="true" /> Alle scholen
 			</Link>
 
-			<Show when={school.isLoading}>
-				<div class="card text-muted">Laden…</div>
-			</Show>
-			<Show when={school.error}>
-				<div class="card text-danger">Kon deze school niet laden.</div>
-			</Show>
-
-			<Show when={school.data}>
+			<RouteDataView data={data().school} what="deze school" onRetry={retry}>
 				{(o) => (
 					<>
 						<div class="page-head">
@@ -164,10 +197,10 @@ function SchoolPage() {
 										class="btn ghost"
 										onClick={() =>
 											isArchived()
-												? setArchived.mutate({ id: o().id, archived: false })
+												? void setArchived.run({ id: o().id, archived: false })
 												: setArchiveOpen(true)
 										}
-										disabled={setArchived.isPending}
+										disabled={setArchived.pending()}
 									>
 										<Show
 											when={isArchived()}
@@ -248,43 +281,7 @@ function SchoolPage() {
 							/>
 						</div>
 
-						<Tabs
-							aria-label="Onderdelen van de school"
-							items={[
-								{
-									value: "users",
-									label: "Gebruikers",
-									content: (
-										<UsersPanel
-											organizationId={o().id}
-											readOnly={isArchived()}
-											defaultInviteRole={
-												o().stats.keyuserCount === 0 ? "keyuser" : "leerling"
-											}
-										/>
-									),
-								},
-								{
-									value: "assignments",
-									label: "Koppelingen",
-									content: (
-										<AssignmentsPanel organizationId={o().id} readOnly={isArchived()} />
-									),
-								},
-								{
-									value: "forms",
-									label: "Formulieren",
-									content: <FormsPanel organizationId={o().id} />,
-								},
-								{
-									value: "courses",
-									label: "Cursussen",
-									content: (
-										<SchoolCoursesPanel organizationId={o().id} readOnly={isArchived()} />
-									),
-								},
-							]}
-						/>
+						<Tabs aria-label="Onderdelen van de school" items={tabs()} />
 
 						<Dialog
 							open={renameOpen()}
@@ -296,9 +293,9 @@ function SchoolPage() {
 										Annuleren
 									</Button>
 									<Button
-										disabled={rename.isPending || newName().trim() === ""}
+										disabled={rename.pending() || newName().trim() === ""}
 										onClick={() =>
-											rename.mutate({ id: o().id, name: newName().trim() })
+											void rename.run({ id: o().id, name: newName().trim() })
 										}
 									>
 										Opslaan
@@ -326,8 +323,8 @@ function SchoolPage() {
 									</Button>
 									<Button
 										variant="danger"
-										disabled={setArchived.isPending}
-										onClick={() => setArchived.mutate({ id: o().id, archived: true })}
+										disabled={setArchived.pending()}
+										onClick={() => void setArchived.run({ id: o().id, archived: true })}
 									>
 										Archiveren
 									</Button>
@@ -343,7 +340,7 @@ function SchoolPage() {
 						</Dialog>
 					</>
 				)}
-			</Show>
+			</RouteDataView>
 		</>
 	);
 }

@@ -212,3 +212,38 @@ h4 {
 	clip: auto;
 	white-space: normal;
 }
+
+/*
+ * The course text editor (INC-25) shows a text as the leerling will see it
+ * (components/courses/rich-text-view.tsx): headings, lists, quotes and links.
+ */
+.prose-incluvo h2 {
+	@apply mt-4 mb-2 font-head text-h3 text-ink;
+}
+.prose-incluvo h3 {
+	@apply mt-3 mb-1 text-body font-medium text-ink;
+}
+.prose-incluvo p {
+	@apply mb-2 leading-relaxed;
+}
+.prose-incluvo ul {
+	@apply mb-2 list-disc pl-6;
+}
+.prose-incluvo ol {
+	@apply mb-2 list-decimal pl-6;
+}
+.prose-incluvo blockquote {
+	@apply my-3 border-l-4 border-primary-100 pl-4 italic;
+}
+.prose-incluvo a {
+	@apply text-primary-700 underline underline-offset-2;
+}
+.prose-incluvo div[data-youtube-video] {
+	@apply my-3 max-w-2xl;
+}
+.prose-incluvo div[data-youtube-video] iframe {
+	@apply aspect-video h-auto w-full rounded-2 border border-line;
+}
+.prose-incluvo .ProseMirror-selectednode {
+	@apply outline-2 outline-ring;
+}

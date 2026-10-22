@@ -1,18 +1,7 @@
 import { INCLUVO_ROLES, type UserRole } from "@incluvo/permissions";
-import {
-	useMutation,
-	useQuery,
-	useQueryClient,
-} from "@tanstack/solid-query";
-import { Search } from "lucide-solid";
-import {
-	createEffect,
-	createMemo,
-	createSignal,
-	For,
-	on,
-	Show,
-} from "solid-js";
+import { useRouter } from "@tanstack/solid-router";
+import { Search } from "../../lib/icons";
+import { createMemo, createSignal, For, Show } from "solid-js";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
@@ -24,8 +13,12 @@ import { RolesDialog } from "./roles-dialog";
 import { toast } from "../ui/toast";
 import { roleLabel } from "../shell/nav";
 import { useMe } from "../../lib/auth/use-me";
-import { orpc } from "../../lib/orpc";
-import { friendlyError } from "../../lib/errors";
+import { createAction } from "../../lib/action";
+import { client, type Output } from "../../lib/orpc";
+import { refresh } from "../../lib/refresh";
+
+export type AdminUserRow = Output<typeof client.admin.users.overview>[number];
+export type OrganizationRow = Output<typeof client.admin.organizations.listAll>[number];
 
 const PAGE_SIZE = 20;
 const ALL_SCHOOLS = "__all__";
@@ -40,8 +33,14 @@ const ALL_SCHOOLS = "__all__";
  *   school choice when inviting (docs/decisions/superadmin-beheer.md).
  * - `organizationId` pins the panel to one school (the school page): no
  *   filter, no school column, invites go into that school.
+ *
+ * The page's loader passes `users` (already scoped to the pinned school, or
+ * every school for the superadmin) and, for the superadmin, `orgs`.
  */
 export function UsersPanel(props: {
+	users: AdminUserRow[];
+	/** All organisations (superadmin): the school filter and invite choice. */
+	orgs?: OrganizationRow[];
 	organizationId?: string;
 	/** Disable invites, e.g. for an archived school. */
 	readOnly?: boolean;
@@ -49,7 +48,7 @@ export function UsersPanel(props: {
 	defaultInviteRole?: UserRole;
 }) {
 	const me = useMe();
-	const queryClient = useQueryClient();
+	const router = useRouter();
 	const [inviteOpen, setInviteOpen] = createSignal(false);
 	const [inviteEmail, setInviteEmail] = createSignal("");
 	const [inviteName, setInviteName] = createSignal("");
@@ -57,43 +56,34 @@ export function UsersPanel(props: {
 	const [inviteSchool, setInviteSchool] = createSignal<string | undefined>();
 	const [schoolFilter, setSchoolFilter] = createSignal(ALL_SCHOOLS);
 	const [search, setSearch] = createSignal("");
-	const [page, setPage] = createSignal(1);
+	// Back to the first page whenever the search or the school filter changes.
+	const [page, setPage] = createSignal(() => (search(), schoolFilter(), 1));
 
 	/** Superadmin browsing all schools (not pinned to one). */
 	const crossTenant = () => me.is("superadmin") && !props.organizationId;
 
-	const scopeId = () =>
-		props.organizationId ??
-		(crossTenant() && schoolFilter() !== ALL_SCHOOLS
-			? schoolFilter()
-			: undefined);
-
-	const usersQuery = useQuery(() =>
-		orpc.admin.users.overview.queryOptions({
-			input: { organizationId: scopeId() },
-		}),
+	/** The superadmin's school filter; the loader already pinned the rest. */
+	const scoped = createMemo(() =>
+		crossTenant() && schoolFilter() !== ALL_SCHOOLS
+			? props.users.filter((u) => u.organizationId === schoolFilter())
+			: props.users,
 	);
 
-	const orgsQuery = useQuery(() => ({
-		...orpc.admin.organizations.listAll.queryOptions(),
-		enabled: crossTenant(),
-	}));
 	const schoolOptions = createMemo(() =>
-		(orgsQuery.data ?? [])
+		(props.orgs ?? [])
 			.filter((o) => !o.archivedAt)
 			.map((o) => ({ value: o.id, label: o.name })),
 	);
 
 	const filtered = createMemo(() => {
 		const q = search().trim().toLowerCase();
-		const rows = usersQuery.data ?? [];
+		const rows = scoped();
 		if (!q) return rows;
 		return rows.filter(
 			(u) =>
 				u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q),
 		);
 	});
-	createEffect(on([search, schoolFilter], () => setPage(1), { defer: true }));
 	const pageCount = createMemo(() =>
 		Math.max(1, Math.ceil(filtered().length / PAGE_SIZE)),
 	);
@@ -124,73 +114,54 @@ export function UsersPanel(props: {
 		setInviteOpen(true);
 	};
 
-	const invalidate = () => {
-		queryClient.invalidateQueries({ queryKey: orpc.admin.users.key() });
-		queryClient.invalidateQueries({
-			queryKey: orpc.admin.organizations.key(),
-		});
-	};
-
 	// INC-24: one person, several roles.
 	const [rolesFor, setRolesFor] = createSignal<{ id: string; name: string; roles: UserRole[] } | null>(
 		null,
 	);
-	const setRoles = useMutation(() =>
-		orpc.account.users.setRoles.mutationOptions({
-			onSuccess: () => {
-				invalidate();
-				setRolesFor(null);
-				toast({ title: "Rollen bijgewerkt", tone: "success" });
-			},
-			onError: (error) =>
-				toast({
-					title: "Kon de rollen niet wijzigen",
-					description: friendlyError(error),
-					tone: "danger",
-				}),
-		}),
+	const setRoles = createAction(
+		async (input: { userId: string; roles: UserRole[] }) => {
+			await client.account.users.setRoles(input);
+			setRolesFor(null);
+			toast({ title: "Rollen bijgewerkt", tone: "success" });
+			await refresh(router, "admin", "people");
+		},
+		{ error: "Kon de rollen niet wijzigen" },
 	);
 
-	const invite = useMutation(() =>
-		orpc.account.users.invite.mutationOptions({
-			onSuccess: (res) => {
-				invalidate();
-				setInviteOpen(false);
-				setInviteEmail("");
-				setInviteName("");
-				toast(
-					res.mailSent
-						? {
-								title: res.created ? "Gebruiker uitgenodigd" : "Gebruiker bijgewerkt",
-								description: `${res.email} krijgt een e-mail om een wachtwoord te kiezen.`,
-								tone: "success",
-							}
-						: {
-								title: "Account aangemaakt, e-mail niet verstuurd",
-								description: "Probeer het later opnieuw via Uitnodigen.",
-								tone: "warning",
-							},
-				);
-			},
-			onError: (error) =>
-				toast({
-					title: "Uitnodigen mislukt",
-					description: friendlyError(error),
-					tone: "danger",
-				}),
-		}),
+	const invite = createAction(
+		async (input: Parameters<typeof client.account.users.invite>[0]) => {
+			const res = await client.account.users.invite(input);
+			setInviteOpen(false);
+			setInviteEmail("");
+			setInviteName("");
+			toast(
+				res.mailSent
+					? {
+							title: res.created ? "Gebruiker uitgenodigd" : "Gebruiker bijgewerkt",
+							description: `${res.email} krijgt een e-mail om een wachtwoord te kiezen.`,
+							tone: "success",
+						}
+					: {
+							title: "Account aangemaakt, e-mail niet verstuurd",
+							description: "Probeer het later opnieuw via Uitnodigen.",
+							tone: "warning",
+						},
+			);
+			await refresh(router, "admin", "people");
+		},
+		{ error: "Uitnodigen mislukt" },
 	);
 
 	// AC6: a missing or malformed address gets a message at the field.
 	const [emailError, setEmailError] = createSignal<string | undefined>();
 	const validEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
 	const canInvite = () =>
-		!invite.isPending && (!crossTenant() || inviteSchool() !== undefined);
+		!invite.pending() && (!crossTenant() || inviteSchool() !== undefined);
 	const sendInvite = () => {
 		const email = inviteEmail().trim();
 		if (!email) return setEmailError("Vul een e-mailadres in.");
 		if (!validEmail(email)) return setEmailError("Dit is geen geldig e-mailadres.");
-		invite.mutate({
+		void invite.run({
 			email,
 			name: inviteName().trim() || undefined,
 			role: inviteRole() as never,
@@ -198,21 +169,20 @@ export function UsersPanel(props: {
 		});
 	};
 
-	const resend = useMutation(() =>
-		orpc.account.users.resendInvite.mutationOptions({
-			onSuccess: (res) =>
-				toast(
-					res.mailSent
-						? { title: "Uitnodiging opnieuw verstuurd", description: res.email, tone: "success" }
-						: {
-								title: "E-mail niet verstuurd",
-								description: "Probeer het later opnieuw.",
-								tone: "danger",
-							},
-				),
-			onError: (error) =>
-				toast({ title: "Opnieuw versturen mislukt", description: friendlyError(error), tone: "danger" }),
-		}),
+	const resend = createAction(
+		async (input: { userId: string }) => {
+			const res = await client.account.users.resendInvite(input);
+			toast(
+				res.mailSent
+					? { title: "Uitnodiging opnieuw verstuurd", description: res.email, tone: "success" }
+					: {
+							title: "E-mail niet verstuurd",
+							description: "Probeer het later opnieuw.",
+							tone: "danger",
+						},
+			);
+		},
+		{ error: "Opnieuw versturen mislukt" },
 	);
 
 	return (
@@ -251,7 +221,7 @@ export function UsersPanel(props: {
 						aria-label="Filter op school"
 						options={[
 							{ value: ALL_SCHOOLS, label: "Alle scholen" },
-							...(orgsQuery.data ?? []).map((o) => ({
+							...(props.orgs ?? []).map((o) => ({
 								value: o.id,
 								label: o.archivedAt ? `${o.name} (gearchiveerd)` : o.name,
 							})),
@@ -272,13 +242,6 @@ export function UsersPanel(props: {
 					/>
 				</label>
 			</div>
-
-			<Show when={usersQuery.isLoading}>
-				<p class="text-muted">Laden…</p>
-			</Show>
-			<Show when={usersQuery.error}>
-				<p class="text-danger">Kon gebruikers niet laden.</p>
-			</Show>
 
 			<Show when={filtered().length > 0}>
 				<Card padding="none" class="overflow-hidden">
@@ -306,9 +269,9 @@ export function UsersPanel(props: {
 												<Button
 													size="sm"
 													variant="ghost"
-													disabled={resend.isPending}
+													disabled={resend.pending()}
 													aria-label={`Uitnodiging opnieuw versturen naar ${u.email}`}
-													onClick={() => resend.mutate({ userId: u.id })}
+													onClick={() => void resend.run({ userId: u.id })}
 												>
 													Opnieuw versturen
 												</Button>
@@ -345,7 +308,7 @@ export function UsersPanel(props: {
 				</Card>
 			</Show>
 
-			<Show when={!usersQuery.isLoading && filtered().length === 0}>
+			<Show when={filtered().length === 0}>
 				<p class="text-muted">
 					{search() ? "Geen gebruikers gevonden." : "Nog geen gebruikers."}
 				</p>
@@ -359,10 +322,10 @@ export function UsersPanel(props: {
 				name={rolesFor()?.name ?? ""}
 				roles={rolesFor()?.roles ?? []}
 				options={roleOptions().map((o) => o.value)}
-				saving={setRoles.isPending}
+				saving={setRoles.pending()}
 				onSave={(roles) => {
 					const target = rolesFor();
-					if (target) setRoles.mutate({ userId: target.id, roles });
+					if (target) void setRoles.run({ userId: target.id, roles });
 				}}
 			/>
 

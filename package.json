@@ -3,7 +3,10 @@
 	"private": true,
 	"type": "module",
 	"workspaces": {
-		"packages": ["apps/*", "packages/*"],
+		"packages": [
+			"apps/*",
+			"packages/*"
+		],
 		"catalog": {
 			"typescript": "^5.7.2"
 		}
@@ -32,6 +35,11 @@
 	},
 	"packageManager": "bun@1.2.21",
 	"overrides": {
-		"solid-js": "1.9.12"
+		"solid-js": "2.0.0-rc.9",
+		"@solidjs/web": "2.0.0-rc.9"
+	},
+	"patchedDependencies": {
+		"@kobalte/core@2.0.0-alpha.2": "patches/@kobalte%2Fcore@2.0.0-alpha.2.patch",
+		"@solid-primitives/focus@1.0.0-next.4": "patches/@solid-primitives%2Ffocus@1.0.0-next.4.patch"
 	}
 }

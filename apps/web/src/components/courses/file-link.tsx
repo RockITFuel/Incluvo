@@ -1,7 +1,7 @@
-import { useQuery } from "@tanstack/solid-query";
-import { Download, FileText } from "lucide-solid";
+import { Download, FileText } from "../../lib/icons";
 import { Show } from "solid-js";
-import { orpc } from "../../lib/orpc";
+import { createLoad } from "../../lib/load";
+import { client } from "../../lib/orpc";
 import { buttonVariants } from "../ui/button";
 
 /**
@@ -10,22 +10,20 @@ import { buttonVariants } from "../ui/button";
  * URL via `courses.getFile` (a real S3 URL in prod, a base64 data URL in dev).
  */
 export function FileLink(props: { storageKey: string; label?: string }) {
-	const fileQuery = useQuery(() => ({
-		...orpc.courses.getFile.queryOptions({
-			input: { storageKey: props.storageKey },
-		}),
-		staleTime: 5 * 60_000,
-	}));
+	const file = createLoad(
+		() => props.storageKey,
+		(storageKey, signal) => client.courses.getFile({ storageKey }, { signal }),
+	);
 
 	const filename = () => props.storageKey.split("/").pop() ?? "bestand";
 
 	return (
 		<Show
-			when={fileQuery.data?.url}
+			when={file.data()?.url}
 			fallback={
 				<span class="inline-flex items-center gap-2 text-small text-muted">
 					<FileText class="size-4" /> {props.label ?? filename()}
-					<Show when={fileQuery.error}>
+					<Show when={file.error()}>
 						<span class="text-danger">(kon bestand niet ophalen)</span>
 					</Show>
 				</span>

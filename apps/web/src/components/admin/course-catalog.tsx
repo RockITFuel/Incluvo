@@ -1,18 +1,19 @@
-import { useQuery, useQueryClient } from "@tanstack/solid-query";
-import { Link } from "@tanstack/solid-router";
-import { ArrowRight, Building2, Plus, Search, Tags } from "lucide-solid";
-import { createEffect, createMemo, createSignal, For, on, Show } from "solid-js";
-import { orpc } from "../../lib/orpc";
+import { Link, useRouter } from "@tanstack/solid-router";
+import { ArrowRight, Building2, Plus, Search, Tags } from "../../lib/icons";
+import { createMemo, createSignal, For, Show } from "solid-js";
+import type { client, Output } from "../../lib/orpc";
+import { refresh } from "../../lib/refresh";
 import { useServerEvent } from "../../lib/sse/use-events";
 import { formatDate } from "./format";
 import { Pagination } from "../ui/pagination";
 import { Select } from "../ui/select";
 import { Tooltip } from "../ui/tooltip";
-import { ErrorState } from "../ui/error-state";
 import {
 	AvailabilityDialog,
+	type Category,
 	CategoryManagerDialog,
 	CourseCategoriesDialog,
+	type Organization,
 } from "./course-catalog-dialogs";
 import { CreateCourseDialog } from "./create-course-dialog";
 
@@ -21,13 +22,7 @@ const ALL = "__all__";
 const NONE = "__none__";
 
 type Tab = "ondivera" | "school";
-type CourseRow = NonNullable<
-	ReturnType<typeof useCatalogCourses>["data"]
->[number];
-
-function useCatalogCourses() {
-	return useQuery(() => orpc.courses.list.queryOptions({ input: {} }));
-}
+export type CourseRow = Output<typeof client.courses.list>[number];
 
 /** "Alle scholen" / "3 scholen" / "Nog geen school" for an Ondivera template. */
 function availabilityLabel(c: CourseRow): { text: string; tone: "ok" | "partial" | "none" } {
@@ -44,22 +39,26 @@ function availabilityLabel(c: CourseRow): { text: string; tone: "ok" | "partial"
  * which schools may use each, in which categories — and, read-only, the
  * schools' own templates. Built for many courses: search, category and
  * availability filters, pagination. Schools keep using /cursussen.
+ *
+ * The data comes from the route loader (routes/_protected/beheer/cursussen).
  */
-export function CourseCatalog() {
-	const queryClient = useQueryClient();
-	const courses = useCatalogCourses();
-	const categories = useQuery(() => orpc.courses.catalog.categories.list.queryOptions());
-	const orgs = useQuery(() => orpc.admin.organizations.listAll.queryOptions());
-	useServerEvent("course.changed", () =>
-		queryClient.invalidateQueries({ queryKey: orpc.courses.list.key() }),
-	);
+export function CourseCatalog(props: {
+	courses: CourseRow[];
+	categories: Category[];
+	organizations: Organization[];
+}) {
+	const router = useRouter();
+	useServerEvent("course.changed", () => void refresh(router, "courses"));
 
 	const [tab, setTab] = createSignal<Tab>("ondivera");
 	const [search, setSearch] = createSignal("");
 	const [category, setCategory] = createSignal(ALL);
 	const [availability, setAvailability] = createSignal(ALL);
 	const [school, setSchool] = createSignal(ALL);
-	const [page, setPage] = createSignal(1);
+	// Back to page 1 whenever the tab or a filter changes.
+	const [page, setPage] = createSignal(
+		() => (tab(), search(), category(), availability(), school(), 1),
+	);
 	const [manageOpen, setManageOpen] = createSignal(false);
 	const [createOpen, setCreateOpen] = createSignal(false);
 	const [editCategories, setEditCategories] = createSignal<CourseRow | null>(null);
@@ -67,20 +66,20 @@ export function CourseCatalog() {
 
 	const categoryName = createMemo(() => {
 		const m = new Map<string, string>();
-		for (const c of categories.data ?? []) m.set(c.id, c.name);
+		for (const c of props.categories) m.set(c.id, c.name);
 		return m;
 	});
 	const schoolName = createMemo(() => {
 		const m = new Map<string, string>();
-		for (const o of orgs.data ?? []) m.set(o.id, o.name);
+		for (const o of props.organizations) m.set(o.id, o.name);
 		return m;
 	});
 
 	const ondivera = createMemo(() =>
-		(courses.data ?? []).filter((c) => c.kind === "ondivera_template"),
+		props.courses.filter((c) => c.kind === "ondivera_template"),
 	);
 	const schoolCourses = createMemo(() =>
-		(courses.data ?? []).filter((c) => c.kind === "school_template"),
+		props.courses.filter((c) => c.kind === "school_template"),
 	);
 
 	const filtered = createMemo(() => {
@@ -105,7 +104,6 @@ export function CourseCatalog() {
 		return rows;
 	});
 
-	createEffect(on([tab, search, category, availability, school], () => setPage(1), { defer: true }));
 	const pageCount = createMemo(() => Math.max(1, Math.ceil(filtered().length / PAGE_SIZE)));
 	const currentPage = createMemo(() => Math.min(page(), pageCount()));
 	const paged = createMemo(() => {
@@ -120,7 +118,7 @@ export function CourseCatalog() {
 	const categoryOptions = createMemo(() => [
 		{ value: ALL, label: "Alle categorieën" },
 		{ value: NONE, label: "Zonder categorie" },
-		...(categories.data ?? []).map((c) => ({ value: c.id, label: c.name })),
+		...props.categories.map((c) => ({ value: c.id, label: c.name })),
 	]);
 
 	const colTemplate = () =>
@@ -133,8 +131,8 @@ export function CourseCatalog() {
 					<h1>Cursuscatalogus</h1>
 					<div class="sub">
 						{ondivera().length} {ondivera().length === 1 ? "Ondivera-cursus" : "Ondivera-cursussen"} ·{" "}
-						{categories.data?.length ?? 0}{" "}
-						{categories.data?.length === 1 ? "categorie" : "categorieën"}
+						{props.categories.length}{" "}
+						{props.categories.length === 1 ? "categorie" : "categorieën"}
 						<Show when={notYetAvailable() > 0}>
 							{" "}
 							· {notYetAvailable()} nog voor geen enkele school beschikbaar
@@ -156,7 +154,7 @@ export function CourseCatalog() {
 					<button
 						type="button"
 						class={tab() === "ondivera" ? "on" : ""}
-						aria-pressed={tab() === "ondivera"}
+						aria-pressed={tab() === "ondivera" ? "true" : "false"}
 						onClick={() => setTab("ondivera")}
 					>
 						Ondivera-cursussen ({ondivera().length})
@@ -164,7 +162,7 @@ export function CourseCatalog() {
 					<button
 						type="button"
 						class={tab() === "school" ? "on" : ""}
-						aria-pressed={tab() === "school"}
+						aria-pressed={tab() === "school" ? "true" : "false"}
 						onClick={() => setTab("school")}
 					>
 						Cursussen van scholen ({schoolCourses().length})
@@ -185,7 +183,7 @@ export function CourseCatalog() {
 							aria-label="Filter op school"
 							options={[
 								{ value: ALL, label: "Alle scholen" },
-								...(orgs.data ?? [])
+								...props.organizations
 									.filter((o) => o.kind === "school")
 									.map((o) => ({ value: o.id, label: o.name })),
 							]}
@@ -235,14 +233,7 @@ export function CourseCatalog() {
 				</label>
 			</div>
 
-			<Show when={courses.isLoading}>
-				<div class="card text-muted">Laden…</div>
-			</Show>
-			<Show when={courses.error}>
-				<ErrorState error={courses.error} what="de cursussen" onRetry={() => courses.refetch()} />
-			</Show>
-
-			<Show when={courses.data}>
+			<div>
 				<div class="card" style={{ padding: "0", overflow: "hidden" }}>
 					<div style={{ "overflow-x": "auto" }}>
 						<div style={{ "min-width": "820px" }} role="table" aria-label="Cursussen">
@@ -432,10 +423,15 @@ export function CourseCatalog() {
 						onPage={setPage}
 					/>
 				</div>
-			</Show>
+			</div>
 
-			<CategoryManagerDialog open={manageOpen()} onOpenChange={setManageOpen} />
+			<CategoryManagerDialog
+				open={manageOpen()}
+				onOpenChange={setManageOpen}
+				categories={props.categories}
+			/>
 			<CourseCategoriesDialog
+				categories={props.categories}
 				course={editCategories()}
 				onClose={() => setEditCategories(null)}
 				onManage={() => {
@@ -443,7 +439,11 @@ export function CourseCatalog() {
 					setManageOpen(true);
 				}}
 			/>
-			<AvailabilityDialog course={editAvailability()} onClose={() => setEditAvailability(null)} />
+			<AvailabilityDialog
+				organizations={props.organizations}
+				course={editAvailability()}
+				onClose={() => setEditAvailability(null)}
+			/>
 			<CreateCourseDialog open={createOpen()} onOpenChange={setCreateOpen} />
 		</>
 	);

@@ -1,5 +1,6 @@
 import { ToggleGroup } from "@kobalte/core/toggle-group";
-import { For, splitProps } from "solid-js";
+import { For } from "solid-js";
+import { splitProps } from "../../lib/solid-props";
 import { cn } from "../../lib/cn";
 
 export type SegmentOption<T extends string> = { value: T; label: string };

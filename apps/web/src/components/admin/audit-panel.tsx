@@ -1,11 +1,12 @@
-import { useQuery } from "@tanstack/solid-query";
 import { createSignal, For, Show } from "solid-js";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
 import { Select } from "../ui/select";
 import { Input } from "../ui/text-field";
-import { orpc } from "../../lib/orpc";
+import { createLoad } from "../../lib/load";
+import { client } from "../../lib/orpc";
+import { ErrorState } from "../ui/error-state";
 import { actorLabel, formatDateTime } from "./format";
 
 const OPERATION_OPTIONS = [
@@ -26,28 +27,26 @@ const PAGE_SIZE = 25;
 /**
  * Audit-inzage (#60). Tenant-scoped for keyuser (their org's actors only) and
  * global for superadmin. Filters on table, operation and a specific actor;
- * paged via limit/offset with a "meer laden" button.
+ * paged via limit/offset with a "meer laden" button. It pages on its own
+ * (lib/load.ts): every filter or page is a new request.
  */
 export function AuditPanel() {
 	const [tableName, setTableName] = createSignal("");
 	const [operation, setOperation] = createSignal("");
 	const [actor, setActor] = createSignal("");
-	const [offset, setOffset] = createSignal(0);
+	// Back to the first page whenever a filter changes.
+	const [offset, setOffset] = createSignal(() => (tableName(), operation(), actor(), 0));
 
-	const auditQuery = useQuery(() =>
-		orpc.admin.audit.list.queryOptions({
-			input: {
-				limit: PAGE_SIZE,
-				offset: offset(),
-				tableName: tableName() || undefined,
-				operation:
-					(operation() as "INSERT" | "UPDATE" | "DELETE" | "") || undefined,
-				actor: actor() || undefined,
-			},
+	const audit = createLoad(
+		() => ({
+			limit: PAGE_SIZE,
+			offset: offset(),
+			tableName: tableName() || undefined,
+			operation: (operation() as "INSERT" | "UPDATE" | "DELETE" | "") || undefined,
+			actor: actor() || undefined,
 		}),
+		(input, signal) => client.admin.audit.list(input, { signal }),
 	);
-
-	const resetPaging = () => setOffset(0);
 
 	return (
 		<section class="flex flex-col gap-4">
@@ -56,16 +55,16 @@ export function AuditPanel() {
 					<h2 class="font-head text-h3 text-ink">Audit</h2>
 					<p class="mt-1 text-small text-muted">
 						<Show
-							when={auditQuery.data?.scope === "global"}
+							when={audit.data()?.scope === "global"}
 							fallback="Activiteit binnen jouw organisatie."
 						>
 							Activiteit over alle organisaties.
 						</Show>
 					</p>
 				</div>
-				<Show when={auditQuery.data?.scope}>
+				<Show when={audit.data()?.scope}>
 					<Badge variant="outline">
-						{auditQuery.data?.scope === "global"
+						{audit.data()?.scope === "global"
 							? "Globaal"
 							: "Eigen tenant"}
 					</Badge>
@@ -80,7 +79,6 @@ export function AuditPanel() {
 					value={tableName()}
 					onInput={(e) => {
 						setTableName(e.currentTarget.value);
-						resetPaging();
 					}}
 					class="w-44"
 				/>
@@ -92,8 +90,7 @@ export function AuditPanel() {
 						value={operation()}
 						onChange={(v) => {
 							setOperation(v ?? "");
-							resetPaging();
-						}}
+							}}
 					/>
 				</div>
 				<Input
@@ -102,26 +99,23 @@ export function AuditPanel() {
 					value={actor()}
 					onInput={(e) => {
 						setActor(e.currentTarget.value);
-						resetPaging();
 					}}
 					class="w-56"
 				/>
 			</div>
 
-			<Show when={auditQuery.isLoading}>
+			<Show when={audit.loading() && !audit.data()}>
 				<p class="text-muted">Laden…</p>
 			</Show>
-			<Show when={auditQuery.error}>
-				<p class="text-danger">Kon auditregels niet laden.</p>
+			<Show when={audit.error()}>
+				{(error) => <ErrorState error={error()} what="de auditregels" onRetry={audit.reload} />}
 			</Show>
-			<Show
-				when={!auditQuery.isLoading && auditQuery.data?.items.length === 0}
-			>
+			<Show when={audit.data()?.items.length === 0}>
 				<p class="text-muted">Geen activiteit gevonden.</p>
 			</Show>
 
 			<ul class="flex flex-col gap-2">
-				<For each={auditQuery.data?.items}>
+				<For each={audit.data()?.items ?? []}>
 					{(row) => (
 						<li>
 							<Card
@@ -164,7 +158,7 @@ export function AuditPanel() {
 				<Button
 					variant="subtle"
 					size="sm"
-					disabled={!auditQuery.data?.hasMore}
+					disabled={!audit.data()?.hasMore}
 					onClick={() => setOffset(offset() + PAGE_SIZE)}
 				>
 					Volgende

@@ -1,8 +1,10 @@
 import { Popover } from "@kobalte/core/popover";
-import { Accessibility, X } from "lucide-solid";
-import { Show, type JSX } from "solid-js";
+import { Accessibility, X } from "../lib/icons";
+import type { JSX } from "@solidjs/web";
+import { createSignal, Show } from "solid-js";
 import { a11y } from "../lib/a11y/store";
 import { SegmentedControl } from "./ui/segmented-control";
+import { closeOnEscape } from "./ui/escape";
 import { Switch } from "./ui/switch";
 
 function Row(props: {
@@ -30,8 +32,10 @@ function Row(props: {
  */
 export function A11yPanel() {
 	const s = a11y.settings;
+	// Controlled so Escape can close the panel (ui/escape.ts).
+	const [open, setOpen] = createSignal(false);
 	return (
-		<Popover placement="bottom-end" gutter={8}>
+		<Popover placement="bottom-end" gutter={8} open={open()} onOpenChange={setOpen}>
 			<Popover.Trigger
 				aria-label="Toegankelijkheid"
 				class="grid size-9 place-items-center rounded-2 border border-line bg-surface text-ink-2 transition-colors duration-fast hover:bg-line-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring data-[expanded]:bg-primary-50 data-[expanded]:text-primary-700"
@@ -39,7 +43,8 @@ export function A11yPanel() {
 				<Accessibility class="size-5" />
 			</Popover.Trigger>
 			<Popover.Portal>
-				<Popover.Content class="z-[90] w-80 max-w-[calc(100vw-1.5rem)] rounded-3 border border-line bg-surface p-5 shadow-3 outline-none animate-scale-in">
+				<Popover.Content
+					onKeyDown={closeOnEscape(() => setOpen(false))} class="z-[90] w-80 max-w-[calc(100vw-1.5rem)] rounded-3 border border-line bg-surface p-5 shadow-3 outline-none animate-scale-in">
 					<div class="mb-3 flex items-center justify-between">
 						<Popover.Title class="font-head text-h3 text-ink">
 							Toegankelijkheid

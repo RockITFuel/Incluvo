@@ -1,127 +1,72 @@
-import { ORPCError } from "@orpc/client";
 import { coachesLeerlingen, type UserRole } from "@incluvo/permissions";
-import {
-	createFileRoute,
-	Outlet,
-	redirect,
-	useNavigate,
-} from "@tanstack/solid-router";
-import { useQuery, useQueryClient } from "@tanstack/solid-query";
-import { createEffect, createSignal, onMount, Show } from "solid-js";
+import { createFileRoute, Outlet, redirect, useRouter } from "@tanstack/solid-router";
 import { AppShell } from "../components/shell/app-shell";
 import { navForRole, roleLabel } from "../components/shell/nav";
 import { toast } from "../components/ui/toast";
+import { clearMe, loadMe } from "../lib/auth/me";
 import { roleHome } from "../lib/auth/role-home";
-import { clearCachedSession, getCachedSession } from "../lib/auth/session";
-import { useMe } from "../lib/auth/use-me";
 import { friendlyError } from "../lib/errors";
-import { client, orpc } from "../lib/orpc";
+import { client } from "../lib/orpc";
+import { loadRouteData } from "../lib/route-data";
 
 /**
- * Layout route that gates everything under it behind an authenticated session
- * and wraps it in the calm Incluvo AppShell. The session is checked client-side
- * (SPA mode); the server independently enforces auth on every oRPC procedure.
+ * Layout route for everything behind a login, wrapped in the AppShell.
  *
- * The shell is **role-aware**: navigation + the user area are driven by
- * `account.me` (`useMe()`), so each role sees the right menu and their tenant.
+ * `beforeLoad` resolves the identity (`account.me`, cached in lib/auth/me.ts)
+ * and puts it in the route context, so every protected page knows the role
+ * before it renders (`useMe()`, `requireRole`). The loader fetches what the
+ * shell itself shows: the menu badges and the recent notifications. The
+ * server enforces auth on every procedure regardless.
  */
-/** An unauthenticated error (no/expired session) — the only case worth a redirect. */
-const isAuthError = (err: unknown) =>
-	err instanceof ORPCError && (err.status === 401 || err.code === "UNAUTHORIZED");
-
 export const Route = createFileRoute("/_protected")({
 	beforeLoad: async () => {
-		// The SPA shell is prerendered with Bun at build time, where there is no
-		// `window` and no backend to reach. Calling `getSession()` there hits an
-		// empty baseURL (see auth-client) and throws "fetch() URL is invalid",
-		// which gets baked into the shell so every protected route renders the
-		// error boundary on first paint. Skip the probe during prerender; the real
-		// gate runs client-side on load and the server enforces auth on every RPC.
-		if (typeof window === "undefined") {
-			return { user: undefined };
-		}
-		const data = await getCachedSession();
-		if (!data?.session) {
-			throw redirect({ to: "/login" });
-		}
-		return { user: data.user };
+		const me = await loadMe();
+		if (!me) throw redirect({ to: "/login" });
+		return { me };
+	},
+	loader: async ({ context, abortController }) => {
+		const signal = abortController.signal;
+		const role = context.me.role as UserRole;
+		const [taken, inbox, notifications] = await Promise.all([
+			// A leerling's open taken voor vandaag, a coach's ingeleverde coachplannen.
+			role === "leerling"
+				? loadRouteData(signal, (s) => client.tasks.list({}, { signal: s }))
+				: null,
+			coachesLeerlingen(role)
+				? loadRouteData(signal, (s) => client.coachplan.inbox(undefined, { signal: s }))
+				: null,
+			loadRouteData(signal, (s) =>
+				client.notifications.list({ limit: 8, offset: 0 }, { signal: s }),
+			),
+		]);
+		return {
+			badges: {
+				taken: taken?.access === "granted" ? taken.value.vandaag.length : 0,
+				// Plans waiting for the coach, not the ones already shared.
+				coachplannen:
+					inbox?.access === "granted"
+						? inbox.value.filter(
+								(r) =>
+									r.submission.status === "submitted" ||
+									r.submission.status === "coach_review",
+							).length
+						: 0,
+			},
+			notifications,
+		};
 	},
 	component: ProtectedLayout,
 });
 
 function ProtectedLayout() {
-	// A route `beforeLoad` is baked at SPA-prerender time and is NOT re-run on
-	// hydration, so on a full page load the protected tree mounts with no
-	// session context. Render the shell only after `onMount` (client-side, once
-	// hydration has settled) — this also means the child routes' queries fire
-	// post-hydration instead of during solid-query's "restoring" phase, where
-	// they hang forever (the cause of the "Bezig met laden…" wedge). Mirrors
-	// clp's _protected layout.
-	const [mounted, setMounted] = createSignal(false);
-	onMount(() => setMounted(true));
+	const router = useRouter();
+	const context = Route.useRouteContext();
+	const shell = Route.useLoaderData();
+	const me = () => context().me;
+	const role = () => me().role as UserRole;
 
-	return (
-		<Show
-			when={mounted()}
-			fallback={
-				<div class="grid min-h-dvh place-items-center bg-bg text-muted">
-					<p class="text-small">Bezig met laden…</p>
-				</div>
-			}
-		>
-			<AuthedShell />
-		</Show>
-	);
-}
-
-/**
- * Rendered only client-side (after `onMount`). Resolves the role + tenant from
- * `account.me` (oRPC) and redirects to /login if there is no valid session.
- * The server independently enforces auth on every procedure.
- */
-function AuthedShell() {
-	const me = useMe();
-	const navigate = useNavigate();
-
-	// `account.me` 401s when there is no valid session → bounce to /login. This
-	// is the client-side gate for full page loads (where beforeLoad was baked at
-	// prerender and could not run). Only redirect on a genuine auth error —
-	// transient 5xx/429s must NOT log the user out mid-work.
-	createEffect(() => {
-		if (me.query.isError && isAuthError(me.query.error)) {
-			navigate({ to: "/login" });
-		}
-	});
-
-	const role = (): UserRole | null => me.role();
-
-	// Live nav-badge counts, like the prototype's sidebar badges: a leerling
-	// sees their open taken voor vandaag, a coach the ingeleverde coachplannen.
-	// (Chat has no unread-concept in the API yet, so no chat badge — never
-	// fabricated.) Both queries piggyback on caches the pages themselves use.
-	const takenQuery = useQuery(() => ({
-		...orpc.tasks.list.queryOptions({ input: {} }),
-		enabled: me.is("leerling"),
-	}));
-	const inboxQuery = useQuery(() => ({
-		...orpc.coachplan.inbox.queryOptions(),
-		enabled: (() => {
-			const r = role();
-			return r !== null && coachesLeerlingen(r);
-		})(),
-	}));
-	const badges = () => ({
-		taken: takenQuery.data?.vandaag.length ?? 0,
-		// Plans waiting for the coach, not the ones already shared.
-		coachplannen:
-			inboxQuery.data?.filter(
-				(r) => r.submission.status === "submitted" || r.submission.status === "coach_review",
-			).length ?? 0,
-	});
-
-	// INC-24: work in another of your roles. Everything cached belongs to the
+	// INC-24: work in another of your roles. Every cached page belongs to the
 	// old role, so it goes; the new role starts on its own start screen.
-	const queryClient = useQueryClient();
 	const switchRole = async (next: string) => {
 		try {
 			await client.account.switchRole({ role: next as UserRole });
@@ -129,29 +74,26 @@ function AuthedShell() {
 			toast({ title: "Wisselen lukte niet", description: friendlyError(error), tone: "danger" });
 			return;
 		}
-		clearCachedSession();
-		// Drops every cached answer and refetches what is on screen (the menu).
-		await queryClient.resetQueries();
-		await navigate({ to: roleHome(next as UserRole) });
+		clearMe();
+		router.clearCache();
+		await router.navigate({ to: roleHome(next as UserRole) });
 		toast({ title: `Je werkt nu als ${roleLabel(next as UserRole).toLowerCase()}`, tone: "success" });
 	};
 
-	const user = () => {
-		const tone = role() === "coach" ? "coach" : "leerling";
-		return {
-			name: me.user()?.name ?? "Gebruiker",
-			subtitle: me.user()?.email,
-			organization: me.organization()?.name,
+	const user = () =>
+		({
+			name: me().user.name,
+			subtitle: me().user.email,
+			organization: me().organization?.name,
 			roleLabel: roleLabel(role()),
-			tone,
-			roles: (me.query.data?.roles ?? []).map((r) => ({ value: r, label: roleLabel(r) })),
-			activeRole: role() ?? undefined,
+			tone: role() === "coach" ? "coach" : "leerling",
+			roles: (me().roles as UserRole[]).map((r) => ({ value: r, label: roleLabel(r) })),
+			activeRole: role(),
 			onSwitchRole: switchRole,
-		} as const;
-	};
+		}) as const;
 
 	return (
-		<AppShell user={user()} nav={navForRole(role(), badges())}>
+		<AppShell user={user()} nav={navForRole(role(), shell().badges)}>
 			<Outlet />
 		</AppShell>
 	);

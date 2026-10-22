@@ -1,9 +1,11 @@
-import { Link } from "@tanstack/solid-router";
-import { useMutation, useQueryClient } from "@tanstack/solid-query";
-import { Calendar, Check, Clock, Flame, Plus, X } from "lucide-solid";
-import { createSignal, For, type JSX, Show } from "solid-js";
+import { Link, useRouter } from "@tanstack/solid-router";
+import { Calendar, Check, Clock, Flame, Plus, X } from "../../lib/icons";
+import type { JSX } from "@solidjs/web";
+import { createSignal, For, Show } from "solid-js";
 import { toast } from "../ui/toast";
-import { orpc } from "../../lib/orpc";
+import { createAction } from "../../lib/action";
+import { client } from "../../lib/orpc";
+import { refresh } from "../../lib/refresh";
 import { doneStreak } from "../../lib/streak";
 
 /** A single task as returned by `tasks.list`. */
@@ -118,7 +120,7 @@ export function TaskBoard(props: {
 	adding?: boolean;
 	onAddingChange?: (adding: boolean) => void;
 }) {
-	const queryClient = useQueryClient();
+	const router = useRouter();
 	const [tab, setTab] = createSignal<TabKey>("vandaag");
 	const [internalAdding, setInternalAdding] = createSignal(false);
 	const [newTitle, setNewTitle] = createSignal("");
@@ -132,42 +134,39 @@ export function TaskBoard(props: {
 		else setInternalAdding(value);
 	};
 
-	const invalidate = () =>
-		queryClient.invalidateQueries({ queryKey: orpc.tasks.list.key() });
-
-	const add = useMutation(() =>
-		orpc.tasks.add.mutationOptions({
-			onSuccess: () => {
-				setNewTitle("");
-				setNewDue("");
-				setAdding(false);
-				invalidate();
-				toast({ title: "Taak toegevoegd", tone: "success" });
-			},
-			onError: () =>
-				toast({ title: "Kon taak niet toevoegen", tone: "danger" }),
-		}),
+	const add = createAction(
+		async (input: { title: string; leerlingId?: string; dueAt?: Date }) => {
+			await client.tasks.add(input);
+			setNewTitle("");
+			setNewDue("");
+			setAdding(false);
+			toast({ title: "Taak toegevoegd", tone: "success" });
+			await refresh(router, "tasks");
+		},
+		{ error: "Kon taak niet toevoegen" },
 	);
 
-	const setDone = useMutation(() =>
-		orpc.tasks.setDone.mutationOptions({
-			onSuccess: () => invalidate(),
-			onError: () => toast({ title: "Kon taak niet bijwerken", tone: "danger" }),
-		}),
+	const setDone = createAction(
+		async (input: { id: string; done: boolean }) => {
+			await client.tasks.setDone(input);
+			await refresh(router, "tasks");
+		},
+		{ error: "Kon taak niet bijwerken" },
 	);
 
-	const setPinned = useMutation(() =>
-		orpc.tasks.setPinned.mutationOptions({
-			onSuccess: () => invalidate(),
-			onError: () => toast({ title: "Kon taak niet verplaatsen", tone: "danger" }),
-		}),
+	const setPinned = createAction(
+		async (input: { id: string; pinned: boolean }) => {
+			await client.tasks.setPinned(input);
+			await refresh(router, "tasks");
+		},
+		{ error: "Kon taak niet verplaatsen" },
 	);
 
 	const submitAdd = () => {
 		const title = newTitle().trim();
 		if (!title) return;
 		const dueAt = newDue() ? new Date(`${newDue()}T00:00:00`) : undefined;
-		add.mutate({ title, leerlingId: props.leerlingId, dueAt });
+		void add.run({ title, leerlingId: props.leerlingId, dueAt });
 	};
 
 	const cancelAdd = () => {
@@ -325,7 +324,7 @@ export function TaskBoard(props: {
 						<button
 							type="button"
 							class="btn primary"
-							disabled={add.isPending}
+							disabled={add.pending()}
 							onClick={submitAdd}
 						>
 							Toevoegen
@@ -344,7 +343,7 @@ export function TaskBoard(props: {
 							<BigTask
 								task={t}
 								canManage={props.canManage}
-								onToggle={() => setDone.mutate({ id: t.id, done: true })}
+								onToggle={() => void setDone.run({ id: t.id, done: true })}
 							/>
 						)}
 					</For>
@@ -362,20 +361,20 @@ export function TaskBoard(props: {
 						label="Deze week"
 						tasks={deWeek()}
 						canManage={props.canManage}
-						onMove={(id) => setPinned.mutate({ id, pinned: true })}
+						onMove={(id) => void setPinned.run({ id, pinned: true })}
 					/>
 					<FutureGroup
 						label="Volgende week"
 						tasks={volgendeWeek()}
 						canManage={props.canManage}
-						onMove={(id) => setPinned.mutate({ id, pinned: true })}
+						onMove={(id) => void setPinned.run({ id, pinned: true })}
 					/>
 					<Show when={later().length > 0}>
 						<FutureGroup
 							label="Later"
 							tasks={later()}
 							canManage={props.canManage}
-							onMove={(id) => setPinned.mutate({ id, pinned: true })}
+							onMove={(id) => void setPinned.run({ id, pinned: true })}
 						/>
 					</Show>
 					<Show when={ooit().length > 0}>
@@ -383,7 +382,7 @@ export function TaskBoard(props: {
 							label="Ooit"
 							tasks={ooit()}
 							canManage={props.canManage}
-							onMove={(id) => setPinned.mutate({ id, pinned: true })}
+							onMove={(id) => void setPinned.run({ id, pinned: true })}
 						/>
 					</Show>
 					<Show when={props.data.toekomst.length === 0}>
@@ -401,7 +400,7 @@ export function TaskBoard(props: {
 							<BigTask
 								task={t}
 								canManage={props.canManage}
-								onToggle={() => setDone.mutate({ id: t.id, done: false })}
+								onToggle={() => void setDone.run({ id: t.id, done: false })}
 							/>
 						)}
 					</For>
@@ -479,7 +478,7 @@ function BigTask(props: { task: TaskRow; canManage: boolean; onToggle: () => voi
 							: "Afvinken"
 				}
 				title={fromOpdracht() ? "Klaar zodra de opdracht is ingeleverd" : undefined}
-				aria-pressed={props.task.done}
+				aria-pressed={props.task.done ? "true" : "false"}
 				disabled={!props.canManage || fromOpdracht()}
 				onClick={props.onToggle}
 				style={{

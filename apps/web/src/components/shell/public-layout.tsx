@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/solid-router";
-import type { JSX } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { A11yPanel } from "../a11y-panel";
 
 /**

@@ -1,7 +1,9 @@
-import { useQuery, useQueryClient } from "@tanstack/solid-query";
-import { Paperclip, Send } from "lucide-solid";
+import { useRouter } from "@tanstack/solid-router";
+import { Paperclip, Send } from "../../lib/icons";
 import { createSignal, For, Show } from "solid-js";
-import { client, orpc } from "../../lib/orpc";
+import { createLoad } from "../../lib/load";
+import { client } from "../../lib/orpc";
+import { refresh } from "../../lib/refresh";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/text-field";
@@ -9,6 +11,7 @@ import { toast } from "../ui/toast";
 import { FileLink } from "./file-link";
 import { uploadFile } from "./upload";
 import { ErrorState } from "../ui/error-state";
+import { RichTextView } from "./rich-text-view";
 
 type AssignmentDTO = {
 	id: string;
@@ -28,15 +31,15 @@ export function AssignmentBlock(props: {
 	assignment: AssignmentDTO;
 	courseId: string;
 }) {
-	const queryClient = useQueryClient();
+	const router = useRouter();
 	const [text, setText] = createSignal("");
 	const [files, setFiles] = createSignal<File[]>([]);
 	const [busy, setBusy] = createSignal(false);
 
-	const submissionsQuery = useQuery(() =>
-		orpc.courses.listSubmissions.queryOptions({
-			input: { assignmentId: props.assignment.id },
-		}),
+	// Loads when the opdracht is shown (blocks open one at a time).
+	const submissions = createLoad(
+		() => props.assignment.id,
+		(assignmentId, signal) => client.courses.listSubmissions({ assignmentId }, { signal }),
 	);
 
 	const allowText = () => props.assignment.responseType !== "files";
@@ -58,11 +61,8 @@ export function AssignmentBlock(props: {
 			setText("");
 			setFiles([]);
 			// Handing in completes the block and its takenlijst task (fix plan 2.3).
-			await Promise.all([
-				queryClient.invalidateQueries({ queryKey: orpc.courses.listSubmissions.key() }),
-				queryClient.invalidateQueries({ queryKey: orpc.courses.tree.key() }),
-				queryClient.invalidateQueries({ queryKey: orpc.tasks.list.key() }),
-			]);
+			submissions.reload();
+			await refresh(router, "courses", "tasks");
 		} catch (err) {
 			toast({
 				title: "Inleveren mislukt",
@@ -87,7 +87,7 @@ export function AssignmentBlock(props: {
 				</Show>
 			</div>
 			<Show when={props.assignment.description}>
-				<p class="text-body text-ink-2">{props.assignment.description}</p>
+				{(d) => <RichTextView value={d()} />}
 			</Show>
 
 			{/* Submission form */}
@@ -131,17 +131,17 @@ export function AssignmentBlock(props: {
 			</div>
 
 			{/* Past submissions + feedback (#28) */}
-			<Show when={submissionsQuery.error}>
+			<Show when={submissions.error()}>
 				<ErrorState
-					error={submissionsQuery.error}
+					error={submissions.error()}
 					what="je eerdere inzendingen"
-					onRetry={() => submissionsQuery.refetch()}
+					onRetry={() => submissions.reload()}
 				/>
 			</Show>
-			<Show when={(submissionsQuery.data?.length ?? 0) > 0}>
+			<Show when={(submissions.data()?.length ?? 0) > 0}>
 				<div class="flex flex-col gap-2">
 					<p class="text-small font-medium text-ink-2">Jouw inzendingen</p>
-					<For each={submissionsQuery.data}>
+					<For each={submissions.data()}>
 						{(s) => (
 							<div class="rounded-2 border border-line p-3">
 								<div class="flex items-center justify-between">

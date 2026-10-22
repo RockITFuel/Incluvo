@@ -1,0 +1,147 @@
+diff --git a/dist/create-dom-collection/F5MPGch0.js b/dist/create-dom-collection/F5MPGch0.js
+index a915aa33b221ba033856b483e99fb1ad5a38e14f..87869bce11526546a8a29e14ac79a4bd81397ffc 100644
+--- a/dist/create-dom-collection/F5MPGch0.js
++++ b/dist/create-dom-collection/F5MPGch0.js
+@@ -91,7 +91,8 @@ function createSortBasedOnDOMPosition(items, setItems) {
+ //#endregion
+ //#region src/primitives/create-dom-collection/create-dom-collection.ts
+ function createDomCollection(props = {}) {
+-	const [items, setItems] = createSignal([]);
++	// Items unregister in their own cleanup, so the write can run while an owner is disposed.
++	const [items, setItems] = createSignal([], { ownedWrite: true });
+ 	createSortBasedOnDOMPosition(items, setItems);
+ 	createEffect(() => items(), (currentItems) => {
+ 		props.onItemsChange?.(currentItems);
+diff --git a/dist/create-dom-collection/F5MPGch0.jsx b/dist/create-dom-collection/F5MPGch0.jsx
+index a915aa33b221ba033856b483e99fb1ad5a38e14f..87869bce11526546a8a29e14ac79a4bd81397ffc 100644
+--- a/dist/create-dom-collection/F5MPGch0.jsx
++++ b/dist/create-dom-collection/F5MPGch0.jsx
+@@ -91,7 +91,8 @@ function createSortBasedOnDOMPosition(items, setItems) {
+ //#endregion
+ //#region src/primitives/create-dom-collection/create-dom-collection.ts
+ function createDomCollection(props = {}) {
+-	const [items, setItems] = createSignal([]);
++	// Items unregister in their own cleanup, so the write can run while an owner is disposed.
++	const [items, setItems] = createSignal([], { ownedWrite: true });
+ 	createSortBasedOnDOMPosition(items, setItems);
+ 	createEffect(() => items(), (currentItems) => {
+ 		props.onItemsChange?.(currentItems);
+diff --git a/dist/hidden-select-base/B9qy0bK0.js b/dist/hidden-select-base/B9qy0bK0.js
+index 1e84b6d201244744f81cef7dc6fcecd9d3bb08cf..2dd8eedb65c312ab6b5216be2db1418ce3661960 100644
+--- a/dist/hidden-select-base/B9qy0bK0.js
++++ b/dist/hidden-select-base/B9qy0bK0.js
+@@ -16,15 +16,15 @@ function HiddenSelectBase(props) {
+ 	const formControlContext = useFormControlContext();
+ 	let isInternalChangeEvent = false;
+ 	const renderOption = (key) => {
+-		const item = props.collection.getItem(key);
++		const item = () => props.collection.getItem(key);
+ 		return createComponent(Show, {
+ 			get when() {
+-				return item?.type === "item";
++				return item()?.type === "item";
+ 			},
+ 			get children() {
+ 				var _el$ = _tmpl$();
+ 				_el$.value = key;
+-				insert(_el$, () => item?.textValue);
++				insert(_el$, () => item()?.textValue);
+ 				effect(() => props.selectionManager.isSelected(key), (_v$) => {
+ 					_el$.selected = _v$;
+ 				});
+diff --git a/dist/hidden-select-base/D_RUBsuL.jsx b/dist/hidden-select-base/D_RUBsuL.jsx
+index ffce0f0ecbbed4bdeb7db2b89f3b0220fa5ccdc7..4208780b3556f415a6f69a5e32c8d3a7296bf987 100644
+--- a/dist/hidden-select-base/D_RUBsuL.jsx
++++ b/dist/hidden-select-base/D_RUBsuL.jsx
+@@ -13,10 +13,10 @@ function HiddenSelectBase(props) {
+ 	const formControlContext = useFormControlContext();
+ 	let isInternalChangeEvent = false;
+ 	const renderOption = (key) => {
+-		const item = props.collection.getItem(key);
+-		return <Show when={item?.type === "item"}>
++		const item = () => props.collection.getItem(key);
++		return <Show when={item()?.type === "item"}>
+ 				<option value={key} selected={props.selectionManager.isSelected(key)}>
+-					{item?.textValue}
++					{item()?.textValue}
+ 				</option>
+ 			</Show>;
+ 	};
+diff --git a/dist/select/De07CvDa.jsx b/dist/select/De07CvDa.jsx
+index c9bdffb0a1204b2d8712b2b18024b34f89d7eb89..e5c5e139a9cadb41ed0166f8e46392158955382f 100644
+--- a/dist/select/De07CvDa.jsx
++++ b/dist/select/De07CvDa.jsx
+@@ -15,7 +15,7 @@ import { i as PopperArrow, t as Popper } from "../popper/BSUmx7sN.jsx";
+ import { a as ListboxItemLabel, c as ListboxItem, n as listbox_exports, o as ListboxItemIndicator, r as ListboxSection, s as ListboxItemDescription } from "../listbox/BqJ2fkgp.jsx";
+ import { t as HiddenSelectBase } from "../hidden-select-base/D_RUBsuL.jsx";
+ import { combineStyle } from "@solid-primitives/props";
+-import { Show, children, createContext, createEffect, createMemo, createSignal, createUniqueId, merge, omit, untrack, useContext } from "solid-js";
++import { Show, children, createContext, createEffect, createMemo, createSignal, createUniqueId, getOwner, isDisposed, merge, omit, untrack, useContext } from "solid-js";
+ import { createPresence } from "@solid-primitives/presence";
+ import { Portal } from "@solidjs/web";
+ import { access } from "@solid-primitives/utils";
+@@ -74,13 +74,23 @@ function SelectContent(props) {
+ 		},
+ 		onFinalFocus
+ 	});
++	const owner = getOwner();
+ 	createEffect(() => context.contentPresent() && !context.isModal(), (isNonModalAndPresent) => {
+ 		if (!isNonModalAndPresent) return;
+ 		return () => {
+-			onFinalFocus(new CustomEvent("selectCloseAutoFocus", {
++			const event = new CustomEvent("selectCloseAutoFocus", {
+ 				bubbles: false,
+ 				cancelable: true
+-			}));
++			});
++			// Disposed while open: focusing the trigger now would write the selection state from
++			// inside the disposal. Restore focus afterwards, if the trigger is still in the document.
++			if (owner && isDisposed(owner)) {
++				queueMicrotask(() => {
++					if (context.triggerRef()?.isConnected) onFinalFocus(event);
++				});
++				return;
++			}
++			onFinalFocus(event);
+ 		};
+ 	});
+ 	return <Show when={context.contentPresent()}>
+diff --git a/dist/select/MYiSAYA-.js b/dist/select/MYiSAYA-.js
+index 7ef6a1796141adcb44af4e7457e898bcacd754b4..46b982bc23efd6a73e56b7cc7bd80dce2093dfca 100644
+--- a/dist/select/MYiSAYA-.js
++++ b/dist/select/MYiSAYA-.js
+@@ -16,7 +16,7 @@ import { a as ListboxItemLabel, c as ListboxItem, i as ListboxRoot, o as Listbox
+ import { t as HiddenSelectBase } from "../hidden-select-base/B9qy0bK0.js";
+ import { Portal, createComponent, memo, mergeProps } from "@solidjs/web";
+ import { combineStyle } from "@solid-primitives/props";
+-import { Show, children, createContext, createEffect, createMemo, createSignal, createUniqueId, merge, omit, untrack, useContext } from "solid-js";
++import { Show, children, createContext, createEffect, createMemo, createSignal, createUniqueId, getOwner, isDisposed, merge, omit, untrack, useContext } from "solid-js";
+ import { createPresence } from "@solid-primitives/presence";
+ import { access } from "@solid-primitives/utils";
+ import { callHandler } from "@kobalte/utils";
+@@ -74,13 +74,23 @@ function SelectContent(props) {
+ 		},
+ 		onFinalFocus
+ 	});
++	const owner = getOwner();
+ 	createEffect(() => context.contentPresent() && !context.isModal(), (isNonModalAndPresent) => {
+ 		if (!isNonModalAndPresent) return;
+ 		return () => {
+-			onFinalFocus(new CustomEvent("selectCloseAutoFocus", {
++			const event = new CustomEvent("selectCloseAutoFocus", {
+ 				bubbles: false,
+ 				cancelable: true
+-			}));
++			});
++			// Disposed while open: focusing the trigger now would write the selection state from
++			// inside the disposal. Restore focus afterwards, if the trigger is still in the document.
++			if (owner && isDisposed(owner)) {
++				queueMicrotask(() => {
++					if (context.triggerRef()?.isConnected) onFinalFocus(event);
++				});
++				return;
++			}
++			onFinalFocus(event);
+ 		};
+ 	});
+ 	return createComponent(Show, {

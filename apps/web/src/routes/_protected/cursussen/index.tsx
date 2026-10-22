@@ -1,13 +1,15 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/solid-router";
-import { useQuery, useQueryClient } from "@tanstack/solid-query";
-import { BookOpen, Compass, FlaskConical, Plus, Search } from "lucide-solid";
-import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
+import { Dynamic } from "@solidjs/web";
+import { createFileRoute, Link, redirect, useRouter } from "@tanstack/solid-router";
+import { BookOpen, Compass, FlaskConical, Plus, Search } from "../../../lib/icons";
+import { createMemo, createSignal, For, Show } from "solid-js";
 import { CreateCourseDialog } from "../../../components/admin/create-course-dialog";
+import { RouteDataView } from "../../../components/ui/route-data-view";
 import { Select } from "../../../components/ui/select";
 import { useMe } from "../../../lib/auth/use-me";
-import { orpc } from "../../../lib/orpc";
+import { client, type Output } from "../../../lib/orpc";
+import { refresh } from "../../../lib/refresh";
+import { granted, loadRouteData } from "../../../lib/route-data";
 import { useServerEvent } from "../../../lib/sse/use-events";
-import { ErrorState } from "../../../components/ui/error-state";
 
 /**
  * Cursussen overzicht (#23) — a 1:1 port of the approved "Cursussen" prototype.
@@ -21,8 +23,28 @@ import { ErrorState } from "../../../components/ui/error-state";
  * progress — the real percentage is computed on the course view once opened.
  */
 export const Route = createFileRoute("/_protected/cursussen/")({
+	// Ondivera manages its courses in the catalogue (/beheer/cursussen).
+	beforeLoad: ({ context }) => {
+		if (context.me.role === "superadmin") throw redirect({ to: "/beheer/cursussen", replace: true });
+	},
+	loader: async ({ context, abortController }) => {
+		const signal = abortController.signal;
+		const [courses, categories] = await Promise.all([
+			loadRouteData(signal, (s) => client.courses.list({}, { signal: s })),
+			// Search + category filter only for those who see templates (not a leerling).
+			context.me.role === "leerling"
+				? null
+				: loadRouteData(signal, (s) =>
+						client.courses.catalog.categories.list(undefined, { signal: s }),
+					),
+		]);
+		return { courses, categories };
+	},
 	component: CursussenPage,
 });
+
+type Course = Output<typeof client.courses.list>[number];
+type Category = Output<typeof client.courses.catalog.categories.list>[number];
 
 const kindLabel: Record<string, string> = {
 	ondivera_template: "Ondivera-sjabloon",
@@ -41,44 +63,13 @@ const ALL = "__all__";
 
 function CursussenPage() {
 	const me = useMe();
-	const navigate = useNavigate();
-	const queryClient = useQueryClient();
-	const coursesQuery = useQuery(() => orpc.courses.list.queryOptions({ input: {} }));
+	const router = useRouter();
+	const data = Route.useLoaderData();
 	const [createOpen, setCreateOpen] = createSignal(false);
-	const [search, setSearch] = createSignal("");
-	const [category, setCategory] = createSignal(ALL);
 
-	// Ondivera manages its courses in the catalogue (/beheer/cursussen).
-	// Once: navigating re-runs the effect mid-transition and would loop.
-	let redirected = false;
-	createEffect(() => {
-		if (!redirected && me.is("superadmin")) {
-			redirected = true;
-			navigate({ to: "/beheer/cursussen", replace: true });
-		}
-	});
+	useServerEvent("course.changed", () => void refresh(router, "courses"));
 
-	useServerEvent("course.changed", () =>
-		queryClient.invalidateQueries({ queryKey: orpc.courses.list.key() }),
-	);
-
-	// Search + category filter for those who see templates (not a leerling).
-	const canFilter = () => !me.is("leerling") && (coursesQuery.data?.length ?? 0) > 0;
-	const categories = useQuery(() => ({
-		...orpc.courses.catalog.categories.list.queryOptions(),
-		enabled: me.role() !== null && !me.is("leerling"),
-	}));
-	const usedCategories = createMemo(() => {
-		const used = new Set((coursesQuery.data ?? []).flatMap((c) => c.categoryIds));
-		return (categories.data ?? []).filter((c) => used.has(c.id));
-	});
-	const shown = createMemo(() => {
-		let rows = coursesQuery.data ?? [];
-		const q = search().trim().toLowerCase();
-		if (q) rows = rows.filter((c) => c.title.toLowerCase().includes(q));
-		if (category() !== ALL) rows = rows.filter((c) => c.categoryIds.includes(category()));
-		return rows;
-	});
+	const count = () => granted(data().courses)?.length ?? 0;
 
 	return (
 		<>
@@ -88,8 +79,8 @@ function CursussenPage() {
 					<div class="sub">Jouw cursussen, op jouw manier ingesteld.</div>
 				</div>
 				<div class="ds-row">
-					<Show when={(coursesQuery.data?.length ?? 0) > 0}>
-						<span class="chip">{coursesQuery.data?.length} actief</span>
+					<Show when={count() > 0}>
+						<span class="chip">{count()} actief</span>
 					</Show>
 					<Show when={me.canBuildCourses()}>
 						<button type="button" class="btn primary" onClick={() => setCreateOpen(true)}>
@@ -100,17 +91,43 @@ function CursussenPage() {
 				</div>
 			</div>
 
-			<Show when={coursesQuery.isLoading}>
-				<p class="text-muted">Laden…</p>
-			</Show>
-			<Show when={coursesQuery.error}>
-				<ErrorState
-					error={coursesQuery.error}
-					what="de cursussen"
-					onRetry={() => coursesQuery.refetch()}
-				/>
-			</Show>
-			<Show when={coursesQuery.data?.length === 0}>
+			<RouteDataView
+				data={data().courses}
+				what="de cursussen"
+				onRetry={() => void refresh(router, "courses")}
+			>
+				{(courses) => (
+					<CourseCards
+						courses={courses()}
+						categories={(data().categories && granted(data().categories!)) ?? []}
+					/>
+				)}
+			</RouteDataView>
+		</>
+	);
+}
+
+function CourseCards(props: { courses: Course[]; categories: Category[] }) {
+	const me = useMe();
+	const [search, setSearch] = createSignal("");
+	const [category, setCategory] = createSignal(ALL);
+
+	const canFilter = () => !me.is("leerling") && props.courses.length > 0;
+	const usedCategories = createMemo(() => {
+		const used = new Set(props.courses.flatMap((c) => c.categoryIds));
+		return props.categories.filter((c) => used.has(c.id));
+	});
+	const shown = createMemo(() => {
+		let rows = props.courses;
+		const q = search().trim().toLowerCase();
+		if (q) rows = rows.filter((c) => c.title.toLowerCase().includes(q));
+		if (category() !== ALL) rows = rows.filter((c) => c.categoryIds.includes(category()));
+		return rows;
+	});
+
+	return (
+		<>
+			<Show when={props.courses.length === 0}>
 				<div class="card" style={{ "text-align": "center", color: "rgb(var(--muted))" }}>
 					Nog geen cursussen.
 				</div>
@@ -166,7 +183,8 @@ function CursussenPage() {
 			>
 				<For each={shown()}>
 					{(c, i) => {
-						const tone = tones[i() % tones.length]!;
+						// Read the index in JSX: the callback body is not a tracking scope.
+						const tone = () => tones[i() % tones.length]!;
 						return (
 							<Link
 								to="/cursussen/$courseId"
@@ -177,14 +195,15 @@ function CursussenPage() {
 									<div
 										style={{
 											height: "96px",
-											background: tone.bg,
+											background: tone().bg,
 											position: "relative",
 											display: "grid",
 											"place-items": "center",
 										}}
 									>
-										<tone.icon
-											style={{ width: "32px", height: "32px", color: tone.fg }}
+										<Dynamic
+											component={tone().icon}
+											style={{ width: "32px", height: "32px", color: tone().fg }}
 											aria-hidden="true"
 										/>
 										<span

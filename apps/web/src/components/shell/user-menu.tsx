@@ -1,10 +1,9 @@
 import { DropdownMenu } from "@kobalte/core/dropdown-menu";
 import { useRouter } from "@tanstack/solid-router";
-import { Check, ChevronDown, LogOut, User as UserIcon } from "lucide-solid";
-import { For, Show } from "solid-js";
-import { authClient } from "../../lib/auth/auth-client";
-import { clearCachedSession } from "../../lib/auth/session";
-import { queryClient } from "../../lib/orpc/query-provider";
+import { Check, ChevronDown, LogOut, User as UserIcon } from "../../lib/icons";
+import { createSignal, For, Show } from "solid-js";
+import { closeOnEscape } from "../ui/escape";
+import { signOut as signOutAndForget } from "../../lib/auth/sign-out";
 import { Avatar } from "../ui/avatar";
 
 export type ShellUser = {
@@ -31,17 +30,12 @@ const itemClass =
 export function UserMenu(props: { user: ShellUser }) {
 	const router = useRouter();
 
-	async function signOut() {
-		await authClient.signOut();
-		clearCachedSession();
-		// Flush the previous user's cached PII (name/role/dashboard) so the next
-		// account on a shared device never sees stale data.
-		queryClient.clear();
-		router.navigate({ to: "/login" });
-	}
+	const signOut = () => signOutAndForget(router);
+	// Controlled so Escape can close the menu (ui/escape.ts).
+	const [open, setOpen] = createSignal(false);
 
 	return (
-		<DropdownMenu placement="bottom-end" gutter={8}>
+		<DropdownMenu placement="bottom-end" gutter={8} open={open()} onOpenChange={setOpen}>
 			<DropdownMenu.Trigger class="flex w-full min-w-0 items-center gap-2.5 rounded-2 border border-line bg-surface px-2.5 py-2 text-left transition-colors duration-fast hover:bg-line-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
 				<Avatar name={props.user.name} tone={props.user.tone} size="sm" />
 				<span class="hidden min-w-0 flex-col sm:flex">
@@ -59,7 +53,8 @@ export function UserMenu(props: { user: ShellUser }) {
 				<ChevronDown class="size-4 text-muted" />
 			</DropdownMenu.Trigger>
 			<DropdownMenu.Portal>
-				<DropdownMenu.Content class="z-[90] w-56 rounded-2 border border-line bg-surface p-1 shadow-3 outline-none animate-scale-in">
+				<DropdownMenu.Content
+					onKeyDown={closeOnEscape(() => setOpen(false))} class="z-[90] w-56 rounded-2 border border-line bg-surface p-1 shadow-3 outline-none animate-scale-in">
 					<div class="flex items-center gap-2 px-2 py-2">
 						<Avatar name={props.user.name} tone={props.user.tone} size="md" />
 						<div class="min-w-0">

@@ -12,7 +12,7 @@ import { client } from "../../lib/orpc";
  */
 export async function uploadFile(
 	file: File,
-	scope: "bestand" | "submission" | "feedback" | "chat",
+	scope: "bestand" | "submission" | "feedback" | "chat" | "inhoud",
 ): Promise<string> {
 	const presign = await client.courses.presignUpload({
 		filename: file.name,

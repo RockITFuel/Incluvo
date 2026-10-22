@@ -1,5 +1,6 @@
 import { Switch as KSwitch } from "@kobalte/core/switch";
-import { Show, splitProps } from "solid-js";
+import { Show } from "solid-js";
+import { splitProps } from "../../lib/solid-props";
 import { cn } from "../../lib/cn";
 
 export type SwitchProps = {

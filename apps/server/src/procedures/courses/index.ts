@@ -18,6 +18,7 @@ import {
 	checkPermission,
 	isSuperadmin,
 	policies,
+	type UserRole,
 } from "@incluvo/permissions";
 import { ORPCError } from "@orpc/server";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
@@ -26,14 +27,18 @@ import {
 	ALLOWED_UPLOAD_TYPES,
 	assertValidStorageKey,
 	contentMatchesBytes,
+	guessContentType,
+	INLINE_IMAGE_TYPES,
 	MAX_UPLOAD_BYTES,
 	makeStorageKey,
 	presignPut,
 	readableFileUrl,
 	publicUrl,
 	statUpload,
+	storageKeyFileName,
 	writeLocalUpload,
 } from "../../courses/storage";
+import { richTextToPlain } from "../../courses/rich-text";
 import { parseYoutubeId, youtubeEmbedUrl } from "../../courses/youtube";
 import { leerlingCoachRecipients, notify } from "../../notifications";
 import { rateLimit } from "../../rate-limit";
@@ -796,7 +801,8 @@ async function seedTasksForExecution(
 			source: "assignment",
 			assignmentId: a.assignmentId,
 			title: a.name,
-			description: a.description,
+			// The takenlijst shows text, not the editor's structure (INC-25).
+			description: richTextToPlain(a.description),
 			dueAt: a.dueAt,
 		}).onConflictDoNothing();
 	}
@@ -1021,7 +1027,7 @@ const addBlock = protectedProcedure
 							source: "assignment",
 							assignmentId: asg.id,
 							title: a.name,
-							description: a.description ?? null,
+							description: richTextToPlain(a.description),
 							dueAt: a.dueAt ?? null,
 						});
 						seededTaskLeerlingId = crs.leerlingId;
@@ -1058,11 +1064,21 @@ const updateBlock = protectedProcedure
 			fileStorageKey: z.string().optional(),
 			countsForProgress: z.boolean().optional(),
 			labels: z.array(z.string()).optional(),
+			/** An opdracht's own fields (INC-26: editing a block). */
+			assignment: z
+				.object({
+					name: z.string().min(1),
+					description: z.string().nullable(),
+					responseType: z.enum(["text", "files", "text_and_files"]),
+					dueAt: z.coerce.date().nullable(),
+				})
+				.optional(),
 		}),
 	)
 	.output(z.object({ id: z.string() }))
 	.handler(async ({ input, context }) => {
 		const { block, course: crs } = await loadManageableBlock(context, input.id);
+		const changedTasksFor = new Set<string>();
 
 		let youtubeId: string | null | undefined;
 		if (input.youtube !== undefined) {
@@ -1099,7 +1115,60 @@ const updateBlock = protectedProcedure
 					);
 				}
 			}
+
+			// The opdracht itself, and the tasks seeded from it (#27/#37).
+			if (block.type === "opdracht" && input.assignment) {
+				const a = input.assignment;
+				const [before] = await tx
+					.select({ dueAt: assignment.dueAt })
+					.from(assignment)
+					.where(eq(assignment.contentBlockId, input.id));
+				const [asg] = await tx
+					.update(assignment)
+					.set({
+						name: a.name,
+						description: a.description,
+						responseType: a.responseType,
+						dueAt: a.dueAt,
+						updatedAt: new Date(),
+					})
+					.where(eq(assignment.contentBlockId, input.id))
+					.returning({ id: assignment.id });
+				if (asg) {
+					const fromThis = and(eq(task.assignmentId, asg.id), eq(task.source, "assignment"));
+					const tasks = await tx
+						.update(task)
+						.set({
+							title: a.name,
+							description: richTextToPlain(a.description),
+							updatedAt: new Date(),
+						})
+						.where(fromThis)
+						.returning({ leerlingId: task.leerlingId });
+					for (const t of tasks) changedTasksFor.add(t.leerlingId);
+					// A coach may have moved a leerling's deadline: only tasks still
+					// on the old deadline follow the new one.
+					await tx
+						.update(task)
+						.set({ dueAt: a.dueAt })
+						.where(
+							and(
+								fromThis,
+								before?.dueAt
+									? eq(task.dueAt, before.dueAt)
+									: sql`${task.dueAt} is null`,
+							),
+						);
+				}
+			}
 		});
+
+		for (const leerlingId of changedTasksFor) {
+			publishTo(
+				{ type: "task.changed", payload: { leerlingId } },
+				await taskChangedRecipients(context, leerlingId),
+			);
+		}
 
 		publishTo(
 			{ type: "course.changed", payload: { courseId: crs.id } },
@@ -1160,13 +1229,28 @@ const reorderBlocks = protectedProcedure
 /** Uploads (presign or local) per user per 10 minutes. */
 const UPLOADS_PER_USER = { max: 60, windowMs: 10 * 60_000 };
 
+/**
+ * An image inside a page or opdracht text (INC-25): only images, uploaded by
+ * whoever may write course content — a builder, or a coach adapting a
+ * leerling's own copy.
+ */
+function assertInlineImageUpload(scope: string, contentType: string, role: UserRole): void {
+	if (scope !== "inhoud") return;
+	if (!canBuildCourses(role) && !atLeast(role, "coach")) {
+		throw new ORPCError("FORBIDDEN");
+	}
+	if (!INLINE_IMAGE_TYPES.has(contentType)) {
+		throw new ORPCError("BAD_REQUEST", { message: "Alleen PNG, JPG of WebP in een tekst" });
+	}
+}
+
 const presignUpload = protectedProcedure
 	.route({ method: "POST", path: "/courses/upload/presign", tags: ["courses"] })
 	.input(
 		z.object({
 			filename: z.string().min(1),
 			contentType: z.string().min(1),
-			scope: z.enum(["bestand", "submission", "feedback", "chat"]).default("bestand"),
+			scope: z.enum(["bestand", "submission", "feedback", "chat", "inhoud"]).default("bestand"),
 		}),
 	)
 	.output(
@@ -1193,6 +1277,7 @@ const presignUpload = protectedProcedure
 		if (input.scope === "feedback" && !atLeast(actor.role, "coach")) {
 			throw new ORPCError("FORBIDDEN");
 		}
+		assertInlineImageUpload(input.scope, input.contentType, actor.role);
 		if (!ALLOWED_UPLOAD_TYPES[input.contentType]) {
 			throw new ORPCError("BAD_REQUEST", {
 				message: "Bestandstype niet toegestaan",
@@ -1226,7 +1311,7 @@ const uploadLocal = protectedProcedure
 		z.object({
 			filename: z.string().min(1),
 			contentType: z.string().min(1),
-			scope: z.enum(["bestand", "submission", "feedback", "chat"]).default("bestand"),
+			scope: z.enum(["bestand", "submission", "feedback", "chat", "inhoud"]).default("bestand"),
 			/** base64-encoded file bytes. */
 			data: z.string().min(1),
 		}),
@@ -1248,6 +1333,7 @@ const uploadLocal = protectedProcedure
 		if (input.scope === "feedback" && !atLeast(actor.role, "coach")) {
 			throw new ORPCError("FORBIDDEN");
 		}
+		assertInlineImageUpload(input.scope, input.contentType, actor.role);
 		if (!ALLOWED_UPLOAD_TYPES[input.contentType]) {
 			throw new ORPCError("BAD_REQUEST", {
 				message: "Bestandstype niet toegestaan",
@@ -1319,6 +1405,36 @@ async function authorizeFileAccess(
 		throw new ORPCError("FORBIDDEN");
 	}
 
+	if (scope === "inhoud") {
+		// An image inside a text (INC-25): readable with any course whose page
+		// or opdracht text contains it (derived copies share the key).
+		const pattern = `%${storageKey}%`;
+		const fromPages = await context.db
+			.select({ sectionId: contentBlock.sectionId })
+			.from(contentBlock)
+			.where(sql`${contentBlock.body} like ${pattern}`);
+		const fromOpdrachten = await context.db
+			.select({ sectionId: contentBlock.sectionId })
+			.from(assignment)
+			.innerJoin(contentBlock, eq(contentBlock.id, assignment.contentBlockId))
+			.where(sql`${assignment.description} like ${pattern}`);
+		const sectionIds = [...fromPages, ...fromOpdrachten].map((b) => b.sectionId);
+		if (sectionIds.length === 0) throw new ORPCError("NOT_FOUND");
+		const sections = await context.db
+			.select({ courseId: courseSection.courseId })
+			.from(courseSection)
+			.where(inArray(courseSection.id, sectionIds));
+		for (const courseId of new Set(sections.map((s) => s.courseId))) {
+			try {
+				await loadReadable(context, courseId);
+				return;
+			} catch {
+				// Try the next owning course.
+			}
+		}
+		throw new ORPCError("FORBIDDEN");
+	}
+
 	if (scope === "feedback") {
 		const [grade] = await context.db
 			.select({ submissionId: assignmentGrade.submissionId })
@@ -1374,8 +1490,21 @@ async function authorizeFileAccess(
  */
 const getFile = protectedProcedure
 	.route({ method: "GET", path: "/courses/file", tags: ["courses"] })
-	.input(z.object({ storageKey: z.string() }))
-	.output(z.object({ url: z.string() }))
+	.input(
+		z.object({
+			storageKey: z.string(),
+			/** Make the browser save the file rather than show it (INC-27). */
+			download: z.boolean().optional(),
+		}),
+	)
+	.output(
+		z.object({
+			url: z.string(),
+			/** What the viewer shows it as (INC-27). */
+			contentType: z.string(),
+			fileName: z.string(),
+		}),
+	)
 	.handler(async ({ input, context }) => {
 		// Reject path traversal / malformed keys before any DB or FS access.
 		try {
@@ -1387,7 +1516,11 @@ const getFile = protectedProcedure
 		await authorizeFileAccess(context, input.storageKey);
 
 		// Short-lived presigned GET (prod) or a safe data URL (dev).
-		return { url: await readableFileUrl(input.storageKey) };
+		return {
+			url: await readableFileUrl(input.storageKey, input.download ? "attachment" : "inline"),
+			contentType: guessContentType(input.storageKey),
+			fileName: storageKeyFileName(input.storageKey),
+		};
 	});
 
 // ---------------------------------------------------------------------------

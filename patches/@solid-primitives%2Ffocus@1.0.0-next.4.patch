@@ -1,0 +1,14 @@
+diff --git a/dist/focusTrap.js b/dist/focusTrap.js
+index cb456a033e014deeea331ebcce47ecf09bfafe33..ffce3d995e6fdcdd08d24b09eaa553453b4f1f9c 100644
+--- a/dist/focusTrap.js
++++ b/dist/focusTrap.js
+@@ -45,6 +45,9 @@ const createFocusTrap = (props) => {
+ 	};
+ 	const triggerInitialFocus = (container) => {
+ 		afterPaint(() => {
++			// Focus that moved into the trap during the two frames (a click, typing) stays put.
++			const active = document.activeElement;
++			if (active && active !== container && container.contains(active)) return;
+ 			const target = access(props.initialFocusElement ?? null) ?? firstFocusElement() ?? container;
+ 			const { onInitialFocus } = props;
+ 			if (onInitialFocus) {

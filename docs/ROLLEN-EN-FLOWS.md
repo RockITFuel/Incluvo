@@ -60,7 +60,7 @@ Server: `packages/permissions` (`sameTenant`, `sameSchool`, `coachesLeerlingen`,
 `canAccessLeerling`) en `apps/server/src/access.ts`. De keyuser begeleidt
 geen leerlingen (INC-16, zie `docs/decisions/keyuser-beheer.md`); gekoppeld
 zijn betekent: vaste coach of vervanger (`apps/server/src/koppelingen.ts`). De UI-guards
-(`requireRole`, `<RequireRole>`) zijn alleen gemak; de server beslist.
+(`requireRole` in de `beforeLoad` van een route) zijn alleen gemak; de server beslist.
 
 ---
 

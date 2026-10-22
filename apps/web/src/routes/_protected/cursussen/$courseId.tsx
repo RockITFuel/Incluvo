@@ -1,5 +1,5 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/solid-router";
-import { useQuery, useQueryClient } from "@tanstack/solid-query";
+import { atLeast, canBuildCourses, type UserRole } from "@incluvo/permissions";
+import { createFileRoute, Link, useNavigate, useRouter } from "@tanstack/solid-router";
 import {
 	ArrowLeft,
 	Eye,
@@ -7,8 +7,8 @@ import {
 	GitBranch,
 	Lightbulb,
 	Sparkles,
-} from "lucide-solid";
-import { createSignal, For, Show } from "solid-js";
+} from "../../../lib/icons";
+import { createEffect, createSignal, For, Show } from "solid-js";
 import { type BlockDTO, BlockView } from "../../../components/courses/block-view";
 import { CourseBuilder } from "../../../components/courses/course-builder";
 import { GradingView } from "../../../components/courses/grading-view";
@@ -21,8 +21,13 @@ import { SegmentedControl } from "../../../components/ui/segmented-control";
 import { Select } from "../../../components/ui/select";
 import { Input, Textarea } from "../../../components/ui/text-field";
 import { toast } from "../../../components/ui/toast";
+import { RouteDataView } from "../../../components/ui/route-data-view";
+import { createAction } from "../../../lib/action";
 import { useMe } from "../../../lib/auth/use-me";
-import { client, orpc } from "../../../lib/orpc";
+import { createLoad } from "../../../lib/load";
+import { client, type Output } from "../../../lib/orpc";
+import { refresh } from "../../../lib/refresh";
+import { granted, loadRouteData } from "../../../lib/route-data";
 import { useServerEvent } from "../../../lib/sse/use-events";
 
 /**
@@ -33,9 +38,46 @@ import { useServerEvent } from "../../../lib/sse/use-events";
  *  - ontwikkelaar/keyuser: a "Bouwen" tab with the section/block builder.
  *  - coach+: a "Beoordelen" tab (#28) and the voortgangsbalk-oogje (#24).
  */
+type CourseSearch = {
+	/** Which tab opens (back from the block editor: bouwen). */
+	tab?: "leren" | "bouwen" | "beoordelen";
+	/** The block to put the focus on (INC-26). */
+	blok?: string;
+};
+
 export const Route = createFileRoute("/_protected/cursussen/$courseId")({
+	validateSearch: (search: Record<string, unknown>): CourseSearch => ({
+		tab:
+			search.tab === "bouwen" || search.tab === "beoordelen" || search.tab === "leren"
+				? search.tab
+				: undefined,
+		blok: typeof search.blok === "string" ? search.blok : undefined,
+	}),
+	loader: async ({ context, params, abortController }) => {
+		const signal = abortController.signal;
+		const role = context.me.role as UserRole;
+		const coach = atLeast(role, "coach");
+		const [tree, defaultLabels, proposals] = await Promise.all([
+			loadRouteData(signal, (s) => client.courses.tree({ id: params.courseId }, { signal: s })),
+			// Full standaard-vocabulaire for the bouwer (#36): content is labelled for
+			// ALL leerstijlen, not just this leerling's — each leerling then sees their
+			// own subset recommended. Without this, every labelled block would match by
+			// construction and the "alleen aanbevolen" filter could never hide anything.
+			coach || canBuildCourses(role)
+				? loadRouteData(signal, (s) => client.coachplan.defaultLabels(undefined, { signal: s }))
+				: null,
+			coach
+				? loadRouteData(signal, (s) =>
+						client.courses.listProposals({ courseId: params.courseId }, { signal: s }),
+					)
+				: null,
+		]);
+		return { tree, defaultLabels, proposals };
+	},
 	component: CourseDetail,
 });
+
+type Proposal = Output<typeof client.courses.listProposals>[number];
 
 const kindLabel: Record<string, string> = {
 	ondivera_template: "Ondivera-sjabloon",
@@ -46,31 +88,36 @@ const kindLabel: Record<string, string> = {
 function CourseDetail() {
 	const params = Route.useParams();
 	const me = useMe();
-	const queryClient = useQueryClient();
+	const router = useRouter();
+	const loaded = Route.useLoaderData();
 	const courseId = () => params().courseId;
+	const tree = () => granted(loaded().tree);
 
-	const treeQuery = useQuery(() =>
-		orpc.courses.tree.queryOptions({ input: { id: courseId() } }),
-	);
-	// Full standaard-vocabulaire for the bouwer (#36): content is labelled for
-	// ALL leerstijlen, not just this leerling's — each leerling then sees their
-	// own subset recommended. Without this, every labelled block would match by
-	// construction and the "alleen aanbevolen" filter could never hide anything.
-	const defaultLabelsQuery = useQuery(() =>
-		orpc.coachplan.defaultLabels.queryOptions(),
-	);
+	useServerEvent("course.changed", () => void refresh(router, "courses"));
 
-	useServerEvent("course.changed", () =>
-		queryClient.invalidateQueries({ queryKey: orpc.courses.tree.key() }),
+	const search = Route.useSearch();
+	const [view, setView] = createSignal<"leren" | "bouwen" | "beoordelen">(
+		() => search().tab ?? "leren",
 	);
-
-	const [view, setView] = createSignal<"leren" | "bouwen" | "beoordelen">("leren");
+	// Back from the block editor: the focus goes to the block that was edited.
+	createEffect(
+		() => (tree() ? search().blok : undefined),
+		(blok) => {
+			if (!blok) return;
+			requestAnimationFrame(() => {
+				const el = document.getElementById(`blok-${blok}`);
+				el?.scrollIntoView({ block: "center" });
+				el?.focus();
+			});
+		},
+	);
 	const [onlyRecommended, setOnlyRecommended] = createSignal(true);
 	// The prototype's personal hide/show "oogje" on the progress strip (client-only;
 	// the coach's server-side progressBarHidden #24 stays a separate control below).
 	const [localHideProgress, setLocalHideProgress] = createSignal(false);
 
-	const refetch = () => treeQuery.refetch();
+	/** Reload this course (and every other course view in the route cache). */
+	const refetch = () => refresh(router, "courses");
 
 	const tabs = () => {
 		const t: { value: string; label: string }[] = [
@@ -86,7 +133,7 @@ function CourseDetail() {
 	// Templates are built by course builders; a leerling's own copy may be
 	// adapted by someone coaching them (the server checks the leerling rule).
 	const canBuild = () =>
-		treeQuery.data?.course.kind === "student_execution"
+		tree()?.course.kind === "student_execution"
 			? me.hasAtLeast("coach")
 			: me.canBuildCourses();
 
@@ -98,7 +145,7 @@ function CourseDetail() {
 						<ArrowLeft style={{ width: "14px", height: "14px" }} /> Cursussen
 					</span>
 				</Link>
-				<Show when={treeQuery.data}>
+				<Show when={tree()}>
 					{(data) => (
 						<div class="ds-row" style={{ gap: "8px" }}>
 							<Show when={me.canBuildCourses() || me.hasAtLeast("coach")}>
@@ -118,7 +165,7 @@ function CourseDetail() {
 												? "Voortgangsbalk getoond"
 												: "Voortgangsbalk verborgen",
 										});
-										refetch();
+										await refetch();
 									}}
 								>
 									<Show
@@ -138,7 +185,7 @@ function CourseDetail() {
 				</Show>
 			</div>
 
-			<Show when={treeQuery.data?.sourceChanged && canBuild() && treeQuery.data}>
+			<Show when={tree()?.sourceChanged && canBuild() && tree()}>
 				{(data) => (
 					<Card class="flex flex-wrap items-center justify-between gap-3 border-accent-100 bg-accent-100/30">
 						<p class="text-small text-ink-2">
@@ -172,14 +219,7 @@ function CourseDetail() {
 				)}
 			</Show>
 
-			<Show when={treeQuery.isLoading}>
-				<p class="text-muted">Laden…</p>
-			</Show>
-			<Show when={treeQuery.error}>
-				<p class="text-danger">Kon de cursus niet laden.</p>
-			</Show>
-
-			<Show when={treeQuery.data}>
+			<RouteDataView data={loaded().tree} what="de cursus" onRetry={() => void refetch()}>
 				{(data) => {
 					const visibleBlocks = (section: { blocks: BlockDTO[] }) =>
 						me.is("leerling") && onlyRecommended()
@@ -278,7 +318,7 @@ function CourseDetail() {
 														? "Voortgang tonen"
 														: "Voortgang verbergen"
 												}
-												aria-pressed={localHideProgress()}
+												aria-pressed={localHideProgress() ? "true" : "false"}
 												onClick={() => setLocalHideProgress((v) => !v)}
 											>
 												<Show
@@ -370,7 +410,7 @@ function CourseDetail() {
 																		id: block.id,
 																		completed,
 																	});
-																	refetch();
+																	await refetch();
 																}}
 															/>
 														)}
@@ -387,8 +427,8 @@ function CourseDetail() {
 									</Card>
 								</Show>
 
-								<Show when={me.hasAtLeast("coach")}>
-									<ProposalsList courseId={courseId()} />
+								<Show when={loaded().proposals && granted(loaded().proposals!)}>
+									{(proposals) => <ProposalsList proposals={proposals()} />}
 								</Show>
 							</Show>
 
@@ -402,7 +442,9 @@ function CourseDetail() {
 									sections={data().sections}
 									availableLabels={[
 										...new Set([
-											...(defaultLabelsQuery.data?.map((l) => l.label) ?? []),
+											...((loaded().defaultLabels && granted(loaded().defaultLabels!)) ?? []).map(
+												(l) => l.label,
+											),
 											...data().leervoorkeuren,
 										]),
 									]}
@@ -420,7 +462,7 @@ function CourseDetail() {
 						</>
 					);
 				}}
-			</Show>
+			</RouteDataView>
 		</section>
 	);
 }
@@ -438,11 +480,12 @@ function DeriveDialog(props: {
 	// courses only); offer only the leerlingen this user may see.
 	const me = useMe();
 	const canAssign = () => me.hasAtLeast("coach");
-	const leerlingQuery = useQuery(() => ({
-		...orpc.dashboard.overview.queryOptions(),
-		enabled: props.course.kind === "school_template" && canAssign(),
-	}));
-	const leerlingen = () => (leerlingQuery.data ?? []).map((row) => row.leerling);
+	// The leerlingen to pick from load when the dialog opens.
+	const leerlingLoad = createLoad(
+		() => open() && props.course.kind === "school_template" && canAssign(),
+		(_, signal) => client.dashboard.overview(undefined, { signal }),
+	);
+	const leerlingen = () => (leerlingLoad.data() ?? []).map((row) => row.leerling);
 
 	const targetKind = () =>
 		props.course.kind === "ondivera_template"
@@ -606,29 +649,24 @@ function ProposeDialog(props: { courseId: string; onDone: () => void }) {
 }
 
 /** Coach view of leerling-proposed assignments (#61). */
-function ProposalsList(props: { courseId: string }) {
-	const queryClient = useQueryClient();
-	const proposalsQuery = useQuery(() =>
-		orpc.courses.listProposals.queryOptions({
-			input: { courseId: props.courseId },
-		}),
+function ProposalsList(props: { proposals: Proposal[] }) {
+	const router = useRouter();
+	const respond = createAction(
+		async (id: string, status: "accepted" | "rejected") => {
+			await client.courses.respondProposal({ id, status });
+			toast({ title: status === "accepted" ? "Geaccepteerd" : "Afgewezen" });
+			await refresh(router, "courses");
+		},
+		{ error: "Dat lukte niet" },
 	);
 
-	const respond = async (id: string, status: "accepted" | "rejected") => {
-		await client.courses.respondProposal({ id, status });
-		toast({ title: status === "accepted" ? "Geaccepteerd" : "Afgewezen" });
-		await queryClient.invalidateQueries({
-			queryKey: orpc.courses.listProposals.key(),
-		});
-	};
-
 	return (
-		<Show when={(proposalsQuery.data?.length ?? 0) > 0}>
+		<Show when={props.proposals.length > 0}>
 			<Card class="flex flex-col gap-3">
 				<h2 class="font-head text-h3 text-ink">
 					<Lightbulb class="inline size-4" /> Eigen opdracht-voorstellen
 				</h2>
-				<For each={proposalsQuery.data}>
+				<For each={props.proposals}>
 					{(p) => (
 						<div class="flex items-start justify-between gap-3 rounded-2 border border-line p-3">
 							<div>
@@ -658,14 +696,16 @@ function ProposalsList(props: { courseId: string }) {
 									<Button
 										variant="subtle"
 										size="sm"
-										onClick={() => respond(p.id, "accepted")}
+										disabled={respond.pending()}
+										onClick={() => void respond.run(p.id, "accepted")}
 									>
 										Accepteer
 									</Button>
 									<Button
 										variant="ghost"
 										size="sm"
-										onClick={() => respond(p.id, "rejected")}
+										disabled={respond.pending()}
+										onClick={() => void respond.run(p.id, "rejected")}
 									>
 										Wijs af
 									</Button>

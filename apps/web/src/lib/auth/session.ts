@@ -18,8 +18,6 @@ let cached: { data: Session | null; ts: number } | null = null;
 const TTL_MS = 30_000;
 
 export async function getCachedSession(): Promise<Session | null> {
-	// No session on the server (Bun SPA prerender): no cookies, empty baseURL.
-	if (typeof window === "undefined") return null;
 
 	if (cached && Date.now() - cached.ts < TTL_MS) {
 		return cached.data;

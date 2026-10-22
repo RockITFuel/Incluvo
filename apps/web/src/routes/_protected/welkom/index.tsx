@@ -1,5 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/solid-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/solid-query";
+import { createFileRoute, useNavigate, useRouter } from "@tanstack/solid-router";
 import {
 	ArrowRight,
 	Check,
@@ -8,19 +7,15 @@ import {
 	MessageSquare,
 	NotebookPen,
 	Star,
-} from "lucide-solid";
-import {
-	createEffect,
-	createMemo,
-	createSignal,
-	For,
-	type JSX,
-	onMount,
-	Show,
-} from "solid-js";
+	type Icon,
+} from "../../../lib/icons";
+import { createMemo, createSignal, For, Show } from "solid-js";
+import { createAction } from "../../../lib/action";
 import { useMe } from "../../../lib/auth/use-me";
 import { MOODS } from "../../../lib/mood";
-import { orpc } from "../../../lib/orpc";
+import { client } from "../../../lib/orpc";
+import { refresh } from "../../../lib/refresh";
+import { granted, loadRouteData, type RouteData } from "../../../lib/route-data";
 import { useServerEvent } from "../../../lib/sse/use-events";
 import { doneStreak } from "../../../lib/streak";
 import { ErrorState } from "../../../components/ui/error-state";
@@ -34,8 +29,25 @@ import { ErrorState } from "../../../components/ui/error-state";
  * states — nothing is fabricated. The mood check-in persists locally per day.
  */
 export const Route = createFileRoute("/_protected/welkom/")({
+	loader: async ({ context, abortController }) => {
+		// Only a leerling has taken, a mood, coachplannen and gesprekken here.
+		if (context.me.role !== "leerling") {
+			return { mood: null, tasks: null, plans: null, chats: null };
+		}
+		const signal = abortController.signal;
+		const [mood, tasks, plans, chats] = await Promise.all([
+			loadRouteData(signal, (s) => client.mood.today(undefined, { signal: s })),
+			loadRouteData(signal, (s) => client.tasks.list({}, { signal: s })),
+			loadRouteData(signal, (s) => client.coachplan.listMine(undefined, { signal: s })),
+			loadRouteData(signal, (s) => client.chat.list(undefined, { signal: s })),
+		]);
+		return { mood, tasks, plans, chats };
+	},
 	component: WelkomPage,
 });
+
+const value = <T,>(data: RouteData<T> | null): T | undefined =>
+	data ? granted(data) : undefined;
 
 function firstName(name: string | undefined): string {
 	if (!name) return "";
@@ -115,41 +127,33 @@ const todayKey = () => new Date().toISOString().slice(0, 10);
 function WelkomPage() {
 	const me = useMe();
 	const navigate = useNavigate();
-	const queryClient = useQueryClient();
+	const router = useRouter();
+	const data = Route.useLoaderData();
 	const [showSuccess, setShowSuccess] = createSignal(true);
 
 	// ── Mood: dagelijkse check-in. De server is de bron van waarheid voor de
 	// gekozen mood én de deel-voorkeur; localStorage blijft een offline fallback.
 	// Delen met de coach is opt-in per check-in en staat standaard uit.
-	const [mood, setMood] = createSignal<number | null>(null);
-	const [share, setShare] = createSignal(false);
-	const [moodSkipped, setMoodSkipped] = createSignal(false);
-
-	const moodQuery = useQuery(() => ({
-		...orpc.mood.today.queryOptions(),
-		enabled: me.is("leerling"),
-	}));
-	const checkinMutation = useMutation(() =>
-		orpc.mood.checkin.mutationOptions({
-			onSuccess: () => moodQuery.refetch(),
-		}),
+	// Writable memos: today's server row wins whenever it (re)loads.
+	const moodRow = () => value(data().mood);
+	const [mood, setMood] = createSignal<number | null>(() => {
+		const row = moodRow();
+		if (row) return row.mood;
+		const stored = localStorage.getItem(`incluvo-mood:${todayKey()}`);
+		return stored !== null && !Number.isNaN(Number(stored)) ? Number(stored) : null;
+	});
+	const [share, setShare] = createSignal(() => moodRow()?.shareWithCoach ?? false);
+	const [moodSkipped, setMoodSkipped] = createSignal(
+		localStorage.getItem(`incluvo-mood-skip:${todayKey()}`) === "1",
 	);
 
-	onMount(() => {
-		const stored = localStorage.getItem(`incluvo-mood:${todayKey()}`);
-		if (stored !== null && !Number.isNaN(Number(stored))) setMood(Number(stored));
-		setMoodSkipped(localStorage.getItem(`incluvo-mood-skip:${todayKey()}`) === "1");
-	});
-
-	// Server wins over localStorage: seed the selected mood + deel-voorkeur from
-	// today's server row once it loads.
-	createEffect(() => {
-		const row = moodQuery.data;
-		if (row) {
-			setMood(row.mood);
-			setShare(row.shareWithCoach);
-		}
-	});
+	const checkin = createAction(
+		async (input: { mood: number; shareWithCoach: boolean }) => {
+			await client.mood.checkin(input);
+			await refresh(router, "mood");
+		},
+		{ error: "Je stemming opslaan lukte niet" },
+	);
 
 	const pickMood = (i: number) => {
 		setMood(i);
@@ -157,7 +161,7 @@ function WelkomPage() {
 		// Keep the local copy as an offline fallback, and persist to the server.
 		localStorage.setItem(`incluvo-mood:${todayKey()}`, String(i));
 		localStorage.removeItem(`incluvo-mood-skip:${todayKey()}`);
-		checkinMutation.mutate({ mood: i, shareWithCoach: share() });
+		void checkin.run({ mood: i, shareWithCoach: share() });
 	};
 	const toggleShare = (on: boolean) => {
 		setShare(on);
@@ -165,7 +169,7 @@ function WelkomPage() {
 		// the preference in the signal for the next pick.
 		const current = mood();
 		if (current !== null) {
-			checkinMutation.mutate({ mood: current, shareWithCoach: on });
+			void checkin.run({ mood: current, shareWithCoach: on });
 		}
 	};
 	const skipMood = () => {
@@ -176,33 +180,21 @@ function WelkomPage() {
 	};
 
 	// ── Real data ─────────────────────────────────────────────────────────────
-	const tasksQuery = useQuery(() => ({
-		...orpc.tasks.list.queryOptions({ input: {} }),
-		enabled: me.is("leerling"),
-	}));
+	const tasks = () => value(data().tasks);
+	const plans = () => value(data().plans);
+	const chats = () => value(data().chats);
 	// Keep the takenlijst (en de "+ Vandaag"-pin) live, mirroring /taken.
-	useServerEvent("task.changed", () =>
-		queryClient.invalidateQueries({ queryKey: orpc.tasks.list.key() }),
-	);
-	const planQuery = useQuery(() => ({
-		...orpc.coachplan.listMine.queryOptions(),
-		enabled: me.is("leerling"),
-	}));
-	const chatQuery = useQuery(() => ({
-		...orpc.chat.list.queryOptions(),
-		enabled: me.is("leerling"),
-	}));
+	useServerEvent("task.changed", () => void refresh(router, "tasks"));
 
-	const klaar = () => tasksQuery.data?.klaar ?? [];
-	const openToday = () => tasksQuery.data?.vandaag.length ?? 0;
-	const withDeadline = () =>
-		tasksQuery.data?.vandaag.filter((t) => t.dueAt != null).length ?? 0;
+	const klaar = () => tasks()?.klaar ?? [];
+	const openToday = () => tasks()?.vandaag.length ?? 0;
+	const withDeadline = () => tasks()?.vandaag.filter((t) => t.dueAt != null).length ?? 0;
 
 	const streak = createMemo(() => doneStreak(klaar().map((t) => t.doneAt)));
 
 	// Successen: afgeronde taken + ingeleverd coachplan, nieuwste eerst.
 	type Succes = {
-		icon: (p: { class?: string; "aria-hidden"?: boolean | "true" | "false" }) => JSX.Element;
+		icon: Icon;
 		title: string;
 		when: Date;
 		tone?: "accent" | "warning";
@@ -217,7 +209,7 @@ function WelkomPage() {
 					when: new Date(t.doneAt),
 				});
 		}
-		const submitted = (planQuery.data ?? []).find((s) => s.submittedAt);
+		const submitted = (plans() ?? []).find((s) => s.submittedAt);
 		if (submitted?.submittedAt)
 			items.push({
 				icon: NotebookPen,
@@ -244,8 +236,8 @@ function WelkomPage() {
 				? startOfToday.getTime()
 				: new Date(t.dueAt as Date).getTime();
 		const candidates = [
-			...(tasksQuery.data?.vandaag ?? []),
-			...(tasksQuery.data?.toekomst ?? []),
+			...(tasks()?.vandaag ?? []),
+			...(tasks()?.toekomst ?? []),
 		].filter(
 			(t) => t.pinnedForToday || (t.dueAt && new Date(t.dueAt) >= startOfToday),
 		);
@@ -271,7 +263,7 @@ function WelkomPage() {
 
 	// Sociaal: echte gesprekken, nieuwste bovenaan.
 	const gesprekken = createMemo(() =>
-		[...(chatQuery.data ?? [])]
+		[...(chats() ?? [])]
 			.sort(
 				(a, b) =>
 					new Date(b.lastMessageAt ?? 0).getTime() -
@@ -303,7 +295,12 @@ function WelkomPage() {
 	};
 
 	// Any widget's data failing would otherwise read as "nothing to do".
-	const loadError = () => tasksQuery.error ?? planQuery.error ?? chatQuery.error;
+	const loadError = () => {
+		for (const section of [data().tasks, data().plans, data().chats]) {
+			if (section?.access === "error") return section.error;
+		}
+		return undefined;
+	};
 
 	return (
 		<>
@@ -312,11 +309,7 @@ function WelkomPage() {
 					class="mb-4"
 					error={loadError()}
 					what="alles"
-					onRetry={() => {
-						void tasksQuery.refetch();
-						void planQuery.refetch();
-						void chatQuery.refetch();
-					}}
+					onRetry={() => void refresh(router, "tasks", "coachplan", "chat")}
 				/>
 			</Show>
 			<div class="page-head" data-page-title="Welkom">
@@ -377,10 +370,10 @@ function WelkomPage() {
 									{(m, i) => (
 										<button
 											type="button"
-											class={`mood${mood() === i() ? " on" : ""}`}
+											class={["mood", { on: mood() === i() }]}
 											onClick={() => pickMood(i())}
 											aria-label={m.label}
-											aria-pressed={mood() === i()}
+											aria-pressed={mood() === i() ? "true" : "false"}
 											title={m.label}
 										>
 											{m.e}
@@ -535,7 +528,7 @@ function WelkomPage() {
 								<button
 									type="button"
 									class="btn ghost sm"
-									aria-pressed={!showSuccess()}
+									aria-pressed={!showSuccess() ? "true" : "false"}
 									onClick={() => setShowSuccess(!showSuccess())}
 								>
 									{showSuccess() ? "Verbergen" : "Tonen"}
@@ -622,7 +615,7 @@ function WelkomPage() {
 }
 
 function SuccessRow(props: {
-	icon: (p: { class?: string; "aria-hidden"?: boolean | "true" | "false" }) => JSX.Element;
+	icon: Icon;
 	title: string;
 	when: string;
 	tone?: "accent" | "warning";

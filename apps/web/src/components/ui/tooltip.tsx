@@ -1,5 +1,7 @@
 import { Tooltip as KTooltip } from "@kobalte/core/tooltip";
-import type { JSX } from "solid-js";
+import type { JSX } from "@solidjs/web";
+import { createEffect, createSignal } from "solid-js";
+import { closeOnEscape } from "./escape";
 
 export type TooltipProps = {
 	/** Short label shown in the bubble. */
@@ -18,8 +20,18 @@ export type TooltipProps = {
  * own `aria-label`: the tooltip is a visual aid, not the accessible name.
  */
 export function Tooltip(props: TooltipProps) {
+	// Controlled so Escape can close it (escape.ts); listens only while open.
+	const [open, setOpen] = createSignal(false);
+	createEffect(open, (isOpen) => {
+		if (!isOpen) return;
+		const onKey = closeOnEscape(() => setOpen(false));
+		document.addEventListener("keydown", onKey);
+		return () => document.removeEventListener("keydown", onKey);
+	});
 	return (
 		<KTooltip
+			open={open()}
+			onOpenChange={setOpen}
 			openDelay={300}
 			closeDelay={0}
 			placement={props.placement ?? "top"}
