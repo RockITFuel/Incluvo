@@ -16,6 +16,11 @@ Besluit 22-10-2026. Gebouwd op Solid 2 (PR #17).
   YouTube-embed op basis van het id, afbeeldingen alleen uit de eigen opslag.
 - De takenlijst krijgt de platte tekst van een opdracht (`richTextToPlain` op
   de server), niet de JSON.
+- Ook (27-10-2026, op verzoek): tekst uitlijnen (links, midden, rechts),
+  tekstkleur uit een vaste lijst van vier kleuren die goed leesbaar zijn
+  (`lib/text-colors.ts`; de weergave neemt alleen die waarden over) en
+  tabellen met een kopregel (rijen en kolommen erbij of weg). Een brede tabel
+  scrolt in zijn eigen vak, niet de hele pagina.
 - Plakken uit Word of Google Docs: alleen wat het schema kent blijft
   (koppen, vet, cursief, onderstrepen, lijsten, links). Afbeeldingen van
   elders vallen weg.
@@ -54,5 +59,6 @@ Besluit 22-10-2026. Gebouwd op Solid 2 (PR #17).
   naar Microsoft).
 - Op een telefoon of tablet geen ingebedde PDF, maar *Openen* en
   *Downloaden*.
-- Nog niet: bestanden bij een ingeleverde opdracht en feedback van de coach
-  gebruiken nog de downloadlink (open vraag in INC-27).
+- Ook voor bestanden bij een ingeleverde opdracht en voor gesproken of
+  video-feedback van de coach (antwoord in INC-27). De feedback ging eerder
+  als `publicUrl` naar de browser; nu via `getFile`, met de toegangscheck.

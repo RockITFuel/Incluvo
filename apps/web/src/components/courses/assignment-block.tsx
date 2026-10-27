@@ -8,7 +8,7 @@ import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/text-field";
 import { toast } from "../ui/toast";
-import { FileLink } from "./file-link";
+import { FileView } from "./file-view";
 import { uploadFile } from "./upload";
 import { ErrorState } from "../ui/error-state";
 import { RichTextView } from "./rich-text-view";
@@ -161,9 +161,9 @@ export function AssignmentBlock(props: {
 									<p class="mt-1 text-body text-ink-2">{s.responseText}</p>
 								</Show>
 								<Show when={s.fileStorageKeys.length > 0}>
-									<div class="mt-2 flex flex-wrap gap-2">
+									<div class="mt-2 flex flex-col gap-3">
 										<For each={s.fileStorageKeys}>
-											{(k) => <FileLink storageKey={k} />}
+											{(k) => <FileView storageKey={k} title="Ingeleverd bestand" />}
 										</For>
 									</div>
 								</Show>
@@ -179,9 +179,11 @@ export function AssignmentBlock(props: {
 											<Show when={g.feedbackText}>
 												<p class="text-body text-ink-2">{g.feedbackText}</p>
 											</Show>
-											<Show when={g.feedbackMediaUrl}>
-												{(u) => (
-													<audio controls src={u()} class="mt-1 w-full" />
+											<Show when={g.feedbackMediaStorageKey}>
+												{(k) => (
+													<div class="mt-2">
+														<FileView storageKey={k()} title="Feedback van je coach" />
+													</div>
 												)}
 											</Show>
 										</div>
