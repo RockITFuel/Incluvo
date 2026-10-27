@@ -156,6 +156,10 @@ export const formAssignment = pgTable("form_assignment", {
  * A leerling's coachplan (D2: one living plan). Every `form_submission` is a
  * version of it; `currentVersionId` points at the version the coach last
  * shared — the one courses, dashboard and AI treat as "the plan".
+ *
+ * INC-33: a coach can start a new plan, on a form of the school. That plan is
+ * the leerling's actuele plan (`replacedAt` null, at most one); earlier plans
+ * keep their versions and answers as history, read-only.
  */
 export const coachplan = pgTable("coachplan", {
 	id: uuid("id").primaryKey().defaultRandom(),
@@ -169,10 +173,20 @@ export const coachplan = pgTable("coachplan", {
 		(): AnyPgColumn => formSubmission.id,
 		{ onDelete: "set null" },
 	),
+	/** The coach who started this plan (INC-33); null when the leerling did. */
+	assignedById: text("assigned_by_id").references(() => user.id, {
+		onDelete: "set null",
+	}),
+	/** When a newer plan took over (INC-33); null for the actuele plan. */
+	replacedAt: timestamp("replaced_at"),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 	updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => [
-	uniqueIndex("coachplan_leerling_uq").on(t.organizationId, t.leerlingId),
+	// One actuele plan per leerling; replaced plans stay as history.
+	uniqueIndex("coachplan_actueel_uq")
+		.on(t.organizationId, t.leerlingId)
+		.where(sql`${t.replacedAt} is null`),
+	index("coachplan_leerling_idx").on(t.leerlingId),
 ]);
 
 /**

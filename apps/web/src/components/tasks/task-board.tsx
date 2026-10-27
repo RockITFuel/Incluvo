@@ -1,7 +1,7 @@
 import { Link, useRouter } from "@tanstack/solid-router";
 import { Calendar, Check, Clock, Flame, Plus, X } from "../../lib/icons";
 import type { JSX } from "@solidjs/web";
-import { createSignal, For, Show } from "solid-js";
+import { createEffect, createSignal, For, Show, untrack } from "solid-js";
 import { toast } from "../ui/toast";
 import { createAction } from "../../lib/action";
 import { client } from "../../lib/orpc";
@@ -119,9 +119,31 @@ export function TaskBoard(props: {
 	/** Controlled "add task" panel visibility (e.g. driven by a page-head button). */
 	adding?: boolean;
 	onAddingChange?: (adding: boolean) => void;
+	/** A task to show and put the focus on, from a notification (INC-30). */
+	focusTaskId?: string;
 }) {
 	const router = useRouter();
-	const [tab, setTab] = createSignal<TabKey>("vandaag");
+	// Opens on the tab holding the focused task; a later reload of the list
+	// doesn't move the tab.
+	const [tab, setTab] = createSignal<TabKey>(() => {
+		const id = props.focusTaskId;
+		return untrack(() => {
+			if (props.data.toekomst.some((t) => t.id === id)) return "toekomst";
+			if (props.data.klaar.some((t) => t.id === id)) return "klaar";
+			return "vandaag";
+		});
+	});
+	createEffect(
+		() => props.focusTaskId,
+		(id) => {
+			if (!id) return;
+			requestAnimationFrame(() => {
+				const el = document.getElementById(`taak-${id}`);
+				el?.scrollIntoView({ block: "center" });
+				el?.focus();
+			});
+		},
+	);
 	const [internalAdding, setInternalAdding] = createSignal(false);
 	const [newTitle, setNewTitle] = createSignal("");
 	const [newDue, setNewDue] = createSignal("");
@@ -342,7 +364,7 @@ export function TaskBoard(props: {
 						{(t) => (
 							<BigTask
 								task={t}
-								canManage={props.canManage}
+								canManage={props.canManage} focusTaskId={props.focusTaskId}
 								onToggle={() => void setDone.run({ id: t.id, done: true })}
 							/>
 						)}
@@ -360,20 +382,20 @@ export function TaskBoard(props: {
 					<FutureGroup
 						label="Deze week"
 						tasks={deWeek()}
-						canManage={props.canManage}
+						canManage={props.canManage} focusTaskId={props.focusTaskId}
 						onMove={(id) => void setPinned.run({ id, pinned: true })}
 					/>
 					<FutureGroup
 						label="Volgende week"
 						tasks={volgendeWeek()}
-						canManage={props.canManage}
+						canManage={props.canManage} focusTaskId={props.focusTaskId}
 						onMove={(id) => void setPinned.run({ id, pinned: true })}
 					/>
 					<Show when={later().length > 0}>
 						<FutureGroup
 							label="Later"
 							tasks={later()}
-							canManage={props.canManage}
+							canManage={props.canManage} focusTaskId={props.focusTaskId}
 							onMove={(id) => void setPinned.run({ id, pinned: true })}
 						/>
 					</Show>
@@ -381,7 +403,7 @@ export function TaskBoard(props: {
 						<FutureGroup
 							label="Ooit"
 							tasks={ooit()}
-							canManage={props.canManage}
+							canManage={props.canManage} focusTaskId={props.focusTaskId}
 							onMove={(id) => void setPinned.run({ id, pinned: true })}
 						/>
 					</Show>
@@ -399,7 +421,7 @@ export function TaskBoard(props: {
 						{(t) => (
 							<BigTask
 								task={t}
-								canManage={props.canManage}
+								canManage={props.canManage} focusTaskId={props.focusTaskId}
 								onToggle={() => void setDone.run({ id: t.id, done: false })}
 							/>
 						)}
@@ -444,7 +466,16 @@ function TabButton(props: {
 	);
 }
 
-function BigTask(props: { task: TaskRow; canManage: boolean; onToggle: () => void }) {
+/** A row's border: the task a notification pointed at stands out (INC-30). */
+const rowBorder = (focused: boolean) =>
+	focused ? "2px solid rgb(var(--primary))" : "1px solid rgb(var(--line))";
+
+function BigTask(props: {
+	task: TaskRow;
+	canManage: boolean;
+	focusTaskId?: string;
+	onToggle: () => void;
+}) {
 	// An overdue task shows its date: "Vandaag" would be wrong.
 	const dateLabel = () =>
 		formatTime(props.task.dueAt) && !props.task.overdue
@@ -457,10 +488,12 @@ function BigTask(props: { task: TaskRow; canManage: boolean; onToggle: () => voi
 
 	return (
 		<div
+			id={`taak-${props.task.id}`}
+			tabindex="-1"
 			class="ds-row"
 			style={{
 				padding: "14px 16px",
-				border: "1px solid rgb(var(--line))",
+				border: rowBorder(props.task.id === props.focusTaskId),
 				"border-radius": "12px",
 				background: props.task.done ? "rgb(var(--bg-2))" : "rgb(var(--surface))",
 				gap: "14px",
@@ -544,6 +577,7 @@ function FutureGroup(props: {
 	label: string;
 	tasks: TaskRow[];
 	canManage: boolean;
+	focusTaskId?: string;
 	onMove: (id: string) => void;
 }) {
 	return (
@@ -567,10 +601,12 @@ function FutureGroup(props: {
 				<For each={props.tasks}>
 					{(t) => (
 						<div
+							id={`taak-${t.id}`}
+							tabindex="-1"
 							class="ds-row"
 							style={{
 								padding: "12px 14px",
-								border: "1px solid rgb(var(--line))",
+								border: rowBorder(t.id === props.focusTaskId),
 								"border-radius": "10px",
 								background: "rgb(var(--surface))",
 								gap: "12px",

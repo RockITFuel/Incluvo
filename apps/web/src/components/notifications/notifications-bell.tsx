@@ -1,5 +1,5 @@
 import { DropdownMenu } from "@kobalte/core/dropdown-menu";
-import { Link, useLoaderData, useNavigate, useRouter } from "@tanstack/solid-router";
+import { Link, useLoaderData, useRouter } from "@tanstack/solid-router";
 import { Bell, CheckCheck } from "../../lib/icons";
 import { type Component, For, Show } from "solid-js";
 import { useMe } from "../../lib/auth/use-me";
@@ -8,6 +8,7 @@ import { client } from "../../lib/orpc";
 import { refresh } from "../../lib/refresh";
 import { useServerEvent } from "../../lib/sse/use-events";
 import { metaFor, relativeTime } from "./notification-meta";
+import { opensSomething, useOpenNotification } from "./notification-target";
 
 /**
  * Self-contained notifications bell for the shell topbar (backlog #3).
@@ -25,7 +26,7 @@ import { metaFor, relativeTime } from "./notification-meta";
 export const NotificationsBell: Component = () => {
 	const me = useMe();
 	const router = useRouter();
-	const navigate = useNavigate();
+	const open = useOpenNotification();
 	// Recent notifications (newest first), loaded by the /_protected layout.
 	const shell = useLoaderData({ from: "/_protected" });
 	const recent = () => shell().notifications;
@@ -116,22 +117,16 @@ export const NotificationsBell: Component = () => {
 							{(n) => {
 								const meta = metaFor(n.type);
 								const Icon = meta.icon;
-								const isChatLink =
-									n.entityType === "conversation" && Boolean(n.entityId);
+								// INC-30: a notification opens what it is about; one
+								// about nothing (a general message) is only marked read
+								// and keeps the panel open.
+								const opens = opensSomething(n);
 								return (
 									<DropdownMenu.Item
-										// Close the panel when the click navigates to chat; a
-										// mark-as-read-only click keeps it open.
-										closeOnSelect={isChatLink}
+										closeOnSelect={opens}
 										onSelect={() => {
-											if (!n.read) void markRead.run({ id: n.id });
-											// Deep-link a chat notification to the conversation (#3/#5).
-											if (isChatLink && n.entityId) {
-												navigate({
-													to: "/chat",
-													search: { conversationId: n.entityId },
-												});
-											}
+											if (opens) void open.run(n.id);
+											else if (!n.read) void markRead.run({ id: n.id });
 										}}
 										class="flex cursor-pointer items-start gap-3 px-3 py-2.5 outline-none data-[highlighted]:bg-line-2"
 									>

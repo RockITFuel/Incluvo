@@ -22,20 +22,19 @@ type Section = { id: string; title: string; blocks: BlockDTO[] };
  * optional voice/video note). Gated to coach+ by the route.
  */
 export function GradingView(props: { sections: Section[] }) {
-	const assignments = () =>
+	const blocks = () =>
 		props.sections
 			.flatMap((s) => s.blocks)
-			.filter((b) => b.type === "opdracht" && b.assignment)
-			.map((b) => b.assignment!);
+			.filter((b) => b.type === "opdracht" && b.assignment);
 
 	return (
 		<div class="flex flex-col gap-4">
 			<Show
-				when={assignments().length > 0}
+				when={blocks().length > 0}
 				fallback={<Card class="text-muted">Deze cursus heeft geen opdrachten.</Card>}
 			>
-				<For each={assignments()}>
-					{(a) => <AssignmentGrading assignment={a} />}
+				<For each={blocks()}>
+					{(b) => <AssignmentGrading blockId={b.id} assignment={b.assignment!} />}
 				</For>
 			</Show>
 		</div>
@@ -43,6 +42,7 @@ export function GradingView(props: { sections: Section[] }) {
 }
 
 function AssignmentGrading(props: {
+	blockId: string;
 	assignment: NonNullable<BlockDTO["assignment"]>;
 }) {
 	// Loads with the Beoordelen tab, per opdracht.
@@ -52,7 +52,8 @@ function AssignmentGrading(props: {
 	);
 
 	return (
-		<Card class="flex flex-col gap-3">
+		// `?blok=` puts the focus here (INC-30: "Opdracht ingeleverd").
+		<Card id={`blok-${props.blockId}`} tabindex="-1" class="flex flex-col gap-3">
 			<div class="flex items-center justify-between">
 				<h3 class="font-head text-h3 text-ink">{props.assignment.name}</h3>
 				<Badge variant="neutral">
