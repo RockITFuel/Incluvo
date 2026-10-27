@@ -110,6 +110,11 @@ export const formQuestion = pgTable("form_question", {
 	key: uuid("key").notNull().defaultRandom(),
 	type: questionType("type").notNull().default("short_text"),
 	label: text("label").notNull(),
+	/**
+	 * INC-31: a simpler wording of the same question for the leerling. Null =
+	 * the leerling sees `label`. The coach always sees `label`.
+	 */
+	leerlingLabel: text("leerling_label"),
 	helpText: text("help_text"),
 	required: boolean("required").notNull().default(false),
 	position: integer("position").notNull().default(0),

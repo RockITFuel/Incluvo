@@ -39,11 +39,13 @@ export type QuestionOption = z.infer<typeof QuestionOption>;
  * The `options` JSON blob on a question. `choices` for choice/leervoorkeur,
  * `scaleMin`/`scaleMax`/`scaleMinLabel`/`scaleMaxLabel` for scale, and a
  * `theme` to group questions in the wizard (matches the demo's themed steps).
+ * `allowOther` adds a free field to a multiple choice question (INC-29).
  */
 export const QuestionOptions = z
 	.object({
 		theme: z.string().optional(),
 		choices: z.array(QuestionOption).optional(),
+		allowOther: z.boolean().optional(),
 		scaleMin: z.number().int().optional(),
 		scaleMax: z.number().int().optional(),
 		scaleMinLabel: z.string().optional(),
@@ -60,6 +62,8 @@ export const QuestionSchema = z.object({
 	section: FormSection,
 	type: QuestionType,
 	label: z.string(),
+	/** INC-31: simpler wording for the leerling (null = they read `label`). */
+	leerlingLabel: z.string().nullable(),
 	helpText: z.string().nullable(),
 	required: z.boolean(),
 	position: z.number().int(),
