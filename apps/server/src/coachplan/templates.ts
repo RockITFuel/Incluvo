@@ -60,6 +60,7 @@ export async function copyQuestions(db: Db, fromTemplateId: string, toTemplateId
 			section: q.section,
 			type: q.type,
 			label: q.label,
+			leerlingLabel: q.leerlingLabel,
 			helpText: q.helpText,
 			required: q.required,
 			position: q.position,

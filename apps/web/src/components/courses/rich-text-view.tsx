@@ -2,6 +2,7 @@ import { Dynamic, type JSX } from "@solidjs/web";
 import { For, Show, untrack } from "solid-js";
 import { safeHref, viewFile, youtubeEmbed, youtubeId } from "../../lib/course-files";
 import { createLoad } from "../../lib/load";
+import { alignClass, textColorClass } from "../../lib/text-colors";
 
 /**
  * Read-only view of a course text: a pagina or an opdracht description
@@ -12,11 +13,11 @@ import { createLoad } from "../../lib/load";
  * injected. A text from before the editor is shown as it was typed.
  */
 
-type PMMark = { type: string; attrs?: { href?: unknown } };
+type PMMark = { type: string; attrs?: { href?: unknown; color?: unknown } };
 type PMNode = {
 	type: string;
 	text?: string;
-	attrs?: { level?: number; storageKey?: unknown; alt?: unknown; src?: unknown };
+	attrs?: { level?: number; storageKey?: unknown; alt?: unknown; src?: unknown; textAlign?: unknown };
 	marks?: PMMark[];
 	content?: PMNode[];
 };
@@ -31,6 +32,11 @@ function Text(props: { node: PMNode }) {
 		else if (mark.type === "bold") el = <strong>{el as never}</strong>;
 		else if (mark.type === "underline") el = <u>{el as never}</u>;
 		else if (mark.type === "strike") el = <s>{el as never}</s>;
+		else if (mark.type === "textStyle") {
+			// Only the colours of the editor's list (lib/text-colors.ts).
+			const color = textColorClass(mark.attrs?.color);
+			if (color) el = <span class={color}>{el as never}</span>;
+		}
 		else if (mark.type === "link") {
 			const href = safeHref(mark.attrs?.href);
 			if (href) {
@@ -92,16 +98,50 @@ function renderNode(n: PMNode): JSX.Element {
 			const cls =
 				level <= 2 ? "text-h3 font-head text-ink mt-4 mb-2" : "text-body font-medium text-ink mt-3 mb-1";
 			return (
-				<Dynamic component={`h${level}`} class={cls}>
+				<Dynamic component={`h${level}`} class={[cls, alignClass(n.attrs?.textAlign)]}>
 					<Inline nodes={n.content} />
 				</Dynamic>
 			);
 		}
 		case "paragraph":
 			return (
-				<p class="text-body text-ink-2 leading-relaxed mb-2 [overflow-wrap:anywhere]">
+				<p
+					class={[
+						"text-body text-ink-2 leading-relaxed mb-2 [overflow-wrap:anywhere]",
+						alignClass(n.attrs?.textAlign),
+					]}
+				>
 					<Inline nodes={n.content} />
 				</p>
+			);
+		case "table":
+			// Wide tables scroll inside their own box, not the page.
+			return (
+				<div class="my-3 max-w-full overflow-x-auto" role="region" aria-label="Tabel" tabindex="0">
+					<table class="min-w-full border-collapse text-small text-ink-2">
+						<tbody>
+							<Blocks nodes={n.content} />
+						</tbody>
+					</table>
+				</div>
+			);
+		case "tableRow":
+			return (
+				<tr>
+					<Blocks nodes={n.content} />
+				</tr>
+			);
+		case "tableHeader":
+			return (
+				<th scope="col" class="border border-line bg-bg-2 px-3 py-2 text-left font-medium text-ink">
+					<Blocks nodes={n.content} />
+				</th>
+			);
+		case "tableCell":
+			return (
+				<td class="border border-line px-3 py-2 align-top">
+					<Blocks nodes={n.content} />
+				</td>
 			);
 		case "bulletList":
 			return (

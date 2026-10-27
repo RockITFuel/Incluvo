@@ -13,6 +13,7 @@ const BLOCK_TYPES = new Set([
 	"listItem",
 	"codeBlock",
 	"horizontalRule",
+	"tableRow",
 ]);
 
 function walk(node: PMNode, out: string[]): void {
@@ -25,6 +26,13 @@ function walk(node: PMNode, out: string[]): void {
 		return;
 	}
 	if (node.type === "listItem") out.push("- ");
+	// Table cells side by side on their row.
+	if (node.type === "tableCell" || node.type === "tableHeader") {
+		const cell: string[] = [];
+		for (const child of node.content ?? []) walk(child, cell);
+		out.push(cell.join("").replace(/\s+/g, " ").trim(), " | ");
+		return;
+	}
 	for (const child of node.content ?? []) walk(child, out);
 	if (node.type && BLOCK_TYPES.has(node.type)) out.push("\n");
 }
@@ -43,6 +51,7 @@ export function richTextToPlain(value: string | null | undefined): string | null
 	walk(doc, out);
 	const text = out
 		.join("")
+		.replace(/ \| \n/g, "\n")
 		.replace(/[ \t]+\n/g, "\n")
 		.replace(/\n{3,}/g, "\n\n")
 		.trim();

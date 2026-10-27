@@ -1,5 +1,15 @@
 import { createFileRoute, Link, useNavigate, useRouter } from "@tanstack/solid-router";
-import { createMemo, createSignal, createStore, For, onSettled, Show, untrack } from "solid-js";
+import {
+	createEffect,
+	createMemo,
+	createSignal,
+	createStore,
+	For,
+	onSettled,
+	Show,
+	untrack,
+} from "solid-js";
+import { formLabel, type Plan, planDate } from "../../../components/coachplan/plan-history";
 import {
 	type AnswerValue,
 	QuestionInput,
@@ -20,7 +30,7 @@ import { client, type Output } from "../../../lib/orpc";
 import { friendlyError } from "../../../lib/errors";
 import { requireRole } from "../../../lib/auth/role-guard";
 import { refresh as refreshRoutes } from "../../../lib/refresh";
-import { loadRouteData, type RouteData } from "../../../lib/route-data";
+import { granted, loadRouteData, type RouteData } from "../../../lib/route-data";
 import { createAnswerSaver } from "../../../lib/coachplan/answer-saver";
 import { useServerEvent } from "../../../lib/sse/use-events";
 
@@ -33,6 +43,9 @@ const COACH_STARTED =
  * (#15) to open for review; a leerling gets the fill wizard (#11–#14).
  */
 export const Route = createFileRoute("/_protected/plan/")({
+	// An earlier plan to open, from a notification (INC-30/INC-33).
+	validateSearch: (search: Record<string, unknown>): { plan?: string } =>
+		typeof search.plan === "string" ? { plan: search.plan } : {},
 	// The superadmin manages the forms (/plan/beheer) and is sent home; plans
 	// belong to the school.
 	beforeLoad: ({ context }) =>
@@ -41,17 +54,22 @@ export const Route = createFileRoute("/_protected/plan/")({
 		const signal = abortController.signal;
 		// The role is known before anything renders, so a coach never mounts the
 		// leerling wizard (whose `startMine()` has a side effect).
-		return context.me.role === "coach"
-			? {
-					view: "coach" as const,
-					inbox: await loadRouteData(signal, (s) =>
-						client.coachplan.inbox(undefined, { signal: s }),
-					),
-				}
-			: {
-					view: "leerling" as const,
-					mine: await loadRouteData(signal, (s) => client.coachplan.mine(undefined, { signal: s })),
-				};
+		if (context.me.role === "coach") {
+			return {
+				view: "coach" as const,
+				inbox: await loadRouteData(signal, (s) =>
+					client.coachplan.inbox(undefined, { signal: s }),
+				),
+				mine: undefined,
+				plans: undefined,
+			};
+		}
+		const [mine, plans] = await Promise.all([
+			loadRouteData(signal, (s) => client.coachplan.mine(undefined, { signal: s })),
+			// Earlier plans (INC-33).
+			loadRouteData(signal, (s) => client.coachplan.plans(undefined, { signal: s })),
+		]);
+		return { view: "leerling" as const, inbox: undefined, mine, plans };
 	},
 	component: PlanEntry,
 });
@@ -69,7 +87,85 @@ function PlanEntry() {
 			<Show when={data().view === "leerling" && data().mine}>
 				{(mine) => <LeerlingPlan mine={mine()} />}
 			</Show>
+			<Show when={data().view === "leerling" && data().plans && granted(data().plans!)}>
+				{(plans) => <EarlierPlans plans={plans().plans} />}
+			</Show>
 		</>
+	);
+}
+
+/**
+ * INC-33 AC6/AC7: the leerling's earlier plans, each with the form, version
+ * and date, readable with all answers. `?plan=` opens one (a notification
+ * about it, INC-30).
+ */
+function EarlierPlans(props: { plans: Plan[] }) {
+	const search = Route.useSearch();
+	const earlier = () => props.plans.filter((p) => !p.actueel && p.shown);
+	const actueel = () => props.plans.find((p) => p.actueel);
+	createEffect(
+		() => search().plan,
+		(id) => {
+			if (!id) return;
+			const show = () => {
+				const summary = document.getElementById(`plan-${id}`)?.querySelector("summary");
+				summary?.focus();
+				summary?.scrollIntoView({ block: "start" });
+			};
+			requestAnimationFrame(show);
+			// The plan above (the wizard) renders once its data is in and pushes
+			// this one down: look again then, unless the user moved on.
+			const timer = setTimeout(() => {
+				const active = document.activeElement;
+				if (!active || active === document.body || active.matches("h1, summary")) show();
+			}, 800);
+			return () => clearTimeout(timer);
+		},
+	);
+	return (
+		<Show when={earlier().length > 0}>
+			<section
+				class="mx-auto mt-8 flex w-full max-w-3xl flex-col gap-3"
+				aria-labelledby="eerdere-plannen"
+			>
+				<h2 id="eerdere-plannen" class="font-head text-h2 text-ink">
+					Eerdere plannen
+				</h2>
+				<Show when={actueel()}>
+					{(a) => (
+						<p class="text-small text-ink-2">
+							Je actuele plan: {formLabel(a())}, toegewezen op {planDate(a().assignedAt)}.
+						</p>
+					)}
+				</Show>
+				<p class="text-small text-muted">
+					Deze plannen blijven bewaard met je antwoorden. Je kunt ze alleen bekijken.
+				</p>
+				<For each={earlier()}>
+					{(plan) => {
+						// The answers load when the plan is opened; `?plan=` opens it.
+						const [opened, setOpened] = createSignal(() => search().plan === plan.id);
+						return (
+							<details
+								id={`plan-${plan.id}`}
+								open={opened()}
+								onToggle={(e) => setOpened(e.currentTarget.open)}
+								class="rounded-2 border border-line bg-surface p-4"
+							>
+								<summary class="scroll-mt-24 cursor-pointer font-medium text-ink-2">
+									{formLabel(plan)} · toegewezen op {planDate(plan.assignedAt)}
+								</summary>
+								<Show when={opened()}>
+									<div class="mt-4">
+										<PlanView submissionId={plan.shown!.id} />
+									</div>
+								</Show>
+							</details>
+						);
+					}}
+				</For>
+			</section>
+		</Show>
 	);
 }
 
@@ -157,6 +253,14 @@ function LeerlingPlan(props: { mine: RouteData<Mine> }) {
 	const onLocked = () => void refresh();
 	useServerEvent("coachplan.locked", onLocked);
 	useServerEvent("coachplan.shared", onLocked);
+	// The coach started a new plan (INC-33): the wizard starts over on it.
+	const [wizardKey, setWizardKey] = createSignal(1);
+	useServerEvent("coachplan.assigned", async () => {
+		await refresh();
+		setEditing(false);
+		setWizardKey((k) => k + 1);
+		toast({ title: "Je coach heeft een nieuw coachplan voor je klaargezet", tone: "neutral" });
+	});
 	const canEdit = () => latest()?.status === "submitted";
 
 	const revise = async () => {
@@ -189,7 +293,7 @@ function LeerlingPlan(props: { mine: RouteData<Mine> }) {
 		<RouteDataView data={props.mine} what="je plan" onRetry={() => void refresh()}>
 			{() => (
 				<>
-			<Show when={phase() === "fill"}>
+			<Show when={phase() === "fill" && wizardKey()} keyed>
 				<PlanWizard onSubmitted={() => void refresh()} />
 			</Show>
 

@@ -1,5 +1,6 @@
 import {
 	answerCoachMapping,
+	coachplan,
 	formAnswer,
 	formAssignment,
 	formQuestion,
@@ -17,7 +18,7 @@ import {
 	sameTenant,
 } from "@incluvo/permissions";
 import { ORPCError } from "@orpc/server";
-import { and, asc, count, desc, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { z } from "zod";
 import {
 	type PdfPlan,
@@ -37,6 +38,13 @@ import {
 	TemplateSchema,
 	TemplateWithQuestionsSchema,
 } from "../../coachplan/schema";
+import {
+	answerText,
+	cleanChoices,
+	lacksChoices,
+	leerlingWording,
+	optionalText,
+} from "../../coachplan/answers";
 import { leerlingCoachRecipients, notify } from "../../notifications";
 import { rateLimit } from "../../rate-limit";
 import { publishTo } from "../../sse";
@@ -46,6 +54,7 @@ import {
 	copyQuestions,
 	inUseReason,
 	insertTemplate,
+	latestPublished,
 	latestVersion as latestTemplateVersion,
 	newVersion,
 	sourceUpdate,
@@ -57,14 +66,17 @@ import {
 	REVIEWABLE,
 	SHARED,
 	type Status,
+	actuelePlan,
+	assertActueel,
 	assertStatus,
 	createVersion,
 	currentVersion,
 	ensurePlan,
 	latestVersion,
+	startNewPlan,
 	transition,
 } from "../../coachplan/lifecycle";
-import { reachableLeerlingen, requireLeerlingAccess } from "../../access";
+import { assertNotArchived, reachableLeerlingen, requireLeerlingAccess } from "../../access";
 import { type AuthedContext, base, protectedProcedure, withPolicy } from "../base";
 
 /**
@@ -124,6 +136,7 @@ function questionDto(row: typeof formQuestion.$inferSelect) {
 		section: row.section,
 		type: row.type,
 		label: row.label,
+		leerlingLabel: row.leerlingLabel,
 		helpText: row.helpText,
 		required: row.required,
 		position: row.position,
@@ -131,6 +144,11 @@ function questionDto(row: typeof formQuestion.$inferSelect) {
 		options: (row.options ?? null) as never,
 		visibleToLeerling: row.visibleToLeerling,
 	};
+}
+
+/** A question as the leerling reads it: their own wording when set (INC-31). */
+function leerlingQuestionDto(row: typeof formQuestion.$inferSelect) {
+	return leerlingWording(questionDto(row));
 }
 
 function submissionDto(row: typeof formSubmission.$inferSelect) {
@@ -380,9 +398,18 @@ const questionsCreate = protectedProcedure
 			section: FormSection.default("leerling"),
 			type: QuestionType.default("short_text"),
 			label: z.string().min(1),
+			leerlingLabel: z.string().nullable().optional(),
 			helpText: z.string().nullable().optional(),
 			required: z.boolean().default(false),
 			position: z.number().int().optional(),
+			/**
+			 * INC-34: insert before or after this question of the same form. The
+			 * new question takes its part (leerling/coach) and theme, so it also
+			 * lands there in the wizard; the others move up one place.
+			 */
+			anchor: z
+				.object({ questionId: z.string().uuid(), place: z.enum(["before", "after"]) })
+				.optional(),
 			// #18 — optional correspondence to a coach (POPP) question.
 			mapsToQuestionId: z.string().uuid().nullable().optional(),
 			options: QuestionOptions.optional(),
@@ -392,30 +419,58 @@ const questionsCreate = protectedProcedure
 	.output(QuestionSchema)
 	.handler(async ({ input, context }) => {
 		await assertCanManageTemplate(context, input.templateId);
-		// Append at end if no position given.
-		let position = input.position;
-		if (position === undefined) {
-			const existing = await context.db
-				.select({ position: formQuestion.position })
+		const row = await context.db.transaction(async (tx) => {
+			const existing = await tx
+				.select()
 				.from(formQuestion)
-				.where(eq(formQuestion.templateId, input.templateId));
-			position = existing.reduce((m, q) => Math.max(m, q.position + 1), 0);
-		}
-		const [row] = await context.db
-			.insert(formQuestion)
-			.values({
-				templateId: input.templateId,
-				section: input.section,
-				type: input.type,
-				label: input.label,
-				helpText: input.helpText ?? null,
-				required: input.required,
-				position,
-				mapsToQuestionId: input.mapsToQuestionId ?? null,
-				options: (input.options ?? null) as never,
-				visibleToLeerling: input.visibleToLeerling ?? true,
-			})
-			.returning();
+				.where(eq(formQuestion.templateId, input.templateId))
+				.orderBy(asc(formQuestion.position), asc(formQuestion.createdAt), asc(formQuestion.id));
+			let position = input.position;
+			let section = input.section;
+			let options = input.options;
+			if (input.anchor) {
+				const at = existing.findIndex((q) => q.id === input.anchor!.questionId);
+				const anchor = existing[at];
+				if (!anchor) throw new ORPCError("NOT_FOUND", { message: "Die vraag staat niet in dit formulier" });
+				section = anchor.section;
+				const theme = (anchor.options as { theme?: string } | null)?.theme;
+				if (theme && !options?.theme) options = { ...options, theme };
+				// Positions 0..n-1 in the current order, with a gap for the new one.
+				const index = input.anchor.place === "before" ? at : at + 1;
+				position = index;
+				for (const [i, q] of existing.entries()) {
+					const next = i < index ? i : i + 1;
+					if (q.position !== next) {
+						await tx
+							.update(formQuestion)
+							.set({ position: next })
+							.where(eq(formQuestion.id, q.id));
+					}
+				}
+			}
+			// Append at end if no position given.
+			if (position === undefined) {
+				position = existing.reduce((m, q) => Math.max(m, q.position + 1), 0);
+			}
+			const type = input.type;
+			const [inserted] = await tx
+				.insert(formQuestion)
+				.values({
+					templateId: input.templateId,
+					section,
+					type,
+					label: input.label,
+					leerlingLabel: optionalText(input.leerlingLabel) ?? null,
+					helpText: input.helpText ?? null,
+					required: input.required,
+					position,
+					mapsToQuestionId: input.mapsToQuestionId ?? null,
+					options: (cleanChoices(type, options) ?? null) as never,
+					visibleToLeerling: input.visibleToLeerling ?? true,
+				})
+				.returning();
+			return inserted;
+		});
 		if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
 		publishTo(
 			{ type: "coachplan.template.changed", payload: { id: input.templateId } },
@@ -433,6 +488,8 @@ const questionsUpdate = protectedProcedure
 			section: FormSection.optional(),
 			type: QuestionType.optional(),
 			label: z.string().min(1).optional(),
+			// INC-31: null or empty removes the leerling wording.
+			leerlingLabel: z.string().nullable().optional(),
 			helpText: z.string().nullable().optional(),
 			required: z.boolean().optional(),
 			position: z.number().int().optional(),
@@ -450,12 +507,14 @@ const questionsUpdate = protectedProcedure
 			.where(eq(formQuestion.id, input.id));
 		if (!q) throw new ORPCError("NOT_FOUND");
 		await assertCanManageTemplate(context, q.templateId);
-		const { id, options, ...patch } = input;
+		const { id, options, leerlingLabel, ...patch } = input;
+		const cleaned = cleanChoices(input.type ?? q.type, options);
 		const [row] = await context.db
 			.update(formQuestion)
 			.set({
 				...patch,
-				...(options !== undefined ? { options: options as never } : {}),
+				...(leerlingLabel !== undefined ? { leerlingLabel: optionalText(leerlingLabel) } : {}),
+				...(cleaned !== undefined ? { options: cleaned as never } : {}),
 				updatedAt: new Date(),
 			})
 			.where(eq(formQuestion.id, id))
@@ -574,13 +633,20 @@ const templatesPublish = protectedProcedure
 		if (tpl.publishedAt) {
 			throw new ORPCError("CONFLICT", { message: "Deze versie is al gepubliceerd." });
 		}
-		const [question] = await context.db
-			.select({ id: formQuestion.id })
+		const questions = await context.db
+			.select()
 			.from(formQuestion)
 			.where(eq(formQuestion.templateId, tpl.id))
-			.limit(1);
-		if (!question) {
+			.orderBy(asc(formQuestion.position));
+		if (questions.length === 0) {
 			throw new ORPCError("BAD_REQUEST", { message: "Voeg eerst minstens één vraag toe." });
+		}
+		// INC-29 AC3: a choice question can't be filled in without options.
+		const unfinished = questions.find(lacksChoices);
+		if (unfinished) {
+			throw new ORPCError("BAD_REQUEST", {
+				message: `De vraag "${unfinished.label}" heeft nog geen twee antwoordopties.`,
+			});
 		}
 		const [row] = await context.db
 			.update(formTemplate)
@@ -701,6 +767,16 @@ async function resolveTemplateForLeerling(
 	return def?.id ?? null;
 }
 
+/** The newest published version of this template's form (itself if none newer). */
+async function newestPublishedOf(
+	db: typeof import("@incluvo/drizzle").db,
+	templateId: string,
+): Promise<string> {
+	const [tpl] = await db.select().from(formTemplate).where(eq(formTemplate.id, templateId));
+	if (!tpl) return templateId;
+	return (await latestPublished(db, tpl.familyId))?.id ?? templateId;
+}
+
 /**
  * Start (or resume) the leerling's current draft submission (#11). Returns the
  * submission, its template (with questions) and any answers already autosaved.
@@ -764,7 +840,8 @@ const startMine = protectedProcedure
 
 		return {
 			submission: submissionDto(submission),
-			template: { ...templateDto(tpl), questions: questions.map(questionDto) },
+			// Only the leerling gets here: their wording (INC-31).
+			template: { ...templateDto(tpl), questions: questions.map(leerlingQuestionDto) },
 			answers: answers.map(answerDto),
 		};
 	});
@@ -817,10 +894,14 @@ const revise = protectedProcedure
 		}
 		assertStatus(latest, SHARED);
 		// The revision uses the school's current form for this leerling (D5: a
-		// newer version if the school upgraded); answers carry over by key.
-		const templateId =
-			(await resolveTemplateForLeerling(context.db, latest.organizationId, actor.userId)) ??
-			latest.templateId;
+		// newer version if the school upgraded); answers carry over by key. A
+		// plan a coach started on a chosen form (INC-33) keeps that form, in
+		// its newest published version.
+		const assigned = (await actuelePlan(context.db, actor.userId))?.assignedById;
+		const templateId = assigned
+			? await newestPublishedOf(context.db, latest.templateId)
+			: ((await resolveTemplateForLeerling(context.db, latest.organizationId, actor.userId)) ??
+				latest.templateId);
 		const created = await context.db.transaction(async (tx) => {
 			const plan = await ensurePlan(tx, latest.organizationId, actor.userId);
 			return createVersion(tx, plan, templateId, latest);
@@ -845,6 +926,7 @@ async function loadFillable(
 	if (!can(context.actor, policies.fillCoachplan, sub)) {
 		throw new ORPCError("FORBIDDEN");
 	}
+	await assertActueel(context.db, sub);
 	if (!allowed.includes(sub.status)) {
 		throw new ORPCError("CONFLICT", { message: leerlingLockedMessage(sub.status) });
 	}
@@ -972,6 +1054,8 @@ const saveAnswer = protectedProcedure
 			if (!LEERLING_EDITABLE.includes(locked.status)) {
 				throw new ORPCError("CONFLICT", { message: leerlingLockedMessage(locked.status) });
 			}
+			// The coach may have started a new plan meanwhile (INC-33).
+			await assertActueel(tx, locked);
 			const handedIn = locked.status === "submitted";
 			const [before] =
 				handedIn && q.mapsToQuestionId
@@ -1146,6 +1230,7 @@ const submit = protectedProcedure
 			if (!updated) {
 				throw new ORPCError("CONFLICT", { message: "Dit plan is al ingeleverd" });
 			}
+			await assertActueel(tx, updated);
 			// #18 — auto-prefill the coach (POPP) fields from corresponding leerling
 			// answers. For every leerling question that declares a `mapsToQuestionId`,
 			// create an `answerCoachMapping` pointing the leerling's answer at the
@@ -1264,10 +1349,21 @@ async function buildOverview(
 		? questions.filter((q) => !hiddenFromLeerling(q, submission))
 		: questions;
 	const shownIds = new Set(shown.map((q) => q.id));
+	const [plan] = await db
+		.select({ replacedAt: coachplan.replacedAt })
+		.from(coachplan)
+		.where(eq(coachplan.id, submission.coachplanId));
+	const [leerling] = await db
+		.select({ name: user.name })
+		.from(user)
+		.where(eq(user.id, submission.leerlingId));
 	return {
 		submission: submissionDto(submission),
+		// INC-33: a version of an earlier plan is history, read-only.
+		replaced: Boolean(plan?.replacedAt),
+		leerlingName: leerling?.name ?? "Leerling",
 		template: tpl ? templateDto(tpl) : null,
-		questions: shown.map(questionDto),
+		questions: shown.map(opts.forLeerling ? leerlingQuestionDto : questionDto),
 		answers: answers
 			.filter((a) => shownIds.has(a.questionId))
 			.filter((a) => opts.includeCoachPart || !coachQuestionIds.has(a.questionId))
@@ -1278,6 +1374,8 @@ async function buildOverview(
 
 const OverviewSchema = z.object({
 	submission: SubmissionSchema,
+	replaced: z.boolean(),
+	leerlingName: z.string(),
 	template: TemplateSchema.nullable(),
 	questions: z.array(QuestionSchema),
 	answers: z.array(AnswerSchema),
@@ -1348,6 +1446,11 @@ const inbox = protectedProcedure
 			.from(formSubmission)
 			.innerJoin(user, eq(user.id, formSubmission.leerlingId))
 			.innerJoin(formTemplate, eq(formTemplate.id, formSubmission.templateId))
+			// Only the actuele plan; earlier plans are history (INC-33).
+			.innerJoin(
+				coachplan,
+				and(eq(coachplan.id, formSubmission.coachplanId), isNull(coachplan.replacedAt)),
+			)
 			.where(
 				and(
 					await reachableLeerlingen(
@@ -1431,7 +1534,11 @@ async function loadReviewable(
 	}
 	// Role+tenant alone isn't enough: the coach must be assigned to this leerling.
 	await assertAssignedToLeerling(context, sub.leerlingId);
-	if (allowed) assertStatus(sub, allowed);
+	if (allowed) {
+		// Changes only on the actuele plan (INC-33).
+		await assertActueel(context.db, sub);
+		assertStatus(sub, allowed);
+	}
 	return sub;
 }
 
@@ -1667,34 +1774,6 @@ const setApprovedWithParents = protectedProcedure
 // #20 — PDF of a submission (Playwright HTML → PDF)
 // ---------------------------------------------------------------------------
 
-/** Humanise an answer value for the PDF, resolving choice labels. */
-function renderAnswer(
-	answer: typeof formAnswer.$inferSelect | undefined,
-	question: typeof formQuestion.$inferSelect,
-): string | null {
-	if (!answer) return null;
-	if (answer.deliberatelySkipped) return null;
-	const opts = (question.options ?? null) as {
-		choices?: { value: string; label: string }[];
-	} | null;
-	const choiceLabel = (v: string) =>
-		opts?.choices?.find((c) => c.value === v)?.label ?? v;
-	const json = answer.valueJson as unknown;
-	if (Array.isArray(json)) {
-		return json.map((v) => choiceLabel(String(v))).join(", ");
-	}
-	if (answer.value) {
-		if (
-			question.type === "single_choice" ||
-			question.type === "leervoorkeur"
-		) {
-			return choiceLabel(answer.value);
-		}
-		return answer.value;
-	}
-	return null;
-}
-
 const generatePdf = protectedProcedure
 	.route({ method: "POST", path: "/coachplan/submissions/{id}/pdf", tags: ["coachplan"] })
 	.input(z.object({ id: z.string().uuid() }))
@@ -1740,10 +1819,11 @@ const generatePdf = protectedProcedure
 					.where(eq(formQuestion.templateId, tpl.id))
 					.orderBy(asc(formQuestion.position))
 			: [];
-		// The leerling's PDF leaves out what is hidden from them (INC-7).
+		// The leerling's PDF leaves out what is hidden from them (INC-7) and
+		// uses their wording (INC-31).
 		const questions =
 			actor.userId === sub.leerlingId
-				? allQuestions.filter((q) => !hiddenFromLeerling(q, sub))
+				? allQuestions.filter((q) => !hiddenFromLeerling(q, sub)).map(leerlingWording)
 				: allQuestions;
 		const answers = await context.db
 			.select()
@@ -1788,7 +1868,7 @@ const generatePdf = protectedProcedure
 				helpText: q.helpText,
 				theme: q.section === "coach" ? `Coach · ${theme ?? "Vragenlijst"}` : theme,
 				section: q.section,
-				answer: renderAnswer(a, q),
+				answer: answerText(a, q),
 				discussWithCoach: a?.discussWithCoach ?? false,
 				deliberatelySkipped: a?.deliberatelySkipped ?? false,
 			};
@@ -1814,6 +1894,243 @@ const generatePdf = protectedProcedure
 			base64: Buffer.from(bytes).toString("base64"),
 			bytes: bytes.byteLength,
 		};
+	});
+
+// ---------------------------------------------------------------------------
+// INC-33 — A new coachplan for a leerling; earlier plans as history
+// ---------------------------------------------------------------------------
+
+const PlanVersionSchema = z.object({
+	id: z.string(),
+	version: z.number().int(),
+	status: SubmissionSchema.shape.status,
+	templateName: z.string(),
+	templateVersion: z.number().int(),
+	submittedAt: z.date().nullable(),
+	createdAt: z.date(),
+});
+
+const PlanSchema = z.object({
+	id: z.string(),
+	actueel: z.boolean(),
+	/** Toewijzingsdatum: when the plan started. */
+	assignedAt: z.date(),
+	/** The coach who started it; null when the leerling did. */
+	assignedByName: z.string().nullable(),
+	replacedAt: z.date().nullable(),
+	templateName: z.string(),
+	templateVersion: z.number().int(),
+	/** The version to open: see `shownVersion`. */
+	shown: PlanVersionSchema.nullable(),
+	/** All versions, newest first. */
+	versions: z.array(PlanVersionSchema),
+});
+
+/**
+ * The version that stands for a plan: of the actuele plan the newest one the
+ * leerling handed in (else the draft), as `versionForCoach`; of an earlier
+ * plan the version the coach last shared, if any.
+ */
+function shownVersion<T extends { id: string; status: Status }>(
+	versions: T[],
+	currentVersionId: string | null,
+	actueel: boolean,
+): T | null {
+	if (!actueel) {
+		const shared = versions.find((v) => v.id === currentVersionId);
+		if (shared) return shared;
+	}
+	return versions.find((v) => v.status !== "draft") ?? versions[0] ?? null;
+}
+
+/** The leerling's plans, actuele first, for the leerling or a coach of theirs. */
+const plans = protectedProcedure
+	.route({ method: "GET", path: "/coachplan/plans", tags: ["coachplan"] })
+	.input(z.object({ leerlingId: z.string().optional() }).optional())
+	.output(z.object({ actuelePlanId: z.string().nullable(), plans: z.array(PlanSchema) }))
+	.handler(async ({ input, context }) => {
+		const leerlingId = input?.leerlingId ?? context.actor.userId;
+		await requireLeerlingAccess(context, leerlingId);
+		const planRows = await context.db
+			.select({ plan: coachplan, assignedByName: user.name })
+			.from(coachplan)
+			.leftJoin(user, eq(user.id, coachplan.assignedById))
+			.where(eq(coachplan.leerlingId, leerlingId))
+			.orderBy(desc(coachplan.createdAt));
+		if (planRows.length === 0) return { actuelePlanId: null, plans: [] };
+		const versionRows = await context.db
+			.select({
+				submission: formSubmission,
+				templateName: formTemplate.name,
+				templateVersion: formTemplate.version,
+			})
+			.from(formSubmission)
+			.innerJoin(formTemplate, eq(formTemplate.id, formSubmission.templateId))
+			.where(
+				inArray(
+					formSubmission.coachplanId,
+					planRows.map((r) => r.plan.id),
+				),
+			)
+			.orderBy(desc(formSubmission.version));
+		const result = planRows.map(({ plan, assignedByName }) => {
+			const versions = versionRows
+				.filter((v) => v.submission.coachplanId === plan.id)
+				.map((v) => ({
+					id: v.submission.id,
+					version: v.submission.version,
+					status: v.submission.status,
+					templateName: v.templateName,
+					templateVersion: v.templateVersion,
+					submittedAt: v.submission.submittedAt,
+					createdAt: v.submission.createdAt,
+				}));
+			const actueel = plan.replacedAt === null;
+			// The form the plan was started on: its first version's.
+			const first = versions.at(-1);
+			return {
+				id: plan.id,
+				actueel,
+				assignedAt: plan.createdAt,
+				assignedByName: plan.assignedById ? assignedByName : null,
+				replacedAt: plan.replacedAt,
+				templateName: first?.templateName ?? "Coachplan",
+				templateVersion: first?.templateVersion ?? 1,
+				shown: shownVersion(versions, plan.currentVersionId, actueel),
+				versions,
+			};
+		});
+		return {
+			actuelePlanId: result.find((p) => p.actueel)?.id ?? null,
+			plans: result,
+		};
+	});
+
+/**
+ * Assert the actor may start a plan for this leerling: a coach of the school
+ * who coaches them (vaste coach or vervanger). Returns the leerling.
+ */
+async function requirePlanAssigner(context: AuthedContext, leerlingId: string) {
+	const leerling = await requireLeerlingAccess(context, leerlingId);
+	if (
+		leerlingId === context.actor.userId ||
+		!leerling.organizationId ||
+		!can(context.actor, policies.reviewCoachplan, {
+			organizationId: leerling.organizationId,
+			leerlingId,
+		})
+	) {
+		throw new ORPCError("FORBIDDEN", { message: "Alleen een coach van de leerling kan een plan toewijzen" });
+	}
+	return { ...leerling, organizationId: leerling.organizationId };
+}
+
+const AssignableTemplateSchema = z.object({
+	id: z.string(),
+	name: z.string(),
+	description: z.string().nullable(),
+	version: z.number().int(),
+	isSchoolDefault: z.boolean(),
+});
+
+/**
+ * The forms a coach can start a plan on (AC2/AC3): the published forms of the
+ * leerling's school, each in its newest published version. No concepts, no
+ * Ondivera forms, no other schools.
+ */
+const assignableTemplates = protectedProcedure
+	.route({ method: "GET", path: "/coachplan/assignable-templates", tags: ["coachplan"] })
+	.input(z.object({ leerlingId: z.string() }))
+	.output(z.array(AssignableTemplateSchema))
+	.handler(async ({ input, context }) => {
+		const leerling = await requirePlanAssigner(context, input.leerlingId);
+		const rows = await context.db
+			.select()
+			.from(formTemplate)
+			.where(
+				and(
+					eq(formTemplate.scope, "school"),
+					eq(formTemplate.organizationId, leerling.organizationId),
+					isNotNull(formTemplate.publishedAt),
+				),
+			)
+			.orderBy(desc(formTemplate.version));
+		const newest = new Map<string, (typeof rows)[number]>();
+		for (const t of rows) if (!newest.has(t.familyId)) newest.set(t.familyId, t);
+		return [...newest.values()]
+			.toSorted((a, b) => a.name.localeCompare(b.name, "nl"))
+			.map((t) => ({
+				id: t.id,
+				name: t.name,
+				description: t.description,
+				version: t.version,
+				isSchoolDefault: t.isSchoolDefault,
+			}));
+	});
+
+/**
+ * Start a new plan for the leerling on a published form of their school
+ * (AC1–AC5, AC10). The previous plan stays as history with all its answers
+ * (AC6); `replacesPlanId` guards against a double assignment (AC9).
+ */
+const assignNewPlan = protectedProcedure
+	.route({ method: "POST", path: "/coachplan/plans", tags: ["coachplan"] })
+	.input(
+		z.object({
+			leerlingId: z.string(),
+			templateId: z.string().uuid(),
+			replacesPlanId: z.string().uuid().nullable(),
+		}),
+	)
+	.output(z.object({ planId: z.string(), submission: SubmissionSchema }))
+	.handler(async ({ input, context }) => {
+		const leerling = await requirePlanAssigner(context, input.leerlingId);
+		await assertNotArchived(context.db, leerling.organizationId);
+		const [tpl] = await context.db
+			.select()
+			.from(formTemplate)
+			.where(eq(formTemplate.id, input.templateId));
+		if (
+			!tpl ||
+			tpl.scope !== "school" ||
+			tpl.organizationId !== leerling.organizationId
+		) {
+			throw new ORPCError("NOT_FOUND", { message: "Dit formulier hoort niet bij de school van de leerling" });
+		}
+		assertPublished(tpl);
+		const { plan, version } = await context.db.transaction((tx) =>
+			startNewPlan(tx, {
+				organizationId: leerling.organizationId,
+				leerlingId: leerling.id,
+				templateId: tpl.id,
+				assignedById: context.actor.userId,
+				replacesPlanId: input.replacesPlanId,
+			}),
+		);
+		const coaches = await leerlingCoachRecipients(
+			context.db,
+			leerling.id,
+			leerling.organizationId,
+		);
+		// The leerling's open plan page and the other coach's screens follow.
+		publishTo(
+			{ type: "coachplan.assigned", payload: { id: version.id, leerlingId: leerling.id } },
+			[...new Set([leerling.id, context.actor.userId, ...coaches])],
+		);
+		// Best-effort: a notify failure must never undo the new plan.
+		try {
+			await notify(context.db, {
+				userId: leerling.id,
+				organizationId: leerling.organizationId,
+				type: "coachplan_assigned",
+				title: "Nieuw coachplan",
+				body: `Je coach heeft een nieuw coachplan voor je klaargezet: ${tpl.name}.`,
+				entity: { type: "form_submission", id: version.id },
+			});
+		} catch (err) {
+			console.error("notify(coachplan_assigned) failed", err);
+		}
+		return { planId: plan.id, submission: submissionDto(version) };
 	});
 
 // ---------------------------------------------------------------------------
@@ -1861,4 +2178,8 @@ export const coachplanRouter = base.router({
 	setLearningPreferences,
 	setApprovedWithParents,
 	generatePdf,
+	// New plan + history (INC-33)
+	plans,
+	assignableTemplates,
+	assignNewPlan,
 });

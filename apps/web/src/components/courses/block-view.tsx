@@ -75,9 +75,11 @@ export function BlockView(props: {
 	canComplete: boolean;
 	/** First not-yet-done progress block in the course — gets the "Verder" accent. */
 	active?: boolean;
+	/** Opened from a link to this block (`?blok=`): starts open (INC-30). */
+	focused?: boolean;
 	onToggleDone: (completed: boolean) => void;
 }) {
-	const [open, setOpen] = createSignal(false);
+	const [open, setOpen] = createSignal(() => Boolean(props.focused));
 	const Icon = () => typeIcon[props.block.type];
 
 	const meta = () => {
@@ -121,6 +123,7 @@ export function BlockView(props: {
 			>
 				<button
 					type="button"
+					id={`blok-${props.block.id}`}
 					onClick={() => setOpen((v) => !v)}
 					aria-expanded={open() ? "true" : "false"}
 					style={{

@@ -88,6 +88,11 @@ import {
 	Redo2 as Redo2Node,
 	Underline as UnderlineNode,
 	Undo2 as Undo2Node,
+	TextAlignStart as TextAlignStartNode,
+	TextAlignCenter as TextAlignCenterNode,
+	TextAlignEnd as TextAlignEndNode,
+	Table as TableNode,
+	Palette as PaletteNode,
 	type IconNode,
 } from "lucide";
 
@@ -230,3 +235,8 @@ export const Quote = createIcon("quote", QuoteNode);
 export const Redo2 = createIcon("redo-2", Redo2Node);
 export const Underline = createIcon("underline", UnderlineNode);
 export const Undo2 = createIcon("undo-2", Undo2Node);
+export const TextAlignStart = createIcon("text-align-start", TextAlignStartNode);
+export const TextAlignCenter = createIcon("text-align-center", TextAlignCenterNode);
+export const TextAlignEnd = createIcon("text-align-end", TextAlignEndNode);
+export const Table = createIcon("table", TableNode);
+export const Palette = createIcon("palette", PaletteNode);

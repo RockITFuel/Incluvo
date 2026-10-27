@@ -1,9 +1,10 @@
 import { notification, notificationType } from "@incluvo/drizzle/schema";
 import { ORPCError } from "@orpc/server";
-import { and, count, desc, eq } from "drizzle-orm";
+import { and, count, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { env } from "../../env";
 import { notify } from "../../notifications/notify";
+import { NotificationTargetSchema, notificationTarget } from "../../notifications/target";
 import { base, protectedProcedure } from "../base";
 
 /**
@@ -157,6 +158,34 @@ const markRead = protectedProcedure
 		return row;
 	});
 
+/**
+ * Open a notification (INC-30): mark it read and say where it leads — the
+ * coachplan, task, opdracht or chat it is about — or that it is gone or no
+ * longer the user's to see.
+ */
+const open = protectedProcedure
+	.route({ method: "POST", path: "/notifications/open", tags: ["notifications"] })
+	.input(z.object({ id: z.string().uuid() }))
+	.output(z.object({ target: NotificationTargetSchema }))
+	.handler(async ({ input, context }) => {
+		const [row] = await context.db
+			.update(notification)
+			.set({ read: true, readAt: sql`coalesce(${notification.readAt}, now())` })
+			.where(
+				and(
+					eq(notification.id, input.id),
+					eq(notification.userId, context.actor.userId),
+				),
+			)
+			.returning({
+				type: notification.type,
+				entityType: notification.entityType,
+				entityId: notification.entityId,
+			});
+		if (!row) throw new ORPCError("NOT_FOUND");
+		return { target: await notificationTarget(context, row) };
+	});
+
 /** Mark all of the user's unread notifications as read. */
 const markAllRead = protectedProcedure
 	.route({
@@ -223,6 +252,7 @@ export const notificationsRouter = base.router({
 	list,
 	unreadCount,
 	markRead,
+	open,
 	markAllRead,
 	testEmit,
 });

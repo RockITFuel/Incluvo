@@ -125,7 +125,7 @@ function CoachReview() {
 		mappings().find((m) => m.coachQuestionId === coachQuestionId);
 
 	const inboxRow = () => inbox().find((r) => r.submission.id === id());
-	const leerlingName = () => inboxRow()?.leerlingName ?? "Leerling";
+	const leerlingName = () => sub().leerlingName;
 	const templateName = () =>
 		sub().template?.name ?? inboxRow()?.templateName ?? "Coachplan";
 
@@ -141,9 +141,20 @@ function CoachReview() {
 		return map;
 	};
 	const [coachAnswers, setCoachAnswers] = createStore<Record<string, string>>(untrack(savedAnswers));
+	// The chosen options of a multiple choice coach question (INC-29), kept
+	// here too: the next click builds on them before a reload.
+	const savedChoices = () => {
+		const map: Record<string, string[] | null> = {};
+		for (const a of sub().answers) map[a.questionId] = (a.valueJson as string[] | null) ?? null;
+		return map;
+	};
+	const [coachChoices, setCoachChoices] = createStore<Record<string, string[] | null>>(
+		untrack(savedChoices),
+	);
 	const [prefs, setPrefs] = createSignal<string[]>(untrack(() => sub().learningPreferences));
 	const reseed = () => {
 		setCoachAnswers(() => savedAnswers());
+		setCoachChoices(() => savedChoices());
 		setPrefs(sub().learningPreferences);
 	};
 
@@ -240,20 +251,25 @@ function CoachReview() {
 		steps().reduce((n, s) => {
 			if (s.kind === "leervoorkeuren") return n + (prefs().length ? 1 : 0);
 			const v = coachAnswers[s.q.id];
-			return n + (v && v.trim() ? 1 : 0);
+			return n + ((v && v.trim()) || coachChoices[s.q.id]?.length ? 1 : 0);
 		}, 0);
 
 	// The coach works on a handed-in version; a draft is still the leerling's,
 	// a shared one is read-only (fix plan 2.1, lifecycle.ts).
 	const status = () => sub().submission.status;
-	const editable = () => status() === "submitted" || status() === "coach_review";
+	// An earlier plan (INC-33) is history: read-only whatever its status.
+	const replaced = () => sub().replaced;
+	const editable = () =>
+		!replaced() && (status() === "submitted" || status() === "coach_review");
 	const isShared = () => status() === "shared_with_leerling" || status() === "completed";
 	const readOnly = () => {
 		if (editable()) return false;
 		toast({
-			title: isShared()
-				? "Deze versie is gedeeld en kan niet meer worden gewijzigd"
-				: "De leerling vult dit plan nog in",
+			title: replaced()
+				? "Dit is een eerder plan en kan niet meer worden gewijzigd"
+				: isShared()
+					? "Deze versie is gedeeld en kan niet meer worden gewijzigd"
+					: "De leerling vult dit plan nog in",
 			tone: "neutral",
 		});
 		return true;
@@ -310,6 +326,11 @@ function CoachReview() {
 		if (next.value !== undefined) {
 			setCoachAnswers((draft) => {
 				draft[questionId] = next.value ?? "";
+			});
+		}
+		if (next.valueJson !== undefined) {
+			setCoachChoices((draft) => {
+				draft[questionId] = next.valueJson ?? null;
 			});
 		}
 		client.coachplan
@@ -380,9 +401,10 @@ function CoachReview() {
 							{initials(leerlingName())}
 						</div>
 						<div>
-							<div style={{ "font-weight": "600", "font-size": "0.875rem" }}>
+							{/* The page's heading, for screen readers and the route announcer. */}
+							<h1 style={{ "font-weight": "600", "font-size": "0.875rem" }}>
 								Coachplan · {leerlingName()}
-							</div>
+							</h1>
 							<div style={{ "font-size": "0.75rem", color: "rgb(var(--muted))" }}>
 								{templateName()} · versie {sub().submission.version} ·
 								Bron: leerlingvragenlijst van{" "}
@@ -416,12 +438,14 @@ function CoachReview() {
 
 				<Show when={!editable()}>
 					<div class="card" role="status" style={{ "margin-bottom": "14px" }}>
-						{isShared()
-							? "Deze versie is gedeeld met de leerling en is alleen-lezen. Wil de leerling iets aanpassen, dan maakt die een nieuwe versie via 'Plan bijwerken'."
-							: "De leerling vult dit plan nog in. Je kunt het coachgedeelte invullen zodra het is ingeleverd."}
+						{replaced()
+							? "Dit is een eerder coachplan. Er is een nieuw plan voor in de plaats gekomen; dit plan blijft bewaard en is alleen-lezen."
+							: isShared()
+								? "Deze versie is gedeeld met de leerling en is alleen-lezen. Wil de leerling iets aanpassen, dan maakt die een nieuwe versie via 'Plan bijwerken'."
+								: "De leerling vult dit plan nog in. Je kunt het coachgedeelte invullen zodra het is ingeleverd."}
 						</div>
 					</Show>
-					<Show when={status() === "submitted"}>
+					<Show when={editable() && status() === "submitted"}>
 						<div class="card" role="status" style={{ "margin-bottom": "14px" }}>
 							De leerling kan de eigen antwoorden nog aanpassen. Zodra jij iets typt
 							of kiest in het coachgedeelte, staan ze vast.
@@ -571,10 +595,7 @@ function CoachReview() {
 															question={s().q}
 															value={{
 																value: coachAnswers[s().q.id] ?? null,
-																valueJson:
-																	(answerFor(s().q.id)?.valueJson as
-																		| string[]
-																		| null) ?? null,
+																valueJson: coachChoices[s().q.id] ?? null,
 															}}
 															onChange={(next) => saveChoice(s().q.id, next)}
 														/>
@@ -693,6 +714,7 @@ function CoachReview() {
 										checked={
 											sub().submission.approvedWithParents ?? false
 										}
+										disabled={replaced()}
 										onChange={(e) => toggleParents(e.currentTarget.checked)}
 										aria-label="Afgestemd met ouders"
 									/>

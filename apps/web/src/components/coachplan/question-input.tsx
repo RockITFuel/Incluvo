@@ -1,4 +1,4 @@
-import { For, Match, Show, Switch } from "solid-js";
+import { createUniqueId, For, Match, Show, Switch } from "solid-js";
 import { Textarea } from "../ui/text-field";
 
 /**
@@ -7,6 +7,7 @@ import { Textarea } from "../ui/text-field";
  * accessible control and reports a normalised value back:
  *   - text/longtext/single_choice/scale/boolean → `value` (string)
  *   - multiple_choice/leervoorkeur              → `valueJson` (string[])
+ *   - multiple_choice with a free field (INC-29) → `valueJson` + `value`
  *
  * The wizard wires `onChange` to per-question autosave (#11).
  */
@@ -23,6 +24,8 @@ export type QuestionDTO = {
 	options: {
 		theme?: string;
 		choices?: QuestionOptionDTO[];
+		/** INC-29: a multiple choice question with a free field. */
+		allowOther?: boolean;
 		scaleMin?: number;
 		scaleMax?: number;
 		scaleMinLabel?: string;
@@ -85,16 +88,28 @@ function OptionPill(props: {
 	);
 }
 
+/** INC-29 variant 3: multiple choice plus a free field. */
+export function allowsOther(question: Pick<QuestionDTO, "type" | "options">): boolean {
+	return question.type === "multiple_choice" && Boolean(question.options?.allowOther);
+}
+
 export function QuestionInput(props: Props) {
 	const choices = () => props.question.options?.choices ?? [];
 	const selected = () => props.value.valueJson ?? [];
+	const freeId = createUniqueId();
 
+	// The choices and the free field are one answer: send both, so neither
+	// replaces the other.
 	const toggleMulti = (val: string) => {
 		const cur = selected();
 		const next = cur.includes(val)
 			? cur.filter((v) => v !== val)
 			: [...cur, val];
-		props.onChange({ valueJson: next });
+		props.onChange(
+			allowsOther(props.question)
+				? { valueJson: next, value: props.value.value ?? null }
+				: { valueJson: next },
+		);
 	};
 
 	return (
@@ -128,22 +143,42 @@ export function QuestionInput(props: Props) {
 					props.question.type === "leervoorkeur"
 				}
 			>
-				<div
-					role="group"
-					aria-label={props.question.label}
-					class="grid gap-2 sm:grid-cols-2"
-				>
-					<For each={choices()}>
-						{(opt) => (
-							<OptionPill
-								label={opt.label}
-								multi
+				<div class="flex flex-col gap-3">
+					<div
+						role="group"
+						aria-label={props.question.label}
+						class="grid gap-2 sm:grid-cols-2"
+					>
+						<For each={choices()}>
+							{(opt) => (
+								<OptionPill
+									label={opt.label}
+									multi
+									disabled={props.disabled}
+									selected={selected().includes(opt.value)}
+									onClick={() => toggleMulti(opt.value)}
+								/>
+							)}
+						</For>
+					</div>
+					<Show when={allowsOther(props.question)}>
+						<div class="flex flex-col gap-1.5">
+							<label for={freeId} class="text-small font-medium text-ink-2">
+								Eigen antwoord (mag je leeg laten)
+							</label>
+							<input
+								id={freeId}
+								type="text"
+								placeholder="Typ hier je eigen antwoord…"
 								disabled={props.disabled}
-								selected={selected().includes(opt.value)}
-								onClick={() => toggleMulti(opt.value)}
+								value={props.value.value ?? ""}
+								onInput={(e) =>
+									props.onChange({ valueJson: selected(), value: e.currentTarget.value })
+								}
+								class="w-full rounded-2 border border-line bg-surface px-ctl-x py-ctl-y text-body text-ink placeholder:text-muted-2 focus-visible:border-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:opacity-50"
 							/>
-						)}
-					</For>
+						</div>
+					</Show>
 				</div>
 			</Match>
 
@@ -254,6 +289,13 @@ export function renderAnswerText(
 	if (!answer) return { kind: "empty" };
 	const labelFor = (v: string) =>
 		question.options?.choices?.find((c) => c.value === v)?.label ?? v;
+	// INC-29: the choices plus the free field; only spaces is no answer.
+	if (question.type === "multiple_choice") {
+		const chips = (answer.valueJson ?? []).map(labelFor);
+		const free = answer.value?.trim();
+		if (free) chips.push(free);
+		return chips.length ? { kind: "chips", chips } : { kind: "empty" };
+	}
 	if (answer.valueJson && answer.valueJson.length) {
 		return { kind: "chips", chips: answer.valueJson.map(labelFor) };
 	}

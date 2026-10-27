@@ -17,6 +17,9 @@ import { useServerEvent } from "../../../lib/sse/use-events";
  * the coach; the server re-enforces tenant + ownership on every call.
  */
 export const Route = createFileRoute("/_protected/taken/$leerlingId")({
+	// The task to show, from a notification (INC-30).
+	validateSearch: (search: Record<string, unknown>): { taak?: string } =>
+		typeof search.taak === "string" ? { taak: search.taak } : {},
 	beforeLoad: ({ context }) => requireRole(context.me, { min: "coach", coaching: true }),
 	loader: ({ params, abortController }) =>
 		loadRouteData(abortController.signal, (signal) =>
@@ -29,6 +32,7 @@ function CoachTakenPage() {
 	const params = Route.useParams();
 	const router = useRouter();
 	const tasks = Route.useLoaderData();
+	const search = Route.useSearch();
 
 	const leerlingId = () => params().leerlingId;
 
@@ -76,7 +80,13 @@ function CoachTakenPage() {
 							/>
 						</Card>
 
-						<TaskBoard data={data()} leerlingId={leerlingId()} canManage={true} isCoach={true} />
+						<TaskBoard
+							data={data()}
+							leerlingId={leerlingId()}
+							canManage={true}
+							isCoach={true}
+							focusTaskId={search().taak}
+						/>
 					</>
 				)}
 			</RouteDataView>

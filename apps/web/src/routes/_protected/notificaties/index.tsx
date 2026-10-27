@@ -1,6 +1,10 @@
 import { createFileRoute, useNavigate, useRouter } from "@tanstack/solid-router";
 import { For, Show } from "solid-js";
 import { metaFor, relativeTime } from "../../../components/notifications";
+import {
+	opensSomething,
+	useOpenNotification,
+} from "../../../components/notifications/notification-target";
 import { Button } from "../../../components/ui/button";
 import { cn } from "../../../lib/cn";
 import { Card } from "../../../components/ui/card";
@@ -39,6 +43,8 @@ function NotificationsPage() {
 	const router = useRouter();
 	const navigate = useNavigate();
 	const search = Route.useSearch();
+	// INC-30: a notification opens what it is about (and is marked read).
+	const open = useOpenNotification();
 	const data = Route.useLoaderData();
 	const limit = () => search().limit ?? PAGE_SIZE;
 
@@ -55,20 +61,6 @@ function NotificationsPage() {
 		},
 		{ error: "Markeren lukte niet" },
 	);
-
-	// A chat notification deep-links to its conversation; opening it also marks
-	// it read (#3/#5).
-	const openNotification = (n: {
-		id: string;
-		read: boolean;
-		entityType: string | null;
-		entityId: string | null;
-	}) => {
-		if (!n.read) void markRead.run({ id: n.id });
-		if (n.entityType === "conversation" && n.entityId) {
-			void navigate({ to: "/chat", search: { conversationId: n.entityId } });
-		}
-	};
 
 	const markAllRead = createAction(
 		async () => {
@@ -166,25 +158,25 @@ function NotificationsPage() {
 								{(n) => {
 									const meta = metaFor(n.type);
 									const Icon = meta.icon;
-									const isChat = () =>
-										n.entityType === "conversation" && Boolean(n.entityId);
+									const opens = opensSomething(n);
 									return (
 										<li>
 											<Card
 												padding="sm"
 												class={cn("flex items-start gap-3", {
 													"border-primary/30 bg-primary-50/40": !n.read,
-													"cursor-pointer hover:border-primary": isChat(),
+													"cursor-pointer hover:border-primary": opens,
 												})}
-												{...(isChat()
+												{...(opens
 													? {
 															role: "button",
 															tabindex: 0,
-															onClick: () => openNotification(n),
+															onClick: () => void open.run(n.id),
 															onKeyDown: (e: KeyboardEvent) => {
+																if (e.target !== e.currentTarget) return;
 																if (e.key === "Enter" || e.key === " ") {
 																	e.preventDefault();
-																	openNotification(n);
+																	void open.run(n.id);
 																}
 															},
 														}

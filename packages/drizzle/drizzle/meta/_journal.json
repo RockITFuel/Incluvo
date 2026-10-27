@@ -141,6 +141,20 @@
       "when": 1791970885588,
       "tag": "0019_assigned_role",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1793112000803,
+      "tag": "0020_question_leerling_label",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1793113613130,
+      "tag": "0021_coachplan_history",
+      "breakpoints": true
     }
   ]
 }

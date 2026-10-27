@@ -1,0 +1,1 @@
+ALTER TABLE "form_question" ADD COLUMN "leerling_label" text;
