@@ -401,9 +401,10 @@ function CoachReview() {
 							{initials(leerlingName())}
 						</div>
 						<div>
-							<div style={{ "font-weight": "600", "font-size": "0.875rem" }}>
+							{/* The page's heading, for screen readers and the route announcer. */}
+							<h1 style={{ "font-weight": "600", "font-size": "0.875rem" }}>
 								Coachplan · {leerlingName()}
-							</div>
+							</h1>
 							<div style={{ "font-size": "0.75rem", color: "rgb(var(--muted))" }}>
 								{templateName()} · versie {sub().submission.version} ·
 								Bron: leerlingvragenlijst van{" "}
