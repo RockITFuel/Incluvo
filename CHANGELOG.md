@@ -76,7 +76,8 @@ Jira: INC-6, INC-25 t/m INC-28.
   - PDF, afbeelding, audio en video in de pagina; Word, PowerPoint en Excel
     als download (INC-27).
 - Voor de beheerder: `CLOUDFLARE_EMAIL_ACCOUNT_ID` en
-  `CLOUDFLARE_EMAIL_API_TOKEN` op de server-app (staan er al).
+  `CLOUDFLARE_EMAIL_API_TOKEN` moeten op de server-app staan (PR #16); zonder
+  die twee gaat de mail via SMTP.
 
 ## Release 14 oktober 2026
 
