@@ -37,6 +37,13 @@ import {
 	TemplateSchema,
 	TemplateWithQuestionsSchema,
 } from "../../coachplan/schema";
+import {
+	answerText,
+	cleanChoices,
+	lacksChoices,
+	leerlingWording,
+	optionalText,
+} from "../../coachplan/answers";
 import { leerlingCoachRecipients, notify } from "../../notifications";
 import { rateLimit } from "../../rate-limit";
 import { publishTo } from "../../sse";
@@ -124,6 +131,7 @@ function questionDto(row: typeof formQuestion.$inferSelect) {
 		section: row.section,
 		type: row.type,
 		label: row.label,
+		leerlingLabel: row.leerlingLabel,
 		helpText: row.helpText,
 		required: row.required,
 		position: row.position,
@@ -131,6 +139,11 @@ function questionDto(row: typeof formQuestion.$inferSelect) {
 		options: (row.options ?? null) as never,
 		visibleToLeerling: row.visibleToLeerling,
 	};
+}
+
+/** A question as the leerling reads it: their own wording when set (INC-31). */
+function leerlingQuestionDto(row: typeof formQuestion.$inferSelect) {
+	return leerlingWording(questionDto(row));
 }
 
 function submissionDto(row: typeof formSubmission.$inferSelect) {
@@ -380,9 +393,18 @@ const questionsCreate = protectedProcedure
 			section: FormSection.default("leerling"),
 			type: QuestionType.default("short_text"),
 			label: z.string().min(1),
+			leerlingLabel: z.string().nullable().optional(),
 			helpText: z.string().nullable().optional(),
 			required: z.boolean().default(false),
 			position: z.number().int().optional(),
+			/**
+			 * INC-34: insert before or after this question of the same form. The
+			 * new question takes its part (leerling/coach) and theme, so it also
+			 * lands there in the wizard; the others move up one place.
+			 */
+			anchor: z
+				.object({ questionId: z.string().uuid(), place: z.enum(["before", "after"]) })
+				.optional(),
 			// #18 — optional correspondence to a coach (POPP) question.
 			mapsToQuestionId: z.string().uuid().nullable().optional(),
 			options: QuestionOptions.optional(),
@@ -392,30 +414,58 @@ const questionsCreate = protectedProcedure
 	.output(QuestionSchema)
 	.handler(async ({ input, context }) => {
 		await assertCanManageTemplate(context, input.templateId);
-		// Append at end if no position given.
-		let position = input.position;
-		if (position === undefined) {
-			const existing = await context.db
-				.select({ position: formQuestion.position })
+		const row = await context.db.transaction(async (tx) => {
+			const existing = await tx
+				.select()
 				.from(formQuestion)
-				.where(eq(formQuestion.templateId, input.templateId));
-			position = existing.reduce((m, q) => Math.max(m, q.position + 1), 0);
-		}
-		const [row] = await context.db
-			.insert(formQuestion)
-			.values({
-				templateId: input.templateId,
-				section: input.section,
-				type: input.type,
-				label: input.label,
-				helpText: input.helpText ?? null,
-				required: input.required,
-				position,
-				mapsToQuestionId: input.mapsToQuestionId ?? null,
-				options: (input.options ?? null) as never,
-				visibleToLeerling: input.visibleToLeerling ?? true,
-			})
-			.returning();
+				.where(eq(formQuestion.templateId, input.templateId))
+				.orderBy(asc(formQuestion.position), asc(formQuestion.createdAt), asc(formQuestion.id));
+			let position = input.position;
+			let section = input.section;
+			let options = input.options;
+			if (input.anchor) {
+				const at = existing.findIndex((q) => q.id === input.anchor!.questionId);
+				const anchor = existing[at];
+				if (!anchor) throw new ORPCError("NOT_FOUND", { message: "Die vraag staat niet in dit formulier" });
+				section = anchor.section;
+				const theme = (anchor.options as { theme?: string } | null)?.theme;
+				if (theme && !options?.theme) options = { ...options, theme };
+				// Positions 0..n-1 in the current order, with a gap for the new one.
+				const index = input.anchor.place === "before" ? at : at + 1;
+				position = index;
+				for (const [i, q] of existing.entries()) {
+					const next = i < index ? i : i + 1;
+					if (q.position !== next) {
+						await tx
+							.update(formQuestion)
+							.set({ position: next })
+							.where(eq(formQuestion.id, q.id));
+					}
+				}
+			}
+			// Append at end if no position given.
+			if (position === undefined) {
+				position = existing.reduce((m, q) => Math.max(m, q.position + 1), 0);
+			}
+			const type = input.type;
+			const [inserted] = await tx
+				.insert(formQuestion)
+				.values({
+					templateId: input.templateId,
+					section,
+					type,
+					label: input.label,
+					leerlingLabel: optionalText(input.leerlingLabel) ?? null,
+					helpText: input.helpText ?? null,
+					required: input.required,
+					position,
+					mapsToQuestionId: input.mapsToQuestionId ?? null,
+					options: (cleanChoices(type, options) ?? null) as never,
+					visibleToLeerling: input.visibleToLeerling ?? true,
+				})
+				.returning();
+			return inserted;
+		});
 		if (!row) throw new ORPCError("INTERNAL_SERVER_ERROR");
 		publishTo(
 			{ type: "coachplan.template.changed", payload: { id: input.templateId } },
@@ -433,6 +483,8 @@ const questionsUpdate = protectedProcedure
 			section: FormSection.optional(),
 			type: QuestionType.optional(),
 			label: z.string().min(1).optional(),
+			// INC-31: null or empty removes the leerling wording.
+			leerlingLabel: z.string().nullable().optional(),
 			helpText: z.string().nullable().optional(),
 			required: z.boolean().optional(),
 			position: z.number().int().optional(),
@@ -450,12 +502,14 @@ const questionsUpdate = protectedProcedure
 			.where(eq(formQuestion.id, input.id));
 		if (!q) throw new ORPCError("NOT_FOUND");
 		await assertCanManageTemplate(context, q.templateId);
-		const { id, options, ...patch } = input;
+		const { id, options, leerlingLabel, ...patch } = input;
+		const cleaned = cleanChoices(input.type ?? q.type, options);
 		const [row] = await context.db
 			.update(formQuestion)
 			.set({
 				...patch,
-				...(options !== undefined ? { options: options as never } : {}),
+				...(leerlingLabel !== undefined ? { leerlingLabel: optionalText(leerlingLabel) } : {}),
+				...(cleaned !== undefined ? { options: cleaned as never } : {}),
 				updatedAt: new Date(),
 			})
 			.where(eq(formQuestion.id, id))
@@ -574,13 +628,20 @@ const templatesPublish = protectedProcedure
 		if (tpl.publishedAt) {
 			throw new ORPCError("CONFLICT", { message: "Deze versie is al gepubliceerd." });
 		}
-		const [question] = await context.db
-			.select({ id: formQuestion.id })
+		const questions = await context.db
+			.select()
 			.from(formQuestion)
 			.where(eq(formQuestion.templateId, tpl.id))
-			.limit(1);
-		if (!question) {
+			.orderBy(asc(formQuestion.position));
+		if (questions.length === 0) {
 			throw new ORPCError("BAD_REQUEST", { message: "Voeg eerst minstens één vraag toe." });
+		}
+		// INC-29 AC3: a choice question can't be filled in without options.
+		const unfinished = questions.find(lacksChoices);
+		if (unfinished) {
+			throw new ORPCError("BAD_REQUEST", {
+				message: `De vraag "${unfinished.label}" heeft nog geen twee antwoordopties.`,
+			});
 		}
 		const [row] = await context.db
 			.update(formTemplate)
@@ -764,7 +825,8 @@ const startMine = protectedProcedure
 
 		return {
 			submission: submissionDto(submission),
-			template: { ...templateDto(tpl), questions: questions.map(questionDto) },
+			// Only the leerling gets here: their wording (INC-31).
+			template: { ...templateDto(tpl), questions: questions.map(leerlingQuestionDto) },
 			answers: answers.map(answerDto),
 		};
 	});
@@ -1267,7 +1329,7 @@ async function buildOverview(
 	return {
 		submission: submissionDto(submission),
 		template: tpl ? templateDto(tpl) : null,
-		questions: shown.map(questionDto),
+		questions: shown.map(opts.forLeerling ? leerlingQuestionDto : questionDto),
 		answers: answers
 			.filter((a) => shownIds.has(a.questionId))
 			.filter((a) => opts.includeCoachPart || !coachQuestionIds.has(a.questionId))
@@ -1667,34 +1729,6 @@ const setApprovedWithParents = protectedProcedure
 // #20 — PDF of a submission (Playwright HTML → PDF)
 // ---------------------------------------------------------------------------
 
-/** Humanise an answer value for the PDF, resolving choice labels. */
-function renderAnswer(
-	answer: typeof formAnswer.$inferSelect | undefined,
-	question: typeof formQuestion.$inferSelect,
-): string | null {
-	if (!answer) return null;
-	if (answer.deliberatelySkipped) return null;
-	const opts = (question.options ?? null) as {
-		choices?: { value: string; label: string }[];
-	} | null;
-	const choiceLabel = (v: string) =>
-		opts?.choices?.find((c) => c.value === v)?.label ?? v;
-	const json = answer.valueJson as unknown;
-	if (Array.isArray(json)) {
-		return json.map((v) => choiceLabel(String(v))).join(", ");
-	}
-	if (answer.value) {
-		if (
-			question.type === "single_choice" ||
-			question.type === "leervoorkeur"
-		) {
-			return choiceLabel(answer.value);
-		}
-		return answer.value;
-	}
-	return null;
-}
-
 const generatePdf = protectedProcedure
 	.route({ method: "POST", path: "/coachplan/submissions/{id}/pdf", tags: ["coachplan"] })
 	.input(z.object({ id: z.string().uuid() }))
@@ -1740,10 +1774,11 @@ const generatePdf = protectedProcedure
 					.where(eq(formQuestion.templateId, tpl.id))
 					.orderBy(asc(formQuestion.position))
 			: [];
-		// The leerling's PDF leaves out what is hidden from them (INC-7).
+		// The leerling's PDF leaves out what is hidden from them (INC-7) and
+		// uses their wording (INC-31).
 		const questions =
 			actor.userId === sub.leerlingId
-				? allQuestions.filter((q) => !hiddenFromLeerling(q, sub))
+				? allQuestions.filter((q) => !hiddenFromLeerling(q, sub)).map(leerlingWording)
 				: allQuestions;
 		const answers = await context.db
 			.select()
@@ -1788,7 +1823,7 @@ const generatePdf = protectedProcedure
 				helpText: q.helpText,
 				theme: q.section === "coach" ? `Coach · ${theme ?? "Vragenlijst"}` : theme,
 				section: q.section,
-				answer: renderAnswer(a, q),
+				answer: answerText(a, q),
 				discussWithCoach: a?.discussWithCoach ?? false,
 				deliberatelySkipped: a?.deliberatelySkipped ?? false,
 			};

@@ -141,9 +141,20 @@ function CoachReview() {
 		return map;
 	};
 	const [coachAnswers, setCoachAnswers] = createStore<Record<string, string>>(untrack(savedAnswers));
+	// The chosen options of a multiple choice coach question (INC-29), kept
+	// here too: the next click builds on them before a reload.
+	const savedChoices = () => {
+		const map: Record<string, string[] | null> = {};
+		for (const a of sub().answers) map[a.questionId] = (a.valueJson as string[] | null) ?? null;
+		return map;
+	};
+	const [coachChoices, setCoachChoices] = createStore<Record<string, string[] | null>>(
+		untrack(savedChoices),
+	);
 	const [prefs, setPrefs] = createSignal<string[]>(untrack(() => sub().learningPreferences));
 	const reseed = () => {
 		setCoachAnswers(() => savedAnswers());
+		setCoachChoices(() => savedChoices());
 		setPrefs(sub().learningPreferences);
 	};
 
@@ -240,7 +251,7 @@ function CoachReview() {
 		steps().reduce((n, s) => {
 			if (s.kind === "leervoorkeuren") return n + (prefs().length ? 1 : 0);
 			const v = coachAnswers[s.q.id];
-			return n + (v && v.trim() ? 1 : 0);
+			return n + ((v && v.trim()) || coachChoices[s.q.id]?.length ? 1 : 0);
 		}, 0);
 
 	// The coach works on a handed-in version; a draft is still the leerling's,
@@ -310,6 +321,11 @@ function CoachReview() {
 		if (next.value !== undefined) {
 			setCoachAnswers((draft) => {
 				draft[questionId] = next.value ?? "";
+			});
+		}
+		if (next.valueJson !== undefined) {
+			setCoachChoices((draft) => {
+				draft[questionId] = next.valueJson ?? null;
 			});
 		}
 		client.coachplan
@@ -571,10 +587,7 @@ function CoachReview() {
 															question={s().q}
 															value={{
 																value: coachAnswers[s().q.id] ?? null,
-																valueJson:
-																	(answerFor(s().q.id)?.valueJson as
-																		| string[]
-																		| null) ?? null,
+																valueJson: coachChoices[s().q.id] ?? null,
 															}}
 															onChange={(next) => saveChoice(s().q.id, next)}
 														/>

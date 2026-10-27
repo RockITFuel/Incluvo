@@ -24,6 +24,7 @@ import {
 	signAssistantTurn,
 	verifyAssistantTurn,
 } from "../../ai/advice-safety";
+import { answerText } from "../../coachplan/answers";
 
 /**
  * AI-laag domain (Epic 7): #1 vertaling, #18 transcriptie → conceptantwoorden,
@@ -354,28 +355,12 @@ const MAX_ADVICE_TURNS = 20;
 /** Max chars of composed coachplan context we fold into the prompt (input cap). */
 const COACHPLAN_CONTEXT_CAP = 20_000;
 
-/** Humanise one answer for the AI context, resolving choice labels (mirrors the PDF renderer). */
+/** Humanise one answer for the AI context, resolving choice labels (as the PDF does). */
 function renderAnswerForContext(
 	answer: typeof formAnswer.$inferSelect | undefined,
 	question: typeof formQuestion.$inferSelect,
 ): string {
-	if (!answer) return "(niet ingevuld)";
-	const opts = (question.options ?? null) as {
-		choices?: { value: string; label: string }[];
-	} | null;
-	const choiceLabel = (v: string) =>
-		opts?.choices?.find((c) => c.value === v)?.label ?? v;
-	const json = answer.valueJson as unknown;
-	if (Array.isArray(json) && json.length > 0) {
-		return json.map((v) => choiceLabel(String(v))).join(", ");
-	}
-	if (answer.value?.trim()) {
-		if (question.type === "single_choice" || question.type === "leervoorkeur") {
-			return choiceLabel(answer.value);
-		}
-		return answer.value;
-	}
-	return "(niet ingevuld)";
+	return answerText(answer, question) ?? "(niet ingevuld)";
 }
 
 /**
