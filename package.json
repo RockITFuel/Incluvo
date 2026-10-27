@@ -36,7 +36,10 @@
 	"packageManager": "bun@1.2.21",
 	"overrides": {
 		"solid-js": "2.0.0-rc.9",
-		"@solidjs/web": "2.0.0-rc.9"
+		"@solidjs/web": "2.0.0-rc.9",
+		"@solidjs/signals": "2.0.0-rc.9",
+		"@solidjs/compiler": "2.0.0-rc.9",
+		"@solidjs/babel-plugin": "2.0.0-rc.9"
 	},
 	"patchedDependencies": {
 		"@kobalte/core@2.0.0-alpha.2": "patches/@kobalte%2Fcore@2.0.0-alpha.2.patch",
