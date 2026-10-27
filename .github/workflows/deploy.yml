@@ -161,7 +161,9 @@ jobs:
           DOKPLOY_APP_ID_SERVER: ${{ secrets.DOKPLOY_APP_ID_SERVER }}
           DOKPLOY_APP_ID_WEB: ${{ secrets.DOKPLOY_APP_ID_WEB }}
           APP_NAME: ${{ matrix.app.name }}
-          DOCKER_IMAGE: ${{ matrix.app.image }}:latest
+          # The commit tag, not :latest: Dokploy doesn't always pull a tag it
+          # already has, and then keeps running the old image (27-10-2026).
+          DOCKER_IMAGE: ${{ matrix.app.image }}:${{ github.sha }}
         run: |
           if [ "$APP_NAME" = "server" ]; then
             DOKPLOY_APP_ID="$DOKPLOY_APP_ID_SERVER"

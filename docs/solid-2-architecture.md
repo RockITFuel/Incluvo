@@ -12,11 +12,19 @@ versions and the libraries pin each other. Upgrade them together, never one.
 | Package | Version | Note |
 |---|---|---|
 | `solid-js`, `@solidjs/web` | 2.0.0-rc.9 | root `overrides` keeps one copy |
+| `@solidjs/signals`, `@solidjs/compiler`, `@solidjs/babel-plugin` | 2.0.0-rc.9 | root `overrides`: released together with `solid-js` rc.9 |
 | `@tanstack/solid-router` | 2.0.0-rc.8 | file routes via `@tanstack/router-plugin` |
 | `@kobalte/core` | 2.0.0-alpha.2 | patched, see `patches/` |
 | `@solidjs/vite-plugin` | 3.0.0-next.44 | needs Vite 8 |
 | `@solid-primitives/storage` | 5.0.0-next.4 | a11y settings |
 | `lucide` | 1.49.0 | vanilla geometry, drawn by `lib/icons.tsx` |
+
+`solid-js` and `@solidjs/vite-plugin` ask for `^2.0.0-rc.9` of signals and the
+compiler, which on a fresh install resolves to the newest RC. Those don't fit:
+signals rc.10+ dropped `DEV.setConsoleFooter` (dev build throws on load, a
+blank page), and compiler rc.10+ rejects the plugin's dev-only
+`componentNames` option. Production builds hid both. So they are pinned to the
+rc.9 set in `overrides`; bump them together with `solid-js`.
 
 `patches/` holds upstream fixes (from project-alpha), applied by Bun's
 `patchedDependencies`. Each patch explains itself in a comment.
