@@ -41,7 +41,10 @@ import { useServerEvent } from "../../../lib/sse/use-events";
 type CourseSearch = {
 	/** Which tab opens (back from the block editor: bouwen). */
 	tab?: "leren" | "bouwen" | "beoordelen";
-	/** The block to put the focus on (INC-26). */
+	/**
+	 * The block to put the focus on (INC-26), also from a notification (INC-30);
+	 * `voorstellen` is the list of proposed opdrachten.
+	 */
 	blok?: string;
 };
 
@@ -111,7 +114,8 @@ function CourseDetail() {
 			});
 		},
 	);
-	const [onlyRecommended, setOnlyRecommended] = createSignal(true);
+	// A block someone was sent to is shown, recommended or not.
+	const [onlyRecommended, setOnlyRecommended] = createSignal(() => !search().blok);
 	// The prototype's personal hide/show "oogje" on the progress strip (client-only;
 	// the coach's server-side progressBarHidden #24 stays a separate control below).
 	const [localHideProgress, setLocalHideProgress] = createSignal(false);
@@ -405,6 +409,7 @@ function CourseDetail() {
 																courseId={courseId()}
 																canComplete={canComplete()}
 																active={block.id === firstActiveId()}
+																focused={block.id === search().blok}
 																onToggleDone={async (completed) => {
 																	await client.courses.setProgress({
 																		id: block.id,
@@ -662,7 +667,7 @@ function ProposalsList(props: { proposals: Proposal[] }) {
 
 	return (
 		<Show when={props.proposals.length > 0}>
-			<Card class="flex flex-col gap-3">
+			<Card id="blok-voorstellen" tabindex="-1" class="flex flex-col gap-3">
 				<h2 class="font-head text-h3 text-ink">
 					<Lightbulb class="inline size-4" /> Eigen opdracht-voorstellen
 				</h2>

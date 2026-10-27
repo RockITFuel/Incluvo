@@ -17,6 +17,9 @@ import { useServerEvent } from "../../../lib/sse/use-events";
  * leerling to manage (the coach view lives at `/taken/$leerlingId`).
  */
 export const Route = createFileRoute("/_protected/taken/")({
+	// The task to show, from a notification (INC-30).
+	validateSearch: (search: Record<string, unknown>): { taak?: string } =>
+		typeof search.taak === "string" ? { taak: search.taak } : {},
 	loader: async ({ context, abortController }) => {
 		const signal = abortController.signal;
 		// A coach has no own task list but picks a leerling.
@@ -39,6 +42,7 @@ function TakenPage() {
 	const me = useMe();
 	const router = useRouter();
 	const data = Route.useLoaderData();
+	const search = Route.useSearch();
 	const [adding, setAdding] = createSignal(false);
 
 	useServerEvent("task.changed", () => void refresh(router, "tasks"));
@@ -78,6 +82,7 @@ function TakenPage() {
 									canManage={true}
 									adding={adding()}
 									onAddingChange={setAdding}
+									focusTaskId={search().taak}
 								/>
 							</Show>
 						)}

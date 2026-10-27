@@ -26,6 +26,8 @@ import { downloadPlanPdf } from "../../../lib/coachplan/pdf";
 import { client } from "../../../lib/orpc";
 import { refresh } from "../../../lib/refresh";
 import { granted, loadRouteData } from "../../../lib/route-data";
+import { useServerEvent } from "../../../lib/sse/use-events";
+import { AssignPlanDialog, PlanList } from "../../../components/coachplan/plan-history";
 
 /**
  * Full leerling profile (#44) — a 1:1 port of the approved "StudentProfile"
@@ -45,10 +47,12 @@ export const Route = createFileRoute("/_protected/dashboard/$leerlingId")({
 	loader: async ({ params, abortController }) => {
 		const signal = abortController.signal;
 		const leerlingId = params.leerlingId;
-		const [profile, week] = await Promise.all([
+		const [profile, week, plans] = await Promise.all([
 			loadRouteData(signal, (s) => client.dashboard.profile({ leerlingId }, { signal: s })),
 			// Shared moods of the last 7 days (server only returns opt-in rows).
 			loadRouteData(signal, (s) => client.mood.weekFor({ leerlingId }, { signal: s })),
+			// The actuele and earlier coachplannen (INC-33).
+			loadRouteData(signal, (s) => client.coachplan.plans({ leerlingId }, { signal: s })),
 		]);
 		// The real "afgestemd met ouders" flag lives on the coachplan submission.
 		const submissionId = granted(profile)?.plan.submissionId ?? null;
@@ -57,7 +61,7 @@ export const Route = createFileRoute("/_protected/dashboard/$leerlingId")({
 					client.coachplan.getSubmission({ id: submissionId }, { signal: s }),
 				)
 			: null;
-		return { profile, week, submission };
+		return { profile, week, plans, submission };
 	},
 	component: ProfilePage,
 });
@@ -126,6 +130,9 @@ function ProfilePage() {
 		{ error: "Opslaan lukte niet" },
 	);
 	const setApprovedWithParents = (approved: boolean) => void approve.run(approved);
+	const plans = () => granted(loaded().plans);
+	// Another coach of this leerling may start a new plan meanwhile.
+	useServerEvent("coachplan.assigned", () => void refresh(router, "coachplan"));
 
 	return (
 		<>
@@ -335,6 +342,41 @@ function ProfilePage() {
 										</Show>
 									</div>
 								</div>
+
+								{/* Coachplannen: actueel en eerder (INC-33) */}
+								<section class="card" aria-labelledby="coachplannen-kop">
+									<div class="card-head">
+										<h2 id="coachplannen-kop">Coachplannen</h2>
+										<Show when={plans()}>
+											{(p) => (
+												<AssignPlanDialog
+													leerlingId={data().leerling.id}
+													leerlingName={data().leerling.name}
+													actuele={p().plans.find((x) => x.actueel) ?? null}
+												/>
+											)}
+										</Show>
+									</div>
+									<RouteDataView
+										data={loaded().plans}
+										what="de coachplannen"
+										onRetry={() => void refresh(router, "coachplan")}
+									>
+										{(p) => (
+											<Show
+												when={p().plans.length > 0}
+												fallback={
+													<p style={{ "font-size": "0.8125rem", color: "rgb(var(--muted))" }}>
+														Nog geen coachplan. Wijs er een toe, of laat de leerling het
+														standaardformulier van de school invullen.
+													</p>
+												}
+											>
+												<PlanList plans={p().plans} />
+											</Show>
+										)}
+									</RouteDataView>
+								</section>
 
 								{/* Activiteit — derived from live signals */}
 								<div class="card">

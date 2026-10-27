@@ -13,6 +13,7 @@ import type { Component } from "solid-js";
 export type NotificationType =
 	| "coachplan_submitted"
 	| "coachplan_shared"
+	| "coachplan_assigned"
 	| "task_due_today"
 	| "task_new"
 	| "course_activity"
@@ -40,6 +41,11 @@ export const NOTIFICATION_META: Record<NotificationType, TypeMeta> = {
 	coachplan_shared: {
 		label: "Coachplan gedeeld",
 		icon: Send,
+		tone: "bg-primary-100 text-primary-700",
+	},
+	coachplan_assigned: {
+		label: "Nieuw coachplan",
+		icon: ClipboardCheck,
 		tone: "bg-primary-100 text-primary-700",
 	},
 	task_due_today: {
