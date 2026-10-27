@@ -9,7 +9,7 @@ import { Button } from "../ui/button";
 import { Card } from "../ui/card";
 import { Input, Textarea } from "../ui/text-field";
 import { toast } from "../ui/toast";
-import { FileLink } from "./file-link";
+import { FileView } from "./file-view";
 import { uploadFile } from "./upload";
 import type { BlockDTO } from "./block-view";
 import { ErrorState } from "../ui/error-state";
@@ -94,7 +94,7 @@ type Submission = {
 		id: string;
 		grade: string | null;
 		feedbackText: string | null;
-		feedbackMediaUrl: string | null;
+		feedbackMediaStorageKey: string | null;
 	} | null;
 };
 
@@ -162,9 +162,9 @@ function SubmissionRow(props: { submission: Submission; onSaved: () => void }) {
 				</p>
 			</Show>
 			<Show when={props.submission.fileStorageKeys.length > 0}>
-				<div class="mb-2 flex flex-wrap gap-2">
+				<div class="mb-2 flex flex-col gap-3">
 					<For each={props.submission.fileStorageKeys}>
-						{(k) => <FileLink storageKey={k} />}
+						{(k) => <FileView storageKey={k} title="Ingeleverd bestand" />}
 					</For>
 				</div>
 			</Show>

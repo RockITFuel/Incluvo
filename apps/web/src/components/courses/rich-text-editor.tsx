@@ -1,4 +1,7 @@
 import { Editor } from "@tiptap/core";
+import { TableKit } from "@tiptap/extension-table";
+import { TextAlign } from "@tiptap/extension-text-align";
+import { Color, TextStyle } from "@tiptap/extension-text-style";
 import { Youtube } from "@tiptap/extension-youtube";
 import { StarterKit } from "@tiptap/starter-kit";
 import type { JSX } from "@solidjs/web";
@@ -12,12 +15,18 @@ import {
 	Link as LinkIcon,
 	List,
 	ListOrdered,
+	Palette,
 	Quote,
 	Redo2,
+	Table as TableIcon,
+	TextAlignCenter,
+	TextAlignEnd,
+	TextAlignStart,
 	Underline,
 	Undo2,
 	Youtube as YoutubeIcon,
 } from "../../lib/icons";
+import { TEXT_COLORS } from "../../lib/text-colors";
 import { rememberLocalPreview, safeHref, youtubeId } from "../../lib/course-files";
 import { Button } from "../ui/button";
 import { Dialog } from "../ui/dialog";
@@ -91,6 +100,10 @@ export function RichTextEditor(props: {
 				}),
 				CourseImage,
 				Youtube.configure({ nocookie: true, controls: true, width: 640, height: 360 }),
+				TextAlign.configure({ types: ["heading", "paragraph"], alignments: ["left", "center", "right"] }),
+				TextStyle,
+				Color,
+				TableKit.configure({ table: { resizable: false } }),
 			],
 			content: initialContent,
 			editorProps: {
@@ -115,7 +128,8 @@ export function RichTextEditor(props: {
 		return () => instance.destroy();
 	});
 
-	// ── Dialogs for a link, an image and a video ────────────────────────────
+	// ── Dialogs for a link, an image, a video and a colour ──────────────────
+	const [colorOpen, setColorOpen] = createSignal(false);
 	const [linkOpen, setLinkOpen] = createSignal(false);
 	const [linkUrl, setLinkUrl] = createSignal("");
 	const [linkError, setLinkError] = createSignal<string | undefined>();
@@ -207,9 +221,9 @@ export function RichTextEditor(props: {
 		const ed = editor();
 		if (!ed) return [];
 		// Read `tick()` so each getter re-evaluates on selection/transaction.
-		const isActive = (name: string, attrs?: Record<string, unknown>) => {
+		const isActive = (name: string | Record<string, unknown>, attrs?: Record<string, unknown>) => {
 			tick();
-			return ed.isActive(name, attrs as never);
+			return typeof name === "string" ? ed.isActive(name, attrs as never) : ed.isActive(name as never);
 		};
 		const can = (check: () => boolean) => {
 			tick();
@@ -248,6 +262,31 @@ export function RichTextEditor(props: {
 				active: () => isActive("underline"),
 			},
 			{
+				label: "Tekstkleur",
+				icon: () => <Palette class="size-4" />,
+				run: () => setColorOpen(true),
+				active: () => isActive("textStyle"),
+			},
+			{
+				label: "Links uitlijnen",
+				icon: () => <TextAlignStart class="size-4" />,
+				run: () => ed.chain().focus().unsetTextAlign().run(),
+				active: () => !isActive({ textAlign: "center" } as never) && !isActive({ textAlign: "right" } as never),
+				group: true,
+			},
+			{
+				label: "Centreren",
+				icon: () => <TextAlignCenter class="size-4" />,
+				run: () => ed.chain().focus().setTextAlign("center").run(),
+				active: () => isActive({ textAlign: "center" } as never),
+			},
+			{
+				label: "Rechts uitlijnen",
+				icon: () => <TextAlignEnd class="size-4" />,
+				run: () => ed.chain().focus().setTextAlign("right").run(),
+				active: () => isActive({ textAlign: "right" } as never),
+			},
+			{
 				label: "Opsomming",
 				icon: () => <List class="size-4" />,
 				run: () => ed.chain().focus().toggleBulletList().run(),
@@ -282,6 +321,12 @@ export function RichTextEditor(props: {
 				label: "YouTube-video",
 				icon: () => <YoutubeIcon class="size-4" />,
 				run: openVideo,
+			},
+			{
+				label: "Tabel",
+				icon: () => <TableIcon class="size-4" />,
+				run: () => ed.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
+				active: () => isActive("table"),
 			},
 			{
 				label: "Ongedaan maken",
@@ -331,8 +376,60 @@ export function RichTextEditor(props: {
 						)}
 					</For>
 				</div>
+				{/* In a table: rows and columns (INC-25). */}
+				<Show when={(tick(), editor()?.isActive("table"))}>
+					<div class="flex flex-wrap items-center gap-1" role="toolbar" aria-label="Tabel">
+						<For
+							each={[
+								["Rij erbij", () => editor()?.chain().focus().addRowAfter().run()],
+								["Kolom erbij", () => editor()?.chain().focus().addColumnAfter().run()],
+								["Rij weg", () => editor()?.chain().focus().deleteRow().run()],
+								["Kolom weg", () => editor()?.chain().focus().deleteColumn().run()],
+								["Tabel weg", () => editor()?.chain().focus().deleteTable().run()],
+							] as const}
+						>
+							{([label, run]) => (
+								<Button size="sm" variant="ghost" onClick={() => run()}>
+									{label}
+								</Button>
+							)}
+						</For>
+					</div>
+				</Show>
 			</Show>
 			<div ref={(el) => (element = el)} />
+
+			<Dialog
+				open={colorOpen()}
+				onOpenChange={setColorOpen}
+				title="Tekstkleur"
+				description="Voor de geselecteerde tekst. Deze kleuren zijn goed leesbaar."
+			>
+				<div class="flex flex-wrap gap-2">
+					<Button
+						variant="ghost"
+						onClick={() => {
+							editor()?.chain().focus().unsetColor().run();
+							setColorOpen(false);
+						}}
+					>
+						Standaard
+					</Button>
+					<For each={TEXT_COLORS}>
+						{(c) => (
+							<Button
+								variant="ghost"
+								onClick={() => {
+									editor()?.chain().focus().setColor(c.value).run();
+									setColorOpen(false);
+								}}
+							>
+								<span class={["font-medium", c.class]}>{c.label}</span>
+							</Button>
+						)}
+					</For>
+				</div>
+			</Dialog>
 
 			<Dialog
 				open={linkOpen()}

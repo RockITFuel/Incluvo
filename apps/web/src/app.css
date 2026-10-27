@@ -247,3 +247,20 @@ h4 {
 .prose-incluvo .ProseMirror-selectednode {
 	@apply outline-2 outline-ring;
 }
+.prose-incluvo table {
+	@apply my-3 w-full border-collapse text-small;
+}
+.prose-incluvo th,
+.prose-incluvo td {
+	@apply border border-line px-3 py-2 align-top;
+}
+.prose-incluvo th {
+	@apply bg-bg-2 text-left font-medium;
+}
+.prose-incluvo td p,
+.prose-incluvo th p {
+	@apply mb-0;
+}
+.prose-incluvo .selectedCell {
+	@apply bg-primary-100;
+}
