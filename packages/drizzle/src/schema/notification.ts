@@ -23,6 +23,8 @@ import { organization } from "./organization";
 export const notificationType = pgEnum("notification_type", [
 	"coachplan_submitted",
 	"coachplan_shared",
+	// INC-33: a coach started a new plan for the leerling.
+	"coachplan_assigned",
 	"task_due_today",
 	"task_new",
 	"course_activity",

@@ -8,6 +8,11 @@
  * version the coach last shared: that is "the plan" for courses, dashboard
  * and AI. All status changes go through `transition`, which only succeeds
  * from an allowed status.
+ *
+ * INC-33: a coach can start a new plan (`startNewPlan`). It becomes the
+ * actuele plan; the plan it replaces stays, with all its versions, as history
+ * and can no longer change (`assertActueel`). "The leerling's plan" below
+ * always means the actuele plan.
  */
 import {
 	coachplan,
@@ -17,7 +22,7 @@ import {
 	learningPreferenceLabel,
 } from "@incluvo/drizzle/schema";
 import { ORPCError } from "@orpc/server";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, max, sql } from "drizzle-orm";
 import type { Database } from "@incluvo/drizzle";
 
 type Db = Pick<Database, "select" | "insert" | "update" | "delete">;
@@ -38,7 +43,17 @@ export const REVIEWABLE: readonly Status[] = ["submitted", "coach_review"];
 /** Shared with the leerling: read-only. `completed` is legacy. */
 export const SHARED: readonly Status[] = ["shared_with_leerling", "completed"];
 
-/** The leerling's coachplan, created on first use. */
+/** The leerling's actuele plan, or null before they have one. */
+export async function actuelePlan(db: Db, leerlingId: string): Promise<Coachplan | null> {
+	const [plan] = await db
+		.select()
+		.from(coachplan)
+		.where(and(eq(coachplan.leerlingId, leerlingId), isNull(coachplan.replacedAt)))
+		.limit(1);
+	return plan ?? null;
+}
+
+/** The leerling's actuele plan, created on first use. */
 export async function ensurePlan(
 	db: Db,
 	organizationId: string,
@@ -47,55 +62,79 @@ export async function ensurePlan(
 	await db
 		.insert(coachplan)
 		.values({ organizationId, leerlingId })
-		.onConflictDoNothing();
-	const [plan] = await db
-		.select()
-		.from(coachplan)
-		.where(and(eq(coachplan.organizationId, organizationId), eq(coachplan.leerlingId, leerlingId)));
+		.onConflictDoNothing({
+			target: [coachplan.organizationId, coachplan.leerlingId],
+			where: isNull(coachplan.replacedAt),
+		});
+	const plan = await actuelePlan(db, leerlingId);
 	if (!plan) throw new ORPCError("INTERNAL_SERVER_ERROR");
 	return plan;
 }
 
-/** The newest version of a leerling's plan, or null. */
+/** Versions of the actuele plan only. */
+const inActuelePlan = (leerlingId: string) =>
+	inArray(
+		formSubmission.coachplanId,
+		sql`(select ${coachplan.id} from ${coachplan} where ${coachplan.leerlingId} = ${leerlingId} and ${coachplan.replacedAt} is null)`,
+	);
+
+/** The newest version of the leerling's (actuele) plan, or null. */
 export async function latestVersion(db: Db, leerlingId: string): Promise<Submission | null> {
 	const [row] = await db
 		.select()
 		.from(formSubmission)
-		.where(eq(formSubmission.leerlingId, leerlingId))
+		.where(and(eq(formSubmission.leerlingId, leerlingId), inActuelePlan(leerlingId)))
 		.orderBy(desc(formSubmission.version))
 		.limit(1);
 	return row ?? null;
 }
 
-/** The version the coach last shared ("the plan"), or null. */
+/** The version the coach last shared of the actuele plan, or null. */
 export async function currentVersion(db: Db, leerlingId: string): Promise<Submission | null> {
 	const [row] = await db
 		.select({ submission: formSubmission })
 		.from(coachplan)
 		.innerJoin(formSubmission, eq(formSubmission.id, coachplan.currentVersionId))
-		.where(eq(coachplan.leerlingId, leerlingId))
+		.where(and(eq(coachplan.leerlingId, leerlingId), isNull(coachplan.replacedAt)))
 		.limit(1);
 	return row?.submission ?? null;
 }
 
 /**
- * The version to show a coach for this leerling: the newest one the leerling
- * has handed in (so a revision still being drafted doesn't hide the plan),
- * else the newest draft.
+ * The version to show a coach for this leerling: the newest one of the
+ * actuele plan the leerling has handed in (so a revision still being drafted
+ * doesn't hide the plan), else the newest draft.
  */
 export async function versionForCoach(db: Db, leerlingId: string): Promise<Submission | null> {
 	const [handedIn] = await db
 		.select()
 		.from(formSubmission)
-		.where(and(eq(formSubmission.leerlingId, leerlingId), sql`${formSubmission.status} <> 'draft'`))
+		.where(
+			and(
+				eq(formSubmission.leerlingId, leerlingId),
+				inActuelePlan(leerlingId),
+				sql`${formSubmission.status} <> 'draft'`,
+			),
+		)
 		.orderBy(desc(formSubmission.version))
 		.limit(1);
 	return handedIn ?? (await latestVersion(db, leerlingId));
 }
 
-/** Leervoorkeuren of the current (shared) plan; [] before the first share. */
+/**
+ * Leervoorkeuren of the plan the coach shared last; [] before the first share.
+ * A new plan that hasn't been shared yet doesn't empty the leeromgeving: until
+ * then the labels of the previous plan apply.
+ */
 export async function currentLeervoorkeuren(db: Db, leerlingId: string): Promise<string[]> {
-	const current = await currentVersion(db, leerlingId);
+	const [row] = await db
+		.select({ submission: formSubmission })
+		.from(coachplan)
+		.innerJoin(formSubmission, eq(formSubmission.id, coachplan.currentVersionId))
+		.where(and(eq(coachplan.leerlingId, leerlingId), isNotNull(coachplan.currentVersionId)))
+		.orderBy(desc(coachplan.createdAt))
+		.limit(1);
+	const current = row?.submission;
 	if (!current) return [];
 	const rows = await db
 		.select({ label: learningPreferenceLabel.label })
@@ -119,7 +158,10 @@ export async function createVersion(
 	templateId: string,
 	copyFrom?: Submission,
 ): Promise<Submission> {
-	const latest = await latestVersion(db, plan.leerlingId);
+	const [latest] = await db
+		.select({ version: max(formSubmission.version) })
+		.from(formSubmission)
+		.where(eq(formSubmission.coachplanId, plan.id));
 	const [created] = await db
 		.insert(formSubmission)
 		.values({
@@ -135,7 +177,12 @@ export async function createVersion(
 		.returning();
 	if (!created) {
 		// Another request created this version number first (two tabs).
-		const now = await latestVersion(db, plan.leerlingId);
+		const [now] = await db
+			.select()
+			.from(formSubmission)
+			.where(eq(formSubmission.coachplanId, plan.id))
+			.orderBy(desc(formSubmission.version))
+			.limit(1);
 		if (now?.status === "draft") return now;
 		throw new ORPCError("CONFLICT", { message: "Probeer het opnieuw" });
 	}
@@ -218,11 +265,22 @@ export async function transition(
 	const [row] = await db
 		.update(formSubmission)
 		.set({ status: to, updatedAt: new Date(), ...extra })
-		.where(and(eq(formSubmission.id, submissionId), inArray(formSubmission.status, [...from])))
+		.where(
+			and(
+				eq(formSubmission.id, submissionId),
+				inArray(formSubmission.status, [...from]),
+				// A replaced plan stays as it was (INC-33).
+				inArray(
+					formSubmission.coachplanId,
+					sql`(select ${coachplan.id} from ${coachplan} where ${coachplan.replacedAt} is null)`,
+				),
+			),
+		)
 		.returning();
 	if (!row) {
 		const [now] = await db.select().from(formSubmission).where(eq(formSubmission.id, submissionId));
 		if (!now) throw new ORPCError("NOT_FOUND");
+		await assertActueel(db, now);
 		assertStatus(now, from);
 		throw new ORPCError("CONFLICT");
 	}
@@ -233,4 +291,81 @@ export async function transition(
 			.where(eq(coachplan.id, row.coachplanId));
 	}
 	return row;
+}
+
+/** Someone else (or a second click) started a new plan first. */
+const alreadyAssigned = () =>
+	new ORPCError("CONFLICT", {
+		message: "Er is net al een nieuw coachplan toegewezen. Bekijk de plannen opnieuw.",
+	});
+
+const REPLACED_MESSAGE =
+	"Dit is een eerder coachplan. Er is een nieuw plan voor in de plaats gekomen, dus dit plan kan niet meer veranderen.";
+
+/** CONFLICT when the version belongs to a plan that a newer plan replaced. */
+export async function assertActueel(db: Db, sub: Pick<Submission, "coachplanId">): Promise<void> {
+	const [plan] = await db
+		.select({ replacedAt: coachplan.replacedAt })
+		.from(coachplan)
+		.where(eq(coachplan.id, sub.coachplanId));
+	if (plan?.replacedAt) throw new ORPCError("CONFLICT", { message: REPLACED_MESSAGE });
+}
+
+/**
+ * INC-33: start a new, empty plan for the leerling on `templateId`; it becomes
+ * the actuele plan. `replacesPlanId` is the actuele plan the coach saw (null
+ * when the leerling had none): if that is no longer the actuele plan — a
+ * second click, another tab, the other coach — nothing changes (CONFLICT), so
+ * one choice never makes two plans. Run it in a transaction: the replaced
+ * plan and the new one commit together or not at all.
+ */
+export async function startNewPlan(
+	db: Db,
+	input: {
+		organizationId: string;
+		leerlingId: string;
+		templateId: string;
+		assignedById: string;
+		replacesPlanId: string | null;
+	},
+): Promise<{ plan: Coachplan; version: Submission }> {
+	if (input.replacesPlanId) {
+		// An answer being saved on the old plan finishes first; one that comes
+		// after sees the plan replaced and is refused (saveAnswer locks too).
+		await db
+			.select({ id: formSubmission.id })
+			.from(formSubmission)
+			.where(eq(formSubmission.coachplanId, input.replacesPlanId))
+			.for("update");
+		// Row lock: a concurrent assignment waits here, then finds the plan
+		// already replaced.
+		const [replaced] = await db
+			.update(coachplan)
+			.set({ replacedAt: new Date(), updatedAt: new Date() })
+			.where(
+				and(
+					eq(coachplan.id, input.replacesPlanId),
+					eq(coachplan.leerlingId, input.leerlingId),
+					isNull(coachplan.replacedAt),
+				),
+			)
+			.returning({ id: coachplan.id });
+		if (!replaced) throw alreadyAssigned();
+	}
+	const [plan] = await db
+		.insert(coachplan)
+		.values({
+			organizationId: input.organizationId,
+			leerlingId: input.leerlingId,
+			assignedById: input.assignedById,
+		})
+		.onConflictDoNothing({
+			target: [coachplan.organizationId, coachplan.leerlingId],
+			where: isNull(coachplan.replacedAt),
+		})
+		.returning();
+	// The leerling already has an actuele plan the coach didn't see.
+	if (!plan) throw alreadyAssigned();
+	const version = await createVersion(db, plan, input.templateId);
+	return { plan, version };
 }

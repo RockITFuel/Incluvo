@@ -2043,7 +2043,8 @@ const listSubmissions = protectedProcedure
 						id: z.string(),
 						grade: z.string().nullable(),
 						feedbackText: z.string().nullable(),
-						feedbackMediaUrl: z.string().nullable(),
+						/** Spoken/video feedback, read through `getFile` like any file (INC-27). */
+						feedbackMediaStorageKey: z.string().nullable(),
 						createdAt: z.date(),
 					})
 					.nullable(),
@@ -2092,9 +2093,7 @@ const listSubmissions = protectedProcedure
 							id: g.id,
 							grade: g.grade,
 							feedbackText: g.feedbackText,
-							feedbackMediaUrl: g.feedbackMediaStorageKey
-								? publicUrl(g.feedbackMediaStorageKey)
-								: null,
+							feedbackMediaStorageKey: g.feedbackMediaStorageKey,
 							createdAt: g.createdAt,
 						}
 					: null,

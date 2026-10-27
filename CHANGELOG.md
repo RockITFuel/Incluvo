@@ -1,5 +1,84 @@
 # Changelog
 
+## Release 28 oktober 2026
+
+Sinds de release van 22 oktober. Jira: INC-25, INC-27 (vervolg), INC-29 t/m
+INC-34.
+
+### Formulieren
+
+- **Vraag tussenvoegen (INC-34).** Bij elke vraag in een concept staan
+  *+ Vraag ervoor* en *+ Vraag erna*. De nieuwe vraag komt in hetzelfde
+  onderdeel en thema als de vraag ernaast.
+- **Aparte vraagstelling voor de leerling (INC-31).** Per vraag kan een
+  eenvoudigere formulering voor de leerling worden ingevuld. De leerling ziet
+  die in de vragenlijst, het overzicht, Mijn plan en de eigen pdf; de coach,
+  de pdf van de coach en het AI-advies houden de gewone vraagstelling. Zonder
+  leerlingvraag ziet de leerling de gewone.
+- **Meerkeuzevragen (INC-29).** Eén type *Meerkeuze* met drie varianten: één
+  optie, meerdere opties, of meerdere opties met een vrij veld (bijvoorbeeld een
+  eigen vak). Opties toevoegen, wijzigen, verplaatsen en verwijderen.
+  Publiceren kan pas als elke meerkeuzevraag minstens twee opties heeft.
+- **Voorbeeld bekijken (INC-32).** Vanuit een formulier een voorbeeld als coach
+  of als leerling, om het uit te proberen; er wordt niets opgeslagen.
+
+### Coachplan
+
+- **Nieuw coachplan toewijzen (INC-33).** Op de pagina van een leerling start
+  de coach een nieuw plan op een gepubliceerd formulier van de school. Het
+  nieuwe plan wordt het actuele plan; eerdere plannen blijven met alle
+  antwoorden te lezen, voor de coach bij de leerling en voor de leerling onder
+  *Eerdere plannen*. De leerling krijgt een melding.
+
+### Meldingen
+
+- **Een melding opent waar hij over gaat (INC-30):** het coachplan, de taak,
+  de beoordeelde opdracht, een voorstel voor een opdracht of de chat. Bestaat
+  het onderdeel niet meer of heeft de gebruiker er geen toegang meer toe, dan
+  verschijnt dat in een melding en blijft de pagina staan.
+
+### Cursussen
+
+- **Uitlijnen, tekstkleur en tabellen in de teksteditor (INC-25).** Kleuren
+  uit een vaste lijst die goed leesbaar is.
+- **Ingeleverde bestanden en feedback van de coach in de pagina (INC-27)**,
+  zoals een bestand-blok. Gesproken of video-feedback van de coach speelde op
+  productie niet af; dat is opgelost.
+
+### Toegankelijkheid
+
+- De coachplanpagina van de coach heeft een paginakop (`h1`).
+
+### Voor de beheerder
+
+- **Migratie 0020:** kolom `form_question.leerling_label` (leeg).
+- **Migratie 0021:** meldingstype `coachplan_assigned`; op `coachplan` de
+  kolommen `replaced_at` en `assigned_by_id`, en "één plan per leerling" wordt
+  "één actueel plan per leerling". Bestaande plannen worden het actuele plan;
+  geen andere wijziging aan bestaande gegevens.
+- Geen nieuwe omgevingsvariabelen.
+
+## Release 22 oktober 2026
+
+Jira: INC-6, INC-25 t/m INC-28.
+
+- **De web-app draait op Solid 2** met route loaders (PR #17). Gebruikers
+  merken weinig; pagina's laden hun gegevens nu via de router.
+- **Uitnodigingsmails komen aan (INC-6).** Versturen via SMTP mislukte ongeveer
+  de helft van de keren door een fout in de runtime (Bun 1.2.21); de mail gaat
+  nu via de Cloudflare-API.
+- **Formulieren: een vraag typen houdt de focus vast (INC-28).**
+- **Cursusbouwer:**
+  - een teksteditor met opmaak, links, afbeeldingen en video voor pagina's en
+    opdrachtomschrijvingen (INC-25);
+  - toevoegen en bewerken op een volledig scherm, met een knop *Bewerken* bij
+    elk blok (INC-26);
+  - PDF, afbeelding, audio en video in de pagina; Word, PowerPoint en Excel
+    als download (INC-27).
+- Voor de beheerder: `CLOUDFLARE_EMAIL_ACCOUNT_ID` en
+  `CLOUDFLARE_EMAIL_API_TOKEN` moeten op de server-app staan (PR #16); zonder
+  die twee gaat de mail via SMTP.
+
 ## Release 14 oktober 2026
 
 Alles wat er sinds de vorige release (woensdag 7 oktober 2026, PR #12) bij is gekomen.

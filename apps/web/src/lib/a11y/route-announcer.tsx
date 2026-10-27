@@ -51,6 +51,10 @@ export function RouteAnnouncer() {
 		heading?.textContent?.replace(/\s+/g, " ").trim();
 
 	const focus = (heading: HTMLElement) => {
+		// A page that put the focus on what a link pointed at (`?taak=`,
+		// `?blok=`, `?plan=` from a notification) keeps it there.
+		const active = document.activeElement;
+		if (active?.closest("main") && !active.matches("h1")) return;
 		if (!heading.hasAttribute("tabindex")) heading.setAttribute("tabindex", "-1");
 		heading.focus({ preventScroll: true });
 	};

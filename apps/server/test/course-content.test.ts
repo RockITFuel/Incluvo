@@ -64,6 +64,18 @@ describe("formatted texts (INC-25)", () => {
 			),
 		).toBe("Stap 1\nLees het hoofdstuk.\n- Maak de vragen");
 		expect(richTextToPlain("Gewoon tekst")).toBe("Gewoon tekst");
+		const cell = (type: string, text: string) => ({ type, content: [para(text)] });
+		expect(
+			richTextToPlain(
+				doc({
+					type: "table",
+					content: [
+						{ type: "tableRow", content: [cell("tableHeader", "Dag"), cell("tableHeader", "Taak")] },
+						{ type: "tableRow", content: [cell("tableCell", "Ma"), cell("tableCell", "Lezen")] },
+					],
+				}),
+			),
+		).toBe("Dag | Taak\nMa | Lezen");
 
 		const { coach, leerling, sectionId } = await leerlingCourse();
 		await coach.client.courses.addBlock({

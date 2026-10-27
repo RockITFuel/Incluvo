@@ -1,5 +1,6 @@
 import {
 	coachAssignment,
+	coachplan,
 	contentBlock,
 	contentProgress,
 	conversation,
@@ -12,7 +13,7 @@ import {
 	user,
 } from "@incluvo/drizzle/schema";
 import { policies, sameTenant } from "@incluvo/permissions";
-import { and, count, desc, eq, inArray, max, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNull, max, sql } from "drizzle-orm";
 import { z } from "zod";
 import { currentLeervoorkeuren, versionForCoach } from "../../coachplan/lifecycle";
 import { reachableLeerlingen, requireLeerlingAccess } from "../../access";
@@ -449,12 +450,18 @@ async function overviewData(context: AuthedContext, leerlingIds: string[]) {
 		return { plans, tasks, courseTouched, conversations };
 	}
 
-	// Plan: newest handed-in version, else the newest draft.
-	const subs = await context.db
-		.select()
-		.from(formSubmission)
-		.where(inArray(formSubmission.leerlingId, leerlingIds))
-		.orderBy(desc(formSubmission.version));
+	// Plan: newest handed-in version of the actuele plan, else the newest draft.
+	const subs = (
+		await context.db
+			.select({ submission: formSubmission })
+			.from(formSubmission)
+			.innerJoin(
+				coachplan,
+				and(eq(coachplan.id, formSubmission.coachplanId), isNull(coachplan.replacedAt)),
+			)
+			.where(inArray(formSubmission.leerlingId, leerlingIds))
+			.orderBy(desc(formSubmission.version))
+	).map((r) => r.submission);
 	const chosen = new Map<string, typeof formSubmission.$inferSelect>();
 	for (const sub of subs) {
 		const current = chosen.get(sub.leerlingId);
