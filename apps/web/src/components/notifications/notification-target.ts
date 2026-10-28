@@ -42,6 +42,8 @@ export function targetRoute(target: NotificationTarget): NavigateOptions | null 
 			};
 		case "chat":
 			return { to: "/chat", search: { conversationId: target.conversationId } };
+		case "coach_koppelen":
+			return { to: "/leerlingen", search: { koppel: target.leerlingId } };
 		default:
 			return null;
 	}

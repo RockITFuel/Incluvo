@@ -10,6 +10,8 @@ import { Switch } from "../../../../components/ui/switch";
 import { Input } from "../../../../components/ui/text-field";
 import { toast } from "../../../../components/ui/toast";
 import { createAction } from "../../../../lib/action";
+import { createAnswerSaver } from "../../../../lib/coachplan/answer-saver";
+import { friendlyError } from "../../../../lib/errors";
 import { ChevronDown, ChevronUp, Eye, Trash2 } from "../../../../lib/icons";
 import { requireRole } from "../../../../lib/auth/role-guard";
 import { useMe } from "../../../../lib/auth/use-me";
@@ -124,6 +126,7 @@ function FormManager() {
 
 	const makeNewVersion = createAction(
 		async (id: string) => {
+			if (!(await questionSaver.flush())) return;
 			const tpl = await client.coachplan.templates.newVersion({ id });
 			toast({
 				title: `Concept versie ${tpl.version} gemaakt`,
@@ -139,6 +142,7 @@ function FormManager() {
 	// INC-7: a concept becomes usable (and frozen) once published.
 	const publish = createAction(
 		async (id: string) => {
+			if (!(await questionSaver.flush())) return;
 			const tpl = await client.coachplan.templates.publish({ id });
 			toast({
 				title: `Versie ${tpl.version} gepubliceerd`,
@@ -189,13 +193,19 @@ function FormManager() {
 		{ error: "Toevoegen lukte niet" },
 	);
 
-	const updateQuestion = createAction(
-		async (qid: string, patch: Record<string, unknown>) => {
+	// One shared createAction dropped a save while another was running, so a
+	// quick second edit (wording, options, type) was silently lost. The ordered
+	// saver keeps one request per question in flight and merges the rest. A
+	// refused change is reported and dropped, not retried: resent with every
+	// later edit, it would block the question.
+	const questionSaver = createAnswerSaver(async (qid, patch) => {
+		try {
 			await client.coachplan.questions.update({ id: qid, ...patch });
-			await reload();
-		},
-		{ error: "Opslaan lukte niet" },
-	);
+		} catch (error) {
+			toast({ title: "Opslaan lukte niet", description: friendlyError(error), tone: "danger" });
+		}
+		await reload();
+	});
 
 	const removeQuestion = createAction(
 		async (qid: string) => {
@@ -337,7 +347,7 @@ function FormManager() {
 										onDiscard={() => void discard.run(tpl().id)}
 										onPublish={() => void publish.run(tpl().id)}
 										onNewVersion={() => void makeNewVersion.run(tpl().id)}
-										onUpdate={(qid, patch) => void updateQuestion.run(qid, patch)}
+										onUpdate={(qid, patch) => questionSaver.save(qid, patch)}
 										onRemove={(qid) => void removeQuestion.run(qid)}
 									/>
 								)}

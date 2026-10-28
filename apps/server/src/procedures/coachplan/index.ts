@@ -40,6 +40,7 @@ import {
 } from "../../coachplan/schema";
 import {
 	answerText,
+	checkChoiceAnswer,
 	cleanChoices,
 	lacksChoices,
 	leerlingWording,
@@ -1006,6 +1007,8 @@ const saveAnswer = protectedProcedure
 				templateId: formQuestion.templateId,
 				section: formQuestion.section,
 				mapsToQuestionId: formQuestion.mapsToQuestionId,
+				type: formQuestion.type,
+				options: formQuestion.options,
 			})
 			.from(formQuestion)
 			.where(eq(formQuestion.id, input.questionId));
@@ -1020,6 +1023,7 @@ const saveAnswer = protectedProcedure
 				message: "Deze vraag is voor de coach",
 			});
 		}
+		if (input.deliberatelySkipped !== true) checkChoiceAnswer(q, input.value, input.valueJson);
 
 		// Skipped and answered exclude each other (INC-22): a skip clears the answer,
 		// so no screen shows "Overgeslagen" for a question that has text.
@@ -1585,13 +1589,19 @@ const saveCoachAnswer = protectedProcedure
 		const sub = await loadReviewable(context, input.submissionId, REVIEWABLE);
 		// Must be a coach-section question of this plan's own template.
 		const [q] = await context.db
-			.select({ section: formQuestion.section, templateId: formQuestion.templateId })
+			.select({
+				section: formQuestion.section,
+				templateId: formQuestion.templateId,
+				type: formQuestion.type,
+				options: formQuestion.options,
+			})
 			.from(formQuestion)
 			.where(eq(formQuestion.id, input.questionId));
 		if (!q || q.templateId !== sub.templateId) throw new ORPCError("NOT_FOUND");
 		if (q.section !== "coach") {
 			throw new ORPCError("BAD_REQUEST", { message: "Geen coachvraag" });
 		}
+		checkChoiceAnswer(q, input.value, input.valueJson);
 		// Atomic: the review-state flip + the coach-answer upsert commit together (H2).
 		const { saved: row, started } = await context.db.transaction(async (tx) => {
 			const started = await startReview(tx, sub, context.actor.userId);

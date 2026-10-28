@@ -412,4 +412,70 @@ describe("INC-30: a notification opens what it is about", () => {
 		// Someone else's notification can't be opened at all.
 		await expectForbidden(() => leerling2.client.notifications.open({ id: stale.id }));
 	});
+
+	test("AC6: a keyuser told about a leerling without a coach goes to linking a coach", async () => {
+		const [sub] = await db
+			.select({ id: formSubmission.id, organizationId: formSubmission.organizationId })
+			.from(formSubmission)
+			.where(eq(formSubmission.leerlingId, leerling2.id))
+			.limit(1);
+		const keyuser = await asUser("keyuser");
+		const n = await notify(db, {
+			userId: keyuser.id,
+			organizationId: sub!.organizationId,
+			type: "coachplan_submitted",
+			title: "Nieuw coachplan ontvangen",
+			entity: { type: "form_submission", id: sub!.id },
+		});
+		// Not the plan itself: a keyuser doesn't read it.
+		expect((await keyuser.client.notifications.open({ id: n.id })).target).toEqual({
+			kind: "coach_koppelen",
+			leerlingId: leerling2.id,
+		});
+
+		// A keyuser of another school gets nothing about this leerling.
+		const other = await asUser("andereKeyuser");
+		const foreign = await notify(db, {
+			userId: other.id,
+			organizationId: sub!.organizationId,
+			type: "coachplan_submitted",
+			title: "Nieuw coachplan ontvangen",
+			entity: { type: "form_submission", id: sub!.id },
+		});
+		const res = await other.client.notifications.open({ id: foreign.id });
+		expect(res.target.kind).toBe("unavailable");
+		expect(JSON.stringify(res)).not.toContain(leerling2.id);
+	});
+
+	test("a coach working as keyuser is told to switch roles, not that the plan is gone", async () => {
+		const [sub] = await db
+			.select({ id: formSubmission.id, organizationId: formSubmission.organizationId })
+			.from(formSubmission)
+			.where(eq(formSubmission.leerlingId, leerling2.id))
+			.limit(1);
+		const keyuser = await asUser("keyuser");
+		const n = await notify(db, {
+			userId: coach2.id,
+			organizationId: sub!.organizationId,
+			type: "coachplan_submitted",
+			title: "Nieuw coachplan ontvangen",
+			entity: { type: "form_submission", id: sub!.id },
+		});
+		await keyuser.client.account.users.setRoles({ userId: coach2.id, roles: ["coach", "keyuser"] });
+		try {
+			await coach2.client.account.switchRole({ role: "keyuser" });
+			expect((await coach2.client.notifications.open({ id: n.id })).target).toEqual({
+				kind: "unavailable",
+				message: "Wissel naar je rol als coach om dit te openen.",
+			});
+			await coach2.client.account.switchRole({ role: "coach" });
+			expect((await coach2.client.notifications.open({ id: n.id })).target).toEqual({
+				kind: "coachplan",
+				submissionId: sub!.id,
+			});
+		} finally {
+			await coach2.client.account.switchRole({ role: "coach" });
+			await keyuser.client.account.users.setRoles({ userId: coach2.id, roles: ["coach"] });
+		}
+	});
 });

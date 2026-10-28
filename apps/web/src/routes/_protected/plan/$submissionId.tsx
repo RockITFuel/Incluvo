@@ -24,6 +24,7 @@ import { toast } from "../../../components/ui/toast";
 import { useServerEvent } from "../../../lib/sse/use-events";
 import { requireRole } from "../../../lib/auth/role-guard";
 import { client } from "../../../lib/orpc";
+import { createAnswerSaver } from "../../../lib/coachplan/answer-saver";
 import { friendlyError } from "../../../lib/errors";
 import { refresh as refreshRoutes } from "../../../lib/refresh";
 import { granted, loadRouteData } from "../../../lib/route-data";
@@ -303,13 +304,8 @@ function CoachReview() {
 					submissionId: id(),
 					labels: prefs(),
 				});
-			} else {
-				const val = coachAnswers[s.q.id] ?? "";
-				await client.coachplan.saveCoachAnswer({
-					submissionId: id(),
-					questionId: s.q.id,
-					value: val,
-				});
+			} else if (!(await coachSaver.flush())) {
+				throw new Error("Niet alles is opgeslagen");
 			}
 			toast({ title: "Tussentijds opgeslagen", tone: "success" });
 			void refresh();
@@ -318,7 +314,17 @@ function CoachReview() {
 		}
 	};
 
-	// Autosave a non-text coach question (registry input) via saveCoachAnswer.
+	// Ordered autosave, as in the leerling wizard (INC-1): every keystroke saves,
+	// and sent independently an older save could land after a newer one and
+	// overwrite it.
+	const coachSaver = createAnswerSaver(
+		async (questionId, patch) => {
+			await client.coachplan.saveCoachAnswer({ submissionId: id(), questionId, ...patch });
+		},
+		() => toast({ title: "Opslaan lukte niet", tone: "danger" }),
+	);
+
+	// Autosave a non-text coach question (registry input).
 	const saveChoice = (questionId: string, next: { value?: string | null; valueJson?: string[] | null }) => {
 		if (readOnly()) return;
 		const first = status() === "submitted";
@@ -333,17 +339,16 @@ function CoachReview() {
 				draft[questionId] = next.valueJson ?? null;
 			});
 		}
-		client.coachplan
-			.saveCoachAnswer({
-				submissionId: id(),
-				questionId,
+		coachSaver.save(
+			questionId,
+			{
 				value: next.value ?? null,
-				valueJson: next.valueJson ?? undefined,
-			})
-			.then(() => {
+				...(next.valueJson != null ? { valueJson: next.valueJson } : {}),
+			},
+			() => {
 				if (first) void refresh();
-			})
-			.catch(() => toast({ title: "Opslaan lukte niet", tone: "danger" }));
+			},
+		);
 	};
 
 	const toggleParents = async (on: boolean) => {
@@ -360,6 +365,10 @@ function CoachReview() {
 
 	const share = async () => {
 		if (readOnly()) return;
+		if (!(await coachSaver.flush())) {
+			toast({ title: "Nog niet alles is opgeslagen", description: "Probeer het opnieuw.", tone: "danger" });
+			return;
+		}
 		try {
 			await client.coachplan.shareWithLeerling({ submissionId: id() });
 			toast({ title: "Aangeboden aan leerling", tone: "success" });
@@ -587,6 +596,7 @@ function CoachReview() {
 																setCoachAnswers((draft) => {
 																	draft[s().q.id] = value;
 																});
+																coachSaver.save(s().q.id, { value });
 															}}
 														/>
 													</Match>

@@ -1,4 +1,4 @@
-import { createFileRoute, useRouter } from "@tanstack/solid-router";
+import { createFileRoute, useNavigate, useRouter } from "@tanstack/solid-router";
 import { Search, UserPlus } from "../../../lib/icons";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { dutchDate, personId } from "../../../components/people/format";
@@ -20,6 +20,10 @@ import { granted, loadRouteData } from "../../../lib/route-data";
  * school, with "Leerling toevoegen" (INC-15) and who coaches them (INC-18).
  */
 export const Route = createFileRoute("/_protected/leerlingen/")({
+	// `?koppel=<leerlingId>` opens "Coach koppelen" for that leerling: where a
+	// notification about a leerling without a coach leads (INC-30).
+	validateSearch: (search: Record<string, unknown>): { koppel?: string } =>
+		typeof search.koppel === "string" ? { koppel: search.koppel } : {},
 	beforeLoad: ({ context }) => requireRole(context.me, { min: "keyuser", only: ["keyuser"] }),
 	loader: async ({ abortController }) => ({
 		leerlingen: await loadRouteData(abortController.signal, (s) =>
@@ -39,7 +43,15 @@ function LeerlingenPage() {
 	const data = Route.useLoaderData();
 	const all = () => granted(data().leerlingen) ?? [];
 	const [adding, setAdding] = createSignal(false);
-	const [koppel, setKoppel] = createSignal<Row | null>(null);
+	const urlSearch = Route.useSearch();
+	const navigate = useNavigate();
+	const [picked, setPicked] = createSignal<Row | null>(null);
+	const koppel = () =>
+		picked() ?? (urlSearch().koppel ? (all().find((r) => r.id === urlSearch().koppel) ?? null) : null);
+	const setKoppel = (row: Row | null) => {
+		setPicked(row);
+		if (!row && urlSearch().koppel) void navigate({ to: "/leerlingen", search: {}, replace: true });
+	};
 	const [search, setSearch] = createSignal("");
 	// Back to the first page whenever the search changes.
 	const [page, setPage] = createSignal(() => (search(), 1));
