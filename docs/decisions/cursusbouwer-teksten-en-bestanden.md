@@ -21,6 +21,11 @@ Besluit 22-10-2026. Gebouwd op Solid 2 (PR #17).
   (`lib/text-colors.ts`; de weergave neemt alleen die waarden over) en
   tabellen met een kopregel (rijen en kolommen erbij of weg). Een brede tabel
   scrolt in zijn eigen vak, niet de hele pagina.
+- INC-36 (28-10-2026): rij erboven of eronder, kolom links of rechts. Een tabel
+  houdt altijd de kopregel, minstens één gegevensrij en één kolom; knoppen die
+  dat zouden breken zijn uitgeschakeld. Een geplakte kleur blijft alleen als
+  die in de lijst staat (`AllowedColor`); de kleurkeuze toont per kleur een
+  voorbeeld en een naam, en welke kleur actief is.
 - Plakken uit Word of Google Docs: alleen wat het schema kent blijft
   (koppen, vet, cursief, onderstrepen, lijsten, links). Afbeeldingen van
   elders vallen weg.
@@ -60,5 +65,13 @@ Besluit 22-10-2026. Gebouwd op Solid 2 (PR #17).
 - Op een telefoon of tablet geen ingebedde PDF, maar *Openen* en
   *Downloaden*.
 - Ook voor bestanden bij een ingeleverde opdracht en voor gesproken of
-  video-feedback van de coach (antwoord in INC-27). De feedback ging eerder
+  video-feedback van de coach (antwoord in INC-27; INC-37). Naast de download
+  staan naam, type en grootte (`getFile` geeft `size`). De alt-tekst is
+  standaard de bestandsnaam.
+- Een link naar een bestand is 5 minuten geldig. Faalt een afbeelding of speler
+  op een verlopen link, dan haalt de weergave één keer een nieuwe op en speelt
+  verder waar hij was; lukt dat niet, dan een melding met *Opnieuw proberen*.
+- Een net geüpload bestand in de blok-editor wordt uit het geheugen getoond tot
+  het blok is opgeslagen (de server geeft alleen bestanden van een opgeslagen
+  blok vrij). De feedback ging eerder
   als `publicUrl` naar de browser; nu via `getFile`, met de toegangscheck.

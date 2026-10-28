@@ -222,6 +222,8 @@ describe("showing files (INC-27)", () => {
 		const shown = await builder.client.courses.getFile({ storageKey });
 		expect(shown.contentType).toBe("image/png");
 		expect(shown.fileName).toBe("uitleg.png");
+		// The size is shown next to a download (INC-37).
+		expect(shown.size).toBe(Buffer.from(PNG, "base64").byteLength);
 		expect(shown.url.startsWith("data:image/png")).toBe(true);
 		const download = await builder.client.courses.getFile({ storageKey, download: true });
 		expect(download.url.length).toBeGreaterThan(0);

@@ -26,7 +26,7 @@ import {
 	Undo2,
 	Youtube as YoutubeIcon,
 } from "../../lib/icons";
-import { TEXT_COLORS } from "../../lib/text-colors";
+import { TEXT_COLORS, textColor } from "../../lib/text-colors";
 import { rememberLocalPreview, safeHref, youtubeId } from "../../lib/course-files";
 import { Button } from "../ui/button";
 import { Dialog } from "../ui/dialog";
@@ -34,6 +34,46 @@ import { Input } from "../ui/text-field";
 import { toast } from "../ui/toast";
 import { CourseImage } from "./tiptap-image";
 import { uploadFile } from "./upload";
+
+/**
+ * Text colour, but only the colours of the list (INC-36 AC8): a colour pasted
+ * from Word or a website is dropped, so it can't end up in a saved text.
+ */
+const AllowedColor = Color.extend({
+	addGlobalAttributes() {
+		return [
+			{
+				types: this.options.types,
+				attributes: {
+					color: {
+						default: null,
+						parseHTML: (element: HTMLElement) => {
+							const value = element.style.color?.replace(/['"]+/g, "");
+							return textColor(value) ? value : null;
+						},
+						renderHTML: (attributes: { color?: string | null }) =>
+							attributes.color ? { style: `color: ${attributes.color}` } : {},
+					},
+				},
+			},
+		];
+	},
+});
+
+/** Where the cursor is in a table: which row, and how big the table is. */
+function tableAt(ed: Editor) {
+	const { $from } = ed.state.selection;
+	for (let depth = $from.depth; depth > 0; depth--) {
+		const node = $from.node(depth);
+		if (node.type.name !== "table") continue;
+		const row = $from.index(depth);
+		const isHeader = (i: number) => node.child(i).firstChild?.type.name === "tableHeader";
+		let dataRows = 0;
+		for (let i = 0; i < node.childCount; i++) if (!isHeader(i)) dataRows++;
+		return { inHeader: isHeader(row), dataRows, columns: node.firstChild?.childCount ?? 0 };
+	}
+	return null;
+}
 
 /**
  * The text editor of the course builder (INC-25): pages and opdracht
@@ -102,7 +142,7 @@ export function RichTextEditor(props: {
 				Youtube.configure({ nocookie: true, controls: true, width: 640, height: 360 }),
 				TextAlign.configure({ types: ["heading", "paragraph"], alignments: ["left", "center", "right"] }),
 				TextStyle,
-				Color,
+				AllowedColor,
 				TableKit.configure({ table: { resizable: false } }),
 			],
 			content: initialContent,
@@ -130,6 +170,11 @@ export function RichTextEditor(props: {
 
 	// ── Dialogs for a link, an image, a video and a colour ──────────────────
 	const [colorOpen, setColorOpen] = createSignal(false);
+	/** The colour of the text at the cursor, if it is one of the list. */
+	const currentColor = () => {
+		tick();
+		return textColor(editor()?.getAttributes("textStyle").color);
+	};
 	const [linkOpen, setLinkOpen] = createSignal(false);
 	const [linkUrl, setLinkUrl] = createSignal("");
 	const [linkError, setLinkError] = createSignal<string | undefined>();
@@ -263,9 +308,18 @@ export function RichTextEditor(props: {
 			},
 			{
 				label: "Tekstkleur",
-				icon: () => <Palette class="size-4" />,
+				icon: () => (
+					<span class="flex flex-col items-center gap-0.5">
+						<Palette class="size-4" />
+						<span
+							class="h-0.5 w-4 rounded-pill"
+							style={{ background: currentColor()?.value ?? "transparent" }}
+							aria-hidden="true"
+						/>
+					</span>
+				),
 				run: () => setColorOpen(true),
-				active: () => isActive("textStyle"),
+				active: () => (tick(), currentColor() !== undefined),
 			},
 			{
 				label: "Links uitlijnen",
@@ -376,25 +430,30 @@ export function RichTextEditor(props: {
 						)}
 					</For>
 				</div>
-				{/* In a table: rows and columns (INC-25). */}
-				<Show when={(tick(), editor()?.isActive("table"))}>
-					<div class="flex flex-wrap items-center gap-1" role="toolbar" aria-label="Tabel">
-						<For
-							each={[
-								["Rij erbij", () => editor()?.chain().focus().addRowAfter().run()],
-								["Kolom erbij", () => editor()?.chain().focus().addColumnAfter().run()],
-								["Rij weg", () => editor()?.chain().focus().deleteRow().run()],
-								["Kolom weg", () => editor()?.chain().focus().deleteColumn().run()],
-								["Tabel weg", () => editor()?.chain().focus().deleteTable().run()],
-							] as const}
-						>
-							{([label, run]) => (
-								<Button size="sm" variant="ghost" onClick={() => run()}>
-									{label}
-								</Button>
-							)}
-						</For>
-					</div>
+				{/* In a table: rows and columns (INC-36). A table keeps its header
+				    row, at least one data row and at least one column. */}
+				<Show when={(tick(), editor() && tableAt(editor()!))}>
+					{(t) => (
+						<div class="flex flex-wrap items-center gap-1" role="toolbar" aria-label="Tabel">
+							<For
+								each={[
+									{ label: "Rij erboven", run: () => editor()?.chain().focus().addRowBefore().run(), off: () => t().inHeader },
+									{ label: "Rij eronder", run: () => editor()?.chain().focus().addRowAfter().run(), off: () => false },
+									{ label: "Kolom links", run: () => editor()?.chain().focus().addColumnBefore().run(), off: () => false },
+									{ label: "Kolom rechts", run: () => editor()?.chain().focus().addColumnAfter().run(), off: () => false },
+									{ label: "Rij weg", run: () => editor()?.chain().focus().deleteRow().run(), off: () => t().inHeader || t().dataRows <= 1 },
+									{ label: "Kolom weg", run: () => editor()?.chain().focus().deleteColumn().run(), off: () => t().columns <= 1 },
+									{ label: "Tabel weg", run: () => editor()?.chain().focus().deleteTable().run(), off: () => false },
+								]}
+							>
+								{(b) => (
+									<Button size="sm" variant="ghost" disabled={b.off()} onClick={() => b.run()}>
+										{b.label}
+									</Button>
+								)}
+							</For>
+						</div>
+					)}
 				</Show>
 			</Show>
 			<div ref={(el) => (element = el)} />
@@ -405,25 +464,31 @@ export function RichTextEditor(props: {
 				title="Tekstkleur"
 				description="Voor de geselecteerde tekst. Deze kleuren zijn goed leesbaar."
 			>
-				<div class="flex flex-wrap gap-2">
+				<div class="flex flex-wrap gap-2" role="group" aria-label="Kleuren">
 					<Button
 						variant="ghost"
+						aria-pressed={currentColor() === undefined ? "true" : "false"}
+						class={{ "border-primary bg-primary-50": currentColor() === undefined }}
 						onClick={() => {
 							editor()?.chain().focus().unsetColor().run();
 							setColorOpen(false);
 						}}
 					>
+						<span class="size-4 rounded-pill border border-line bg-ink" aria-hidden="true" />
 						Standaard
 					</Button>
 					<For each={TEXT_COLORS}>
 						{(c) => (
 							<Button
 								variant="ghost"
+								aria-pressed={currentColor()?.value === c.value ? "true" : "false"}
+								class={{ "border-primary bg-primary-50": currentColor()?.value === c.value }}
 								onClick={() => {
 									editor()?.chain().focus().setColor(c.value).run();
 									setColorOpen(false);
 								}}
 							>
+								<span class="size-4 rounded-pill" style={{ background: c.value }} aria-hidden="true" />
 								<span class={["font-medium", c.class]}>{c.label}</span>
 							</Button>
 						)}

@@ -8,6 +8,7 @@ import { toast } from "../ui/toast";
 import type { BlockDTO } from "./block-view";
 import { FileView } from "./file-view";
 import { RichTextEditor } from "./rich-text-editor";
+import { rememberLocalPreview } from "../../lib/course-files";
 import { uploadFile } from "./upload";
 
 export type BlockType = "pagina" | "youtube" | "bestand" | "opdracht";
@@ -90,7 +91,11 @@ export function BlockEditor(props: {
 	const upload = async (file: File) => {
 		setUploading(true);
 		try {
-			set("fileStorageKey", await uploadFile(file, "bestand"));
+			const key = await uploadFile(file, "bestand");
+			// Shown from memory until the block is saved (the server only hands
+			// out files a saved block refers to).
+			rememberLocalPreview(key, file);
+			set("fileStorageKey", key);
 			toast({ title: "Bestand geüpload", tone: "success" });
 		} catch (err) {
 			toast({ title: "Upload mislukt", description: (err as Error).message, tone: "danger" });

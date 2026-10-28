@@ -7,17 +7,32 @@ import { client } from "./orpc";
  * reused for a little while.
  */
 
-export type StoredFile = { url: string; contentType: string; fileName: string };
+export type StoredFile = {
+	url: string;
+	contentType: string;
+	fileName: string;
+	/** Bytes; null when unknown (INC-37). */
+	size: number | null;
+};
 
 const FRESH_MS = 4 * 60_000;
 const cache = new Map<string, { at: number; file: Promise<StoredFile> }>();
 
-/** Images just uploaded in the editor, shown from memory until the text is saved. */
-const localPreviews = new Map<string, string>();
+/**
+ * Files just uploaded in the editor (an image in a text, a file block), shown
+ * from memory until the block is saved: before that, the server doesn't hand
+ * them out, since no block refers to them yet.
+ */
+const localPreviews = new Map<string, StoredFile>();
 
-export function rememberLocalPreview(storageKey: string, file: Blob): string {
+export function rememberLocalPreview(storageKey: string, file: File | Blob): string {
 	const url = URL.createObjectURL(file);
-	localPreviews.set(storageKey, url);
+	localPreviews.set(storageKey, {
+		url,
+		contentType: file.type || "application/octet-stream",
+		fileName: file instanceof File ? file.name : storageKey,
+		size: file.size,
+	});
 	return url;
 }
 
@@ -32,13 +47,15 @@ async function toBrowserUrl(url: string): Promise<string> {
 }
 
 /** The file to show inline. */
-export function viewFile(storageKey: string): Promise<StoredFile> {
+export function viewFile(
+	storageKey: string,
+	/** Skip the cache: the link in use has expired (INC-37 AC6). */
+	options: { fresh?: boolean } = {},
+): Promise<StoredFile> {
 	const local = localPreviews.get(storageKey);
-	if (local) {
-		return Promise.resolve({ url: local, contentType: "image/*", fileName: storageKey });
-	}
+	if (local) return Promise.resolve(local);
 	const hit = cache.get(storageKey);
-	if (hit && Date.now() - hit.at < FRESH_MS) return hit.file;
+	if (hit && !options.fresh && Date.now() - hit.at < FRESH_MS) return hit.file;
 	const file = client.courses
 		.getFile({ storageKey })
 		.then(async (f) => ({ ...f, url: await toBrowserUrl(f.url) }));
@@ -49,8 +66,9 @@ export function viewFile(storageKey: string): Promise<StoredFile> {
 
 /** A fresh link that makes the browser save the file. */
 export async function downloadFile(storageKey: string): Promise<void> {
-	const f = await client.courses.getFile({ storageKey, download: true });
-	const url = await toBrowserUrl(f.url);
+	const local = localPreviews.get(storageKey);
+	const f = local ?? (await client.courses.getFile({ storageKey, download: true }));
+	const url = local ? local.url : await toBrowserUrl(f.url);
 	const a = document.createElement("a");
 	a.href = url;
 	a.download = f.fileName;
@@ -65,8 +83,8 @@ export async function openFile(storageKey: string): Promise<void> {
 	// Open the tab inside the click, so it isn't blocked as a pop-up.
 	const tab = window.open("", "_blank");
 	try {
-		const f = await client.courses.getFile({ storageKey });
-		const url = await toBrowserUrl(f.url);
+		const local = localPreviews.get(storageKey);
+		const url = local ? local.url : await toBrowserUrl((await client.courses.getFile({ storageKey })).url);
 		if (tab) {
 			tab.opener = null;
 			tab.location.href = url;
@@ -94,3 +112,12 @@ export function youtubeId(src: unknown): string | null {
 }
 
 export const youtubeEmbed = (id: string) => `https://www.youtube-nocookie.com/embed/${id}`;
+
+/** "1,2 MB", for next to a download (INC-37). */
+export function formatSize(bytes: number | null | undefined): string | null {
+	if (bytes === null || bytes === undefined) return null;
+	if (bytes < 1024) return `${bytes} B`;
+	const kb = bytes / 1024;
+	if (kb < 1024) return `${Math.round(kb)} kB`;
+	return `${(kb / 1024).toLocaleString("nl-NL", { maximumFractionDigits: 1 })} MB`;
+}

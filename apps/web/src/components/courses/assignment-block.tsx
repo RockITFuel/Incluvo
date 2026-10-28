@@ -163,7 +163,7 @@ export function AssignmentBlock(props: {
 								<Show when={s.fileStorageKeys.length > 0}>
 									<div class="mt-2 flex flex-col gap-3">
 										<For each={s.fileStorageKeys}>
-											{(k) => <FileView storageKey={k} title="Ingeleverd bestand" />}
+											{(k) => <FileView storageKey={k} />}
 										</For>
 									</div>
 								</Show>
