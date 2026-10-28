@@ -14,6 +14,8 @@ import { createMemo, createSignal, createStore, flush, For, Match, Show, Switch,
 import { AssistantPanel } from "../../../components/ai/assistant-panel";
 import { TranscriptionPanel } from "../../../components/ai/transcription-panel";
 import {
+	isAnswered,
+	openRequired,
 	QuestionInput,
 	type QuestionDTO,
 	renderAnswerText,
@@ -363,10 +365,28 @@ function CoachReview() {
 		}
 	};
 
+	// INC-38: required coach questions still open when "Aanbieden" was tried.
+	const [missing, setMissing] = createSignal<string[]>([]);
+	const coachAnswerOf = (q: QuestionDTO) => ({ value: coachAnswers[q.id], valueJson: coachChoices[q.id] });
+	const openCoachRequired = () => openRequired(coachQ(), coachAnswerOf);
+	// Shrinks as the coach answers them.
+	const stillMissing = () =>
+		coachQ().filter((q) => missing().includes(q.id) && !isAnswered(q, coachAnswerOf(q)));
+	const goToQuestion = (questionId: string) => {
+		const idx = steps().findIndex((s) => s.kind === "question" && s.q.id === questionId);
+		if (idx >= 0) setStep(idx);
+	};
+
 	const share = async () => {
 		if (readOnly()) return;
 		if (!(await coachSaver.flush())) {
 			toast({ title: "Nog niet alles is opgeslagen", description: "Probeer het opnieuw.", tone: "danger" });
+			return;
+		}
+		const open = openCoachRequired();
+		setMissing(open.map((q) => q.id));
+		if (open.length > 0) {
+			goToQuestion(open[0]!.id);
 			return;
 		}
 		try {
@@ -376,6 +396,12 @@ function CoachReview() {
 			// waiting for the coach.
 			void refresh();
 		} catch (err) {
+			// The server found an open required question the page didn't know of.
+			const ids = (err as { data?: { questionIds?: string[] } } | null)?.data?.questionIds;
+			if (ids?.length) {
+				setMissing(ids);
+				goToQuestion(ids[0]!);
+			}
 			toast({
 				title: "Aanbieden lukte niet",
 				description: friendlyError(err),
@@ -460,6 +486,29 @@ function CoachReview() {
 							of kiest in het coachgedeelte, staan ze vast.
 						</div>
 					</Show>
+					{/* INC-38: what still needs an answer before the plan can be offered. */}
+					<Show when={editable() && stillMissing().length > 0}>
+						<div class="card" role="alert" style={{ "margin-bottom": "14px" }}>
+							<p style={{ "font-weight": "600" }}>
+								Beantwoord eerst{" "}
+								{stillMissing().length === 1
+									? "de verplichte vraag"
+									: `de ${stillMissing().length} verplichte vragen`}{" "}
+								voordat je het plan aanbiedt:
+							</p>
+							<ul style={{ "margin-top": "6px", "padding-left": "18px", "list-style": "disc" }}>
+								<For each={stillMissing()}>
+									{(q) => (
+										<li>
+											<button type="button" class="btn ghost sm" onClick={() => goToQuestion(q.id)}>
+												{q.label}
+											</button>
+										</li>
+									)}
+								</For>
+							</ul>
+						</div>
+					</Show>
 
 				<div class="ds-grid-main">
 					{/* LEFT — wizard */}
@@ -513,6 +562,12 @@ function CoachReview() {
 													}}
 												>
 													{s().q.label}
+													<Show when={s().q.required}>
+														{" "}
+														<span class="chip accent" style={{ "vertical-align": "middle" }}>
+															Verplicht
+														</span>
+													</Show>
 												</h2>
 												<Show when={s().q.helpText}>
 													<p

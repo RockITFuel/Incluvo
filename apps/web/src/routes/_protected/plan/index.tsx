@@ -12,6 +12,8 @@ import {
 import { formLabel, type Plan, planDate } from "../../../components/coachplan/plan-history";
 import {
 	type AnswerValue,
+	isAnswered,
+	openRequired,
 	QuestionInput,
 	type QuestionDTO,
 	renderAnswerText,
@@ -409,6 +411,9 @@ function PlanWizard(props: {
 	const locked = () => Boolean(props.locked) || refused();
 	const [submitted, setSubmitted] = createSignal(false);
 	const [submissionId, setSubmissionId] = createSignal<string | null>(null);
+	// INC-38: required questions still open when "Verzenden" was tried; the
+	// list shrinks as they get an answer.
+	const [missing, setMissing] = createSignal<string[]>([]);
 
 	// Local answer cache, keyed by questionId.
 	const [answers, setAnswers] = createStore<Record<string, AnswerValue>>({});
@@ -600,12 +605,18 @@ function PlanWizard(props: {
 		if (!sub) return;
 		// Hand in only what is actually saved.
 		if (!(await saveAll())) return;
+		const open = openRequired(leerlingQuestions(), (q) => answers[q.id]);
+		setMissing(open.map((q) => q.id));
+		if (open.length > 0) return;
 		try {
 			await client.coachplan.submit({ submissionId: sub });
 			setSubmitted(true);
 			toast({ title: "Mooi gedaan! Verstuurd naar je coach", tone: "success" });
 			props.onSubmitted();
 		} catch (err) {
+			// The server found an open required question this page didn't know of.
+			const ids = (err as { data?: { questionIds?: string[] } } | null)?.data?.questionIds;
+			if (ids?.length) setMissing(ids);
 			toast({
 				title: "Versturen lukte niet",
 				description: friendlyError(err),
@@ -716,6 +727,9 @@ function PlanWizard(props: {
 											Stap {step() + 1} van {total()}
 										</Badge>
 										{/* Bij terugkeren toont de stap zelf de eerdere keuze. */}
+										<Show when={q().required}>
+											<Badge variant="accent">Verplicht</Badge>
+										</Show>
 										<Show when={flagFor(q().id).deliberatelySkipped}>
 											<Badge variant="warning">Overgeslagen</Badge>
 										</Show>
@@ -791,9 +805,12 @@ function PlanWizard(props: {
 										← Terug
 									</Button>
 									<div class="flex flex-wrap gap-2">
-										<Button variant="ghost" onClick={() => skip(q())}>
-											Sla over
-										</Button>
+										{/* A required question can't be skipped (INC-38 AC4). */}
+										<Show when={!q().required}>
+											<Button variant="ghost" onClick={() => skip(q())}>
+												Sla over
+											</Button>
+										</Show>
 										<Button size="lg" onClick={next}>
 											{step() === total() - 1
 												? "Klaar — overzicht"
@@ -821,6 +838,9 @@ function PlanWizard(props: {
 							if (locked() || (await saveAll())) props.onDone?.();
 						}}
 						onSaveAnswer={saveAnswerNow}
+						missing={leerlingQuestions().filter(
+							(q) => missing().includes(q.id) && !isAnswered(q, answers[q.id]),
+						)}
 					/>
 				</Show>
 			</Show>
@@ -871,6 +891,8 @@ function Overview(props: {
 	onDone?: () => void;
 	/** Save one answer while editing a handed-in plan; resolves false when it wasn't saved. */
 	onSaveAnswer?: (q: QuestionDTO, draft: Draft) => Promise<boolean>;
+	/** Required questions without an answer, after "Verzenden" was tried (INC-38). */
+	missing?: QuestionDTO[];
 }) {
 	const themes = createMemo(() => {
 		const order: string[] = [];
@@ -955,7 +977,13 @@ function Overview(props: {
 								{(q) => (
 									<div class="border-line-2 border-b pb-3.5 last:border-b-0">
 										<div class="flex items-start justify-between gap-3">
-											<p class="flex-1 font-medium text-ink-2">{q.label}</p>
+											<p class="flex-1 font-medium text-ink-2">
+												{q.label}
+												<Show when={q.required}>
+													{" "}
+													<Badge variant="accent">Verplicht</Badge>
+												</Show>
+											</p>
 											<Show when={!props.locked && !drafts[q.id]}>
 												<Button
 													size="sm"
@@ -997,6 +1025,7 @@ function Overview(props: {
 														}
 														label="Dit wil ik graag bespreken met mijn coach"
 													/>
+													<Show when={!q.required}>
 													<Switch
 														checked={d().deliberatelySkipped}
 														onChange={(on) =>
@@ -1010,6 +1039,12 @@ function Overview(props: {
 														}
 														label="Deze vraag sla ik bewust over"
 													/>
+													</Show>
+													<Show when={q.required && !isAnswered(q, d().value)}>
+														<p class="text-small text-ink-2" role="status">
+															Deze vraag is verplicht. Vul een antwoord in om op te slaan.
+														</p>
+													</Show>
 													<Show when={props.locked}>
 														<p class="text-small text-ink-2" role="alert">
 															Niet opgeslagen. Je ziet je tekst hier nog, zodat je hem kunt
@@ -1021,7 +1056,10 @@ function Overview(props: {
 															Annuleren
 														</Button>
 														<Show when={!props.locked}>
-															<Button disabled={saving() === q.id} onClick={() => void save(q)}>
+															<Button
+																disabled={saving() === q.id || (q.required && !isAnswered(q, d().value))}
+																onClick={() => void save(q)}
+															>
 																{saving() === q.id ? "Opslaan…" : "Opslaan"}
 															</Button>
 														</Show>
@@ -1062,6 +1100,30 @@ function Overview(props: {
 				>
 					<p class="text-body text-ink-2">Wil je ze opslaan voordat je teruggaat naar Mijn plan?</p>
 				</Dialog>
+			</Show>
+			<Show when={!props.editing && (props.missing?.length ?? 0) > 0}>
+				<Card role="alert" class="border-warning bg-warning-100/40">
+					<h3 class="font-head text-h3 text-ink">
+						{props.missing!.length === 1
+							? "Er is nog 1 verplichte vraag"
+							: `Er zijn nog ${props.missing!.length} verplichte vragen`}
+					</h3>
+					<p class="mt-1 text-body text-ink-2">
+						Beantwoord {props.missing!.length === 1 ? "deze vraag" : "deze vragen"} voordat je je
+						plan verstuurt.
+					</p>
+					<ul class="mt-3 flex flex-col gap-1.5">
+						<For each={props.missing}>
+							{(q) => (
+								<li>
+									<Button size="sm" variant="ghost" onClick={() => props.onEdit(q)}>
+										{q.label}
+									</Button>
+								</li>
+							)}
+						</For>
+					</ul>
+				</Card>
 			</Show>
 			<Show when={!props.editing}>
 				<Card class="flex items-center justify-between gap-4 border-primary bg-primary text-primary-fg">

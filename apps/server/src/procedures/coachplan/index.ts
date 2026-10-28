@@ -44,7 +44,9 @@ import {
 	cleanChoices,
 	lacksChoices,
 	leerlingWording,
+	openRequired,
 	optionalText,
+	requiredOpenError,
 } from "../../coachplan/answers";
 import { leerlingCoachRecipients, notify } from "../../notifications";
 import { rateLimit } from "../../rate-limit";
@@ -1009,6 +1011,7 @@ const saveAnswer = protectedProcedure
 				mapsToQuestionId: formQuestion.mapsToQuestionId,
 				type: formQuestion.type,
 				options: formQuestion.options,
+				required: formQuestion.required,
 			})
 			.from(formQuestion)
 			.where(eq(formQuestion.id, input.questionId));
@@ -1024,6 +1027,10 @@ const saveAnswer = protectedProcedure
 			});
 		}
 		if (input.deliberatelySkipped !== true) checkChoiceAnswer(q, input.value, input.valueJson);
+		// INC-38 AC4: a required question can't be skipped.
+		if (input.deliberatelySkipped === true && q.required) {
+			throw new ORPCError("BAD_REQUEST", { message: "Deze vraag is verplicht en kun je niet overslaan." });
+		}
 
 		// Skipped and answered exclude each other (INC-22): a skip clears the answer,
 		// so no screen shows "Overgeslagen" for a question that has text.
@@ -1074,6 +1081,13 @@ const saveAnswer = protectedProcedure
 							)
 					: [];
 			const saved = await upsertLeerlingAnswer(tx, input, patch);
+			// A handed-in plan keeps its required answers (INC-38): emptying one
+			// would undo what handing in checked. A draft may be empty until then.
+			if (handedIn && q.required && !answerText(saved, q)?.trim()) {
+				throw new ORPCError("BAD_REQUEST", {
+					message: "Deze vraag is verplicht. Vul een antwoord in.",
+				});
+			}
 			// Touch the submission so coach lists re-sort.
 			await tx
 				.update(formSubmission)
@@ -1218,6 +1232,21 @@ async function applyCorrespondenceMappings(
 	}
 }
 
+/** The required questions of one part of this plan still without an answer. */
+async function openRequiredOf(
+	tx: CoachplanTx,
+	sub: typeof formSubmission.$inferSelect,
+	section: "leerling" | "coach",
+) {
+	// One after the other: a transaction is one connection.
+	const questions = await tx
+		.select()
+		.from(formQuestion)
+		.where(eq(formQuestion.templateId, sub.templateId));
+	const answers = await tx.select().from(formAnswer).where(eq(formAnswer.submissionId, sub.id));
+	return openRequired(questions, answers, section);
+}
+
 const submit = protectedProcedure
 	.route({ method: "POST", path: "/coachplan/submit", tags: ["coachplan"] })
 	.input(z.object({ submissionId: z.string().uuid() }))
@@ -1225,6 +1254,9 @@ const submit = protectedProcedure
 	.handler(async ({ input, context }) => {
 		const sub = await loadFillable(context, input.submissionId);
 		const [row] = await context.db.transaction(async (tx) => {
+			// INC-38 AC6/AC8: every required leerling question needs an answer.
+			const open = await openRequiredOf(tx, sub, "leerling");
+			if (open.length > 0) throw requiredOpenError(open, "leerling");
 			// Only a draft can be submitted; a concurrent submit finds no draft.
 			const [updated] = await tx
 				.update(formSubmission)
@@ -1688,11 +1720,14 @@ const shareWithLeerling = protectedProcedure
 	.handler(async ({ input, context }) => {
 		const sub = await loadReviewable(context, input.submissionId, REVIEWABLE);
 		// Shared = read-only and the leerling's current plan (lifecycle.ts).
-		const row = await context.db.transaction((tx) =>
-			transition(tx, sub.id, REVIEWABLE, "shared_with_leerling", {
+		const row = await context.db.transaction(async (tx) => {
+			// INC-38 AC7/AC8: every required coach question needs an answer.
+			const open = await openRequiredOf(tx, sub, "coach");
+			if (open.length > 0) throw requiredOpenError(open, "coach");
+			return transition(tx, sub.id, REVIEWABLE, "shared_with_leerling", {
 				coachId: sub.coachId ?? context.actor.userId,
-			}),
-		);
+			});
+		});
 		// Realtime to the leerling (+ the acting coach) only (C1).
 		publishTo(
 			{

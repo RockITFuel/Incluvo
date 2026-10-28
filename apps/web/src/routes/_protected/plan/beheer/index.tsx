@@ -537,6 +537,9 @@ function QuestionCard(props: {
 					<Show when={props.q.options?.theme}>
 						<Badge variant="primary">{props.q.options?.theme}</Badge>
 					</Show>
+					<Show when={props.q.required}>
+						<Badge variant="accent">Verplicht</Badge>
+					</Show>
 					<Show when={!props.q.visibleToLeerling}>
 						<Badge variant="warning">Verborgen voor leerling</Badge>
 					</Show>
@@ -589,6 +592,17 @@ function QuestionCard(props: {
 						onSave={(choices) => props.onUpdate({ options: { ...props.q.options, choices } })}
 					/>
 				</Show>
+				<Switch
+					label="Verplicht"
+					description={
+						props.q.section === "coach"
+							? "De coach kan het plan pas aanbieden als deze vraag is beantwoord."
+							: "De leerling kan het plan pas versturen als deze vraag is beantwoord, en kan hem niet overslaan."
+					}
+					checked={props.q.required}
+					disabled={props.readOnly}
+					onChange={(on) => !props.readOnly && props.onUpdate({ required: on })}
+				/>
 				<Switch
 					label="Zichtbaar voor leerling"
 					description="Toont deze vraag en het antwoord in het coachplan van de leerling, ook als de coach hem beantwoordt."

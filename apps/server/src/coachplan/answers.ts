@@ -17,7 +17,10 @@ export const CHOICE_TYPES: readonly string[] = ["single_choice", "multiple_choic
  * is empty or skipped. A multiple choice answer keeps its choices in
  * `valueJson` and the free field (INC-29) in `value`.
  */
-export function answerText(answer: Answer | undefined, question: Question): string | null {
+export function answerText(
+	answer: Answer | undefined,
+	question: Pick<Question, "type" | "options">,
+): string | null {
 	if (!answer || answer.deliberatelySkipped) return null;
 	const choices = (question.options as QuestionOptions | null)?.choices ?? [];
 	const choiceLabel = (v: string) => choices.find((c) => c.value === v)?.label ?? v;
@@ -88,6 +91,35 @@ export function checkChoiceAnswer(
 		if (new Set(picked).size !== picked.length) refuse("Een optie is dubbel gekozen.");
 	}
 	if (value?.trim() && !options?.allowOther) refuse("Deze vraag heeft geen vrij veld.");
+}
+
+/**
+ * INC-38: the required questions of one part of the plan that have no answer
+ * yet, in form order. Skipped counts as unanswered, and so does text of only
+ * spaces; a free field alone answers a "Meerdere opties en vrij veld" question.
+ */
+export function openRequired(
+	questions: readonly Question[],
+	answers: readonly Answer[],
+	section: Question["section"],
+): Question[] {
+	const bySection = questions
+		.filter((q) => q.section === section && q.required)
+		.toSorted((a, b) => a.position - b.position);
+	const byQuestion = new Map(answers.map((a) => [a.questionId, a]));
+	return bySection.filter((q) => !answerText(byQuestion.get(q.id), q)?.trim());
+}
+
+/** The refusal when required questions are open; `data` lists them for the UI. */
+export function requiredOpenError(open: readonly Question[], who: "leerling" | "coach") {
+	const n = open.length;
+	return new ORPCError("BAD_REQUEST", {
+		message:
+			who === "leerling"
+				? `Beantwoord eerst ${n === 1 ? "de verplichte vraag" : `de ${n} verplichte vragen`} voordat je je plan verstuurt.`
+				: `Beantwoord eerst ${n === 1 ? "de verplichte vraag" : `de ${n} verplichte vragen`} voordat je het plan aanbiedt.`,
+		data: { questionIds: open.map((q) => q.id) },
+	});
 }
 
 /** A choice question that can't be filled in yet: fewer than two options. */

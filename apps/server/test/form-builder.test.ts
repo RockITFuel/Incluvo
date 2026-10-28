@@ -8,7 +8,7 @@ import type { PdfPlan } from "../src/coachplan/pdf";
 import { db } from "@incluvo/drizzle";
 import { formTemplate } from "@incluvo/drizzle/schema";
 import { and, eq } from "drizzle-orm";
-import { answerText, checkChoiceAnswer } from "../src/coachplan/answers";
+import { answerText, checkChoiceAnswer, openRequired } from "../src/coachplan/answers";
 import { copyQuestions } from "../src/coachplan/templates";
 import { createAccount } from "../src/users";
 import { asUser, type TestUser } from "./harness";
@@ -386,5 +386,110 @@ describe("INC-29: options of a multiple choice question", () => {
 		expect(answerText(answer("Geschiedenis", []), question)).toBe("Geschiedenis");
 		expect(answerText(answer("   ", []), question)).toBeNull();
 		expect(answerText(answer(null, ["a"]), question)).toBe("Wiskunde");
+	});
+});
+
+describe("INC-38: required questions", () => {
+	test("a required question can't be skipped and holds up handing in and sharing", async () => {
+		const keyuser = await asUser("keyuser");
+		const coach = await asUser("coach");
+		const { draft } = await concept(keyuser);
+		const qs = await questionsOf(keyuser, draft.id);
+		const leerlingQ = qs.find((q) => q.section === "leerling" && q.type === "long_text")!;
+		// A coach question no leerling answer is copied into (#18).
+		const coachQ = qs.find(
+			(q) =>
+				q.section === "coach" &&
+				q.type === "long_text" &&
+				!qs.some((l) => l.mapsToQuestionId === q.id),
+		)!;
+		expect(qs.every((q) => !q.required)).toBe(true);
+
+		// AC1: set per question; AC2: kept in a new version.
+		const updated = await keyuser.client.coachplan.questions.update({ id: leerlingQ.id, required: true });
+		expect(updated.required).toBe(true);
+		await keyuser.client.coachplan.questions.update({ id: coachQ.id, required: true });
+		await keyuser.client.coachplan.templates.publish({ id: draft.id });
+		const next = await keyuser.client.coachplan.templates.newVersion({ id: draft.id });
+		try {
+			const nextQs = await questionsOf(keyuser, next.id);
+			expect(nextQs.find((q) => q.key === leerlingQ.key)!.required).toBe(true);
+			expect(nextQs.find((q) => q.key === coachQ.key)!.required).toBe(true);
+		} finally {
+			await keyuser.client.coachplan.templates.discardDraft({ id: next.id });
+		}
+
+		const me = await keyuser.client.account.me();
+		const leerlingId = await createAccount({
+			email: "verplicht.leerling@school.nl",
+			name: "Verplicht Leerling",
+			role: "leerling",
+			organizationId: me.organization!.id,
+		});
+		await keyuser.client.admin.assignments.set({ coachId: coach.id, leerlingId, assigned: true });
+		await keyuser.client.coachplan.templates.assignToLeerling({ leerlingId, templateId: draft.id });
+		const leerling = await leerlingClient(leerlingId, coach);
+		const started = await leerling.coachplan.startMine();
+		const submissionId = started.submission.id;
+		expect(started.template.questions.find((q) => q.id === leerlingQ.id)!.required).toBe(true);
+
+		// AC4: no skipping.
+		await expectBadRequest(
+			() => leerling.coachplan.saveAnswer({ submissionId, questionId: leerlingQ.id, deliberatelySkipped: true }),
+			/verplicht/,
+		);
+
+		// AC5/AC6/AC8: only spaces is no answer; handing in is refused, naming the question.
+		await leerling.coachplan.saveAnswer({ submissionId, questionId: leerlingQ.id, value: "   " });
+		let refused: unknown;
+		try {
+			await leerling.coachplan.submit({ submissionId });
+		} catch (e) {
+			refused = e;
+		}
+		expect((refused as { code?: string }).code).toBe("BAD_REQUEST");
+		expect((refused as { data?: { questionIds?: string[] } }).data?.questionIds).toEqual([leerlingQ.id]);
+
+		await leerling.coachplan.saveAnswer({ submissionId, questionId: leerlingQ.id, value: "Tekenen" });
+		await leerling.coachplan.submit({ submissionId });
+
+		// Handed in, the answer can change but not be emptied.
+		await leerling.coachplan.saveAnswer({ submissionId, questionId: leerlingQ.id, value: "Schilderen" });
+		await expectBadRequest(
+			() => leerling.coachplan.saveAnswer({ submissionId, questionId: leerlingQ.id, value: "" }),
+			/verplicht/,
+		);
+
+		// AC7: the coach can't share while a required coach question is open.
+		await expectBadRequest(() => coach.client.coachplan.shareWithLeerling({ submissionId }), /verplichte vraag/);
+		await coach.client.coachplan.saveCoachAnswer({ submissionId, questionId: coachQ.id, value: "Gaat goed" });
+		const shared = await coach.client.coachplan.shareWithLeerling({ submissionId });
+		expect(shared.status).toBe("shared_with_leerling");
+	});
+
+	test("a free field alone answers a required 'Meerdere opties en vrij veld' question", () => {
+		const q = {
+			id: "q",
+			section: "leerling" as const,
+			required: true,
+			position: 0,
+			type: "multiple_choice" as const,
+			options: {
+				allowOther: true,
+				choices: [
+					{ value: "a", label: "Wiskunde" },
+					{ value: "b", label: "Biologie" },
+				],
+			},
+		};
+		const answer = (value: string | null, valueJson: string[] | null) =>
+			({ questionId: "q", value, valueJson, deliberatelySkipped: false }) as never;
+		const open = (a: never[]) => openRequired([q as never], a, "leerling").length;
+		expect(open([])).toBe(1);
+		expect(open([answer("  ", [])])).toBe(1);
+		expect(open([answer("Gym", [])])).toBe(0);
+		expect(open([answer(null, ["a"])])).toBe(0);
+		// Optional questions never count (AC9).
+		expect(openRequired([{ ...q, required: false } as never], [], "leerling")).toEqual([]);
 	});
 });
