@@ -1,3 +1,6 @@
+diff --git a/node_modules/@kobalte/core/.bun-tag-381949b246b7ba47 b/.bun-tag-381949b246b7ba47
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
 diff --git a/dist/create-dom-collection/F5MPGch0.js b/dist/create-dom-collection/F5MPGch0.js
 index a915aa33b221ba033856b483e99fb1ad5a38e14f..87869bce11526546a8a29e14ac79a4bd81397ffc 100644
 --- a/dist/create-dom-collection/F5MPGch0.js
@@ -145,3 +148,59 @@ index 7ef6a1796141adcb44af4e7457e898bcacd754b4..46b982bc23efd6a73e56b7cc7bd80dce
  		};
  	});
  	return createComponent(Show, {
+diff --git a/dist/text-field/G9saLSdu.js b/dist/text-field/G9saLSdu.js
+index a7e1f89c14a6187dc0bbcecb3c2c2c76a10c48ba..89e6afec5adb4149409491be707d879cb732c9d3 100644
+--- a/dist/text-field/G9saLSdu.js
++++ b/dist/text-field/G9saLSdu.js
+@@ -6,7 +6,7 @@ import { n as createFormControlField, t as FORM_CONTROL_FIELD_PROP_NAMES } from
+ import { t as FormControlErrorMessage } from "../form-control-error-message/D9jUVumc.js";
+ import { t as FormControlLabel } from "../form-control-label/DqQ24y8m.js";
+ import { createComponent, mergeProps } from "@solidjs/web";
+-import { createContext, createEffect, createSignal, createUniqueId, merge, omit, untrack, useContext } from "solid-js";
++import { createContext, createEffect, createSignal, createUniqueId, flush, merge, omit, untrack, useContext } from "solid-js";
+ import { access } from "@solid-primitives/utils";
+ import { composeEventHandlers } from "@kobalte/utils";
+ import { createFormResetListener } from "@solid-primitives/form";
+@@ -97,7 +97,13 @@ function TextFieldRoot(props) {
+ 		if (formControlContext.isReadOnly() || formControlContext.isDisabled()) return;
+ 		const target = e.target;
+ 		setValue(target.value);
+-		target.value = value() ?? "";
++		// Incluvo patch (INC-35): in Solid 2 a write lands after a microtask, so
++		// value() was still the old text here and writing it back threw the
++		// caret to the end. Apply the write first, and only touch the DOM when
++		// the (controlled) value really differs from what was typed.
++		flush();
++		const next = value() ?? "";
++		if (target.value !== next) target.value = next;
+ 	};
+ 	const context = {
+ 		value,
+diff --git a/dist/text-field/YCMSE_vD.jsx b/dist/text-field/YCMSE_vD.jsx
+index d76f69baf915610d414e6a6730aef2a00041b3d9..0766442a03bfee416a402d859c732cbd597e906a 100644
+--- a/dist/text-field/YCMSE_vD.jsx
++++ b/dist/text-field/YCMSE_vD.jsx
+@@ -5,7 +5,7 @@ import { a as createFormControl, i as FORM_CONTROL_PROP_NAMES, n as FormControlC
+ import { n as createFormControlField, t as FORM_CONTROL_FIELD_PROP_NAMES } from "../create-form-control-field/5-BHfdGI.jsx";
+ import { t as FormControlErrorMessage } from "../form-control-error-message/B1cNIdVV.jsx";
+ import { t as FormControlLabel } from "../form-control-label/Czoesrj9.jsx";
+-import { createContext, createEffect, createSignal, createUniqueId, merge, omit, untrack, useContext } from "solid-js";
++import { createContext, createEffect, createSignal, createUniqueId, flush, merge, omit, untrack, useContext } from "solid-js";
+ import { access } from "@solid-primitives/utils";
+ import { composeEventHandlers } from "@kobalte/utils";
+ import { createFormResetListener } from "@solid-primitives/form";
+@@ -52,7 +52,13 @@ function TextFieldRoot(props) {
+ 		if (formControlContext.isReadOnly() || formControlContext.isDisabled()) return;
+ 		const target = e.target;
+ 		setValue(target.value);
+-		target.value = value() ?? "";
++		// Incluvo patch (INC-35): in Solid 2 a write lands after a microtask, so
++		// value() was still the old text here and writing it back threw the
++		// caret to the end. Apply the write first, and only touch the DOM when
++		// the (controlled) value really differs from what was typed.
++		flush();
++		const next = value() ?? "";
++		if (target.value !== next) target.value = next;
+ 	};
+ 	const context = {
+ 		value,
