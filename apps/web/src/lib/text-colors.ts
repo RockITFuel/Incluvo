@@ -11,6 +11,11 @@ export const TEXT_COLORS = [
 	{ label: "Groen", value: "rgb(var(--success))", class: "text-success" },
 ] as const;
 
+/** The colour of the list with this exact value, or undefined. */
+export function textColor(value: unknown) {
+	return TEXT_COLORS.find((c) => c.value === value);
+}
+
 export function textColorClass(value: unknown): string | undefined {
 	return TEXT_COLORS.find((c) => c.value === value)?.class;
 }

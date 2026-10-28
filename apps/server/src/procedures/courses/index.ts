@@ -1503,6 +1503,8 @@ const getFile = protectedProcedure
 			/** What the viewer shows it as (INC-27). */
 			contentType: z.string(),
 			fileName: z.string(),
+			/** Bytes, shown next to a download (INC-37); null when unknown. */
+			size: z.number().nullable(),
 		}),
 	)
 	.handler(async ({ input, context }) => {
@@ -1520,6 +1522,10 @@ const getFile = protectedProcedure
 			url: await readableFileUrl(input.storageKey, input.download ? "attachment" : "inline"),
 			contentType: guessContentType(input.storageKey),
 			fileName: storageKeyFileName(input.storageKey),
+			size: await statUpload(input.storageKey).then(
+				(s) => s.size,
+				() => null,
+			),
 		};
 	});
 

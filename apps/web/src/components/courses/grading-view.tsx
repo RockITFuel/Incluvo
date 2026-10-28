@@ -165,7 +165,7 @@ function SubmissionRow(props: { submission: Submission; onSaved: () => void }) {
 			<Show when={props.submission.fileStorageKeys.length > 0}>
 				<div class="mb-2 flex flex-col gap-3">
 					<For each={props.submission.fileStorageKeys}>
-						{(k) => <FileView storageKey={k} title="Ingeleverd bestand" />}
+						{(k) => <FileView storageKey={k} />}
 					</For>
 				</div>
 			</Show>
