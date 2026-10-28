@@ -60,6 +60,21 @@ async function expectPage(page: Page, label: string, errors: string[]) {
 
 const browser = await chromium.launch();
 try {
+	// INC-35: typing in the middle of a text field keeps the caret there.
+	{
+		const page = await (await browser.newContext()).newPage();
+		await page.goto(`${BASE}/login`);
+		const field = page.getByLabel("E-mail");
+		await field.click();
+		await page.keyboard.type("keyuser@incluvo.local");
+		for (let i = 0; i < 18; i++) await page.keyboard.press("ArrowLeft");
+		await page.keyboard.type("XY", { delay: 50 });
+		const value = await field.inputValue();
+		if (value === "keyXYuser@incluvo.local") console.log("ok   typing in the middle of a field");
+		else failures.push(`typing in the middle of a field: got ${JSON.stringify(value)}`);
+		await page.context().close();
+	}
+
 	for (const [email, paths] of Object.entries(PAGES)) {
 		const who = email.split("@")[0]!;
 		const errors: string[] = [];
