@@ -19,7 +19,7 @@ import {
 import { ORPCError } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
-import { requireLeerlingAccess } from "../access";
+import { loadLeerling, requireLeerlingAccess } from "../access";
 import type { AuthedContext } from "../procedures/base";
 
 export const NotificationTargetSchema = z.discriminatedUnion("kind", [
@@ -41,6 +41,11 @@ export const NotificationTargetSchema = z.discriminatedUnion("kind", [
 		blockId: z.string().nullable(),
 	}),
 	z.object({ kind: z.literal("chat"), conversationId: z.string() }),
+	/**
+	 * A keyuser heard about a leerling without a coach (recipients.ts): they
+	 * don't see the plan or opdracht itself, but can link a coach.
+	 */
+	z.object({ kind: z.literal("coach_koppelen"), leerlingId: z.string() }),
 	/** The notification is about nothing to open (e.g. a general message). */
 	z.object({ kind: z.literal("none") }),
 	/** It was about something that is gone or no longer yours to see. */
@@ -94,6 +99,30 @@ function uuid(id: string): string {
 
 type Resolver = (context: AuthedContext, id: string) => Promise<NotificationTarget>;
 
+/**
+ * Someone other than the leerling opens a notification about the leerling's
+ * work. A coach goes to the work (`coachTarget`, after the access check). A
+ * keyuser was told because the leerling has no coach (recipients.ts) and may
+ * not read the work, so they go to linking a coach for a leerling of their
+ * own school.
+ */
+async function staffTarget(
+	context: AuthedContext,
+	leerlingId: string,
+	coachTarget: NotificationTarget,
+): Promise<NotificationTarget> {
+	const { actor } = context;
+	if (actor.role === "leerling") throw new Unavailable();
+	if (actor.role === "keyuser") {
+		const row = await loadLeerling(context, leerlingId);
+		if (!row || row.role !== "leerling" || !actor.organizationId) throw new Unavailable();
+		if (row.organizationId !== actor.organizationId) throw new Unavailable();
+		return { kind: "coach_koppelen", leerlingId };
+	}
+	await requireLeerlingAccess(context, leerlingId);
+	return coachTarget;
+}
+
 const RESOLVERS: Record<string, Resolver> = {
 	async form_submission(context, id) {
 		const [sub] = await context.db
@@ -109,9 +138,7 @@ const RESOLVERS: Record<string, Resolver> = {
 			return { kind: "mijn_plan", planId: sub.coachplanId };
 		}
 		// Coaches only reach the plans of leerlingen they coach.
-		if (context.actor.role === "leerling") throw new Unavailable();
-		await requireLeerlingAccess(context, sub.leerlingId);
-		return { kind: "coachplan", submissionId: sub.id };
+		return staffTarget(context, sub.leerlingId, { kind: "coachplan", submissionId: sub.id });
 	},
 
 	async task(context, id) {
@@ -147,9 +174,12 @@ const RESOLVERS: Record<string, Resolver> = {
 		if (row.leerlingId === context.actor.userId) {
 			return { kind: "cursus", courseId: row.courseId, tab: "leren", blockId: row.blockId };
 		}
-		if (context.actor.role === "leerling") throw new Unavailable();
-		await requireLeerlingAccess(context, row.leerlingId);
-		return { kind: "cursus", courseId: row.courseId, tab: "beoordelen", blockId: row.blockId };
+		return staffTarget(context, row.leerlingId, {
+			kind: "cursus",
+			courseId: row.courseId,
+			tab: "beoordelen",
+			blockId: row.blockId,
+		});
 	},
 
 	async course(context, id) {
@@ -160,11 +190,14 @@ const RESOLVERS: Record<string, Resolver> = {
 		if (!row) throw new Unavailable();
 		// Course notifications are about a leerling's own course (a proposal).
 		if (row.kind !== "student_execution" || !row.leerlingId) throw new Unavailable();
-		if (row.leerlingId !== context.actor.userId) {
-			if (context.actor.role === "leerling") throw new Unavailable();
-			await requireLeerlingAccess(context, row.leerlingId);
-		}
-		return { kind: "cursus", courseId: row.id, tab: "leren", blockId: "voorstellen" };
+		const target: NotificationTarget = {
+			kind: "cursus",
+			courseId: row.id,
+			tab: "leren",
+			blockId: "voorstellen",
+		};
+		if (row.leerlingId === context.actor.userId) return target;
+		return staffTarget(context, row.leerlingId, target);
 	},
 
 	async conversation(context, id) {
