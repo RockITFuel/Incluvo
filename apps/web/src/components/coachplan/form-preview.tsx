@@ -67,7 +67,13 @@ export function FormPreview(props: {
 	const Field = (p: { q: PreviewQuestion; asCoach?: boolean }) => (
 		<div class="flex flex-col gap-2 border-line-2 border-b pb-4 last:border-b-0">
 			<div class="flex flex-wrap items-start justify-between gap-2">
-				<p class="font-medium text-ink [overflow-wrap:anywhere]">{p.q.label}</p>
+				<p class="font-medium text-ink [overflow-wrap:anywhere]">
+					{p.q.label}
+					<Show when={p.q.required}>
+						{" "}
+						<Badge variant="accent">Verplicht</Badge>
+					</Show>
+				</p>
 				<Show when={!p.q.visibleToLeerling && p.q.section === "leerling"}>
 					<Badge variant="warning">Na inleveren verborgen voor leerling</Badge>
 				</Show>

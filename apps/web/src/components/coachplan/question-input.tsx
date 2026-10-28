@@ -317,3 +317,21 @@ export function renderAnswerText(
 	}
 	return { kind: "empty" };
 }
+
+/**
+ * INC-38: whether a question counts as answered. Text of only spaces doesn't,
+ * and a free field alone answers a "Meerdere opties en vrij veld" question.
+ * Mirrors `openRequired` on the server.
+ */
+export function isAnswered(question: QuestionDTO, answer: AnswerValue | undefined): boolean {
+	const rendered = renderAnswerText(question, answer);
+	return rendered.kind === "chips" || (rendered.kind === "text" && Boolean(rendered.text?.trim()));
+}
+
+/** The required questions without an answer, in the order given. */
+export function openRequired<Q extends QuestionDTO>(
+	questions: readonly Q[],
+	answerFor: (q: Q) => AnswerValue | undefined,
+): Q[] {
+	return questions.filter((q) => q.required && !isAnswered(q, answerFor(q)));
+}
