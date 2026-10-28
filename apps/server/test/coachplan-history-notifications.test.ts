@@ -446,4 +446,36 @@ describe("INC-30: a notification opens what it is about", () => {
 		expect(res.target.kind).toBe("unavailable");
 		expect(JSON.stringify(res)).not.toContain(leerling2.id);
 	});
+
+	test("a coach working as keyuser is told to switch roles, not that the plan is gone", async () => {
+		const [sub] = await db
+			.select({ id: formSubmission.id, organizationId: formSubmission.organizationId })
+			.from(formSubmission)
+			.where(eq(formSubmission.leerlingId, leerling2.id))
+			.limit(1);
+		const keyuser = await asUser("keyuser");
+		const n = await notify(db, {
+			userId: coach2.id,
+			organizationId: sub!.organizationId,
+			type: "coachplan_submitted",
+			title: "Nieuw coachplan ontvangen",
+			entity: { type: "form_submission", id: sub!.id },
+		});
+		await keyuser.client.account.users.setRoles({ userId: coach2.id, roles: ["coach", "keyuser"] });
+		try {
+			await coach2.client.account.switchRole({ role: "keyuser" });
+			expect((await coach2.client.notifications.open({ id: n.id })).target).toEqual({
+				kind: "unavailable",
+				message: "Wissel naar je rol als coach om dit te openen.",
+			});
+			await coach2.client.account.switchRole({ role: "coach" });
+			expect((await coach2.client.notifications.open({ id: n.id })).target).toEqual({
+				kind: "coachplan",
+				submissionId: sub!.id,
+			});
+		} finally {
+			await coach2.client.account.switchRole({ role: "coach" });
+			await keyuser.client.account.users.setRoles({ userId: coach2.id, roles: ["coach"] });
+		}
+	});
 });

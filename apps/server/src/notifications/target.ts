@@ -9,6 +9,7 @@ import type { Notification } from "@incluvo/drizzle/schema";
 import {
 	assignment,
 	assignmentSubmission,
+	coachAssignment,
 	contentBlock,
 	conversationMember,
 	course,
@@ -61,7 +62,10 @@ const GONE: Record<string, string> = {
 	conversation: "Dit gesprek bestaat niet meer, of je bent er geen deelnemer meer van.",
 };
 
-/** Thrown inside a resolver when the row is gone or out of reach. */
+/**
+ * Thrown inside a resolver when the row is gone or out of reach. A message
+ * replaces the general "gone" one when there is something to do about it.
+ */
 class Unavailable extends Error {}
 
 /** The target for this notification, as seen by the actor (its recipient). */
@@ -85,7 +89,9 @@ export async function notificationTarget(
 		if (!refused) throw error;
 		return {
 			kind: "unavailable",
-			message: GONE[n.entityType] ?? "Dit onderdeel bestaat niet meer.",
+			message:
+				(error instanceof Unavailable && error.message) ||
+				(GONE[n.entityType] ?? "Dit onderdeel bestaat niet meer."),
 		};
 	}
 }
@@ -98,6 +104,21 @@ function uuid(id: string): string {
 }
 
 type Resolver = (context: AuthedContext, id: string) => Promise<NotificationTarget>;
+
+/** Whether the actor is linked as a coach of this leerling. */
+async function coaches(context: AuthedContext, leerlingId: string): Promise<boolean> {
+	const [link] = await context.db
+		.select({ id: coachAssignment.id })
+		.from(coachAssignment)
+		.where(
+			and(
+				eq(coachAssignment.coachId, context.actor.userId),
+				eq(coachAssignment.leerlingId, leerlingId),
+			),
+		)
+		.limit(1);
+	return !!link;
+}
 
 /**
  * Someone other than the leerling opens a notification about the leerling's
@@ -113,6 +134,11 @@ async function staffTarget(
 ): Promise<NotificationTarget> {
 	const { actor } = context;
 	if (actor.role === "leerling") throw new Unavailable();
+	// Their own leerling, but signed in under another role (INC-24): access
+	// follows the active role, so say what to switch to rather than "gone".
+	if (actor.role !== "coach" && (await coaches(context, leerlingId))) {
+		throw new Unavailable("Wissel naar je rol als coach om dit te openen.");
+	}
 	if (actor.role === "keyuser") {
 		const row = await loadLeerling(context, leerlingId);
 		if (!row || row.role !== "leerling" || !actor.organizationId) throw new Unavailable();

@@ -194,7 +194,10 @@ export function QuestionInput(props: Props) {
 								label={opt.label}
 								disabled={props.disabled}
 								selected={props.value.value === opt.value}
-								onClick={() => props.onChange({ value: opt.value })}
+								// Clicking the chosen option again clears the answer.
+								onClick={() =>
+									props.onChange({ value: props.value.value === opt.value ? null : opt.value })
+								}
 							/>
 						)}
 					</For>

@@ -8,7 +8,7 @@ import type { PdfPlan } from "../src/coachplan/pdf";
 import { db } from "@incluvo/drizzle";
 import { formTemplate } from "@incluvo/drizzle/schema";
 import { and, eq } from "drizzle-orm";
-import { answerText } from "../src/coachplan/answers";
+import { answerText, checkChoiceAnswer } from "../src/coachplan/answers";
 import { copyQuestions } from "../src/coachplan/templates";
 import { createAccount } from "../src/users";
 import { asUser, type TestUser } from "./harness";
@@ -335,6 +335,35 @@ describe("INC-29: options of a multiple choice question", () => {
 		} finally {
 			await keyuser.client.coachplan.templates.discardDraft({ id: draft.id });
 		}
+	});
+
+	test("the server keeps an answer to the question's own options (AC5–AC7)", () => {
+		const choices = [
+			{ value: "a", label: "Wiskunde" },
+			{ value: "b", label: "Biologie" },
+		];
+		const single = { type: "single_choice" as const, options: { choices } };
+		const multi = { type: "multiple_choice" as const, options: { choices } };
+		const other = { type: "multiple_choice" as const, options: { choices, allowOther: true } };
+		const refused = (fn: () => void) => expect(fn).toThrow();
+
+		checkChoiceAnswer(single, "a", undefined);
+		checkChoiceAnswer(single, null, undefined); // cleared
+		refused(() => checkChoiceAnswer(single, "z", undefined));
+		refused(() => checkChoiceAnswer(single, undefined, ["a", "b"]));
+
+		checkChoiceAnswer(multi, null, ["a", "b"]);
+		checkChoiceAnswer(multi, null, []);
+		refused(() => checkChoiceAnswer(multi, null, ["a", "z"]));
+		refused(() => checkChoiceAnswer(multi, null, ["a", "a"]));
+		refused(() => checkChoiceAnswer(multi, null, "a"));
+		refused(() => checkChoiceAnswer(multi, "Gym", ["a"])); // no free field here
+
+		checkChoiceAnswer(other, "Gym", ["a"]);
+		checkChoiceAnswer(other, "Gym", []); // free text without a pick (AC7)
+
+		// Other types are not choice answers.
+		checkChoiceAnswer({ type: "long_text" as const, options: null }, "Wat dan ook", undefined);
 	});
 
 	test("an answer shows the chosen options and the free field", () => {

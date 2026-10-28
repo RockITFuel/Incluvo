@@ -54,6 +54,42 @@ export function cleanChoices(type: string, options: QuestionOptions | undefined)
 	return { ...options, choices };
 }
 
+function refuse(message: string): never {
+	throw new ORPCError("BAD_REQUEST", { message });
+}
+
+/**
+ * INC-29 AC5–AC7, on the server too: a choice answer may only hold the
+ * question's own options — one for "Eén optie", any set for "Meerdere" — and
+ * free text only where the question has a free field. The UI keeps to this;
+ * a direct call must as well. `undefined` leaves that part of the answer as is.
+ */
+export function checkChoiceAnswer(
+	q: Pick<Question, "type" | "options">,
+	value: string | null | undefined,
+	valueJson: unknown,
+): void {
+	if (!CHOICE_TYPES.includes(q.type)) return;
+	const options = q.options as QuestionOptions | null;
+	const allowed = new Set((options?.choices ?? []).map((c) => c.value));
+	if (q.type === "single_choice") {
+		if (valueJson != null && !(Array.isArray(valueJson) && valueJson.length === 0)) {
+			refuse("Bij deze vraag kies je één antwoord.");
+		}
+		if (value && !allowed.has(value)) refuse("Dit antwoord is geen optie van deze vraag.");
+		return;
+	}
+	if (valueJson != null) {
+		if (!Array.isArray(valueJson) || valueJson.some((v) => typeof v !== "string")) {
+			refuse("Ongeldig antwoord.");
+		}
+		const picked = valueJson as string[];
+		if (picked.some((v) => !allowed.has(v))) refuse("Dit antwoord is geen optie van deze vraag.");
+		if (new Set(picked).size !== picked.length) refuse("Een optie is dubbel gekozen.");
+	}
+	if (value?.trim() && !options?.allowOther) refuse("Deze vraag heeft geen vrij veld.");
+}
+
 /** A choice question that can't be filled in yet: fewer than two options. */
 export function lacksChoices(q: Pick<Question, "type" | "options">): boolean {
 	if (!CHOICE_TYPES.includes(q.type)) return false;
